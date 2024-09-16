@@ -5,17 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/anthropic-sdk-go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/unfunco/anthropic-sdk-go"
 )
 
 type ModelType string
@@ -23,6 +24,9 @@ type ModelType string
 const (
 	ModelTypeAnthropic ModelType = "anthropic"
 	ModelTypeOllama    ModelType = "ollama"
+	OutputDir          string    = "/home/jbutler/hello/"
+	maxIterations      int       = 50 // Maximum number of SW-QA iteration cycles
+	doNotTouch         string    = "/home/jbutler/hello/eval_test.go"
 )
 
 type Agent struct {
@@ -30,13 +34,15 @@ type Agent struct {
 	Specialization string    `json:"specialization"`
 	ModelType      ModelType `json:"model_type"`
 	ModelName      string    `json:"model_name"`
+	SystemPrompt   string    `json:"system_prompt"`
 }
 
-var agents = make(map[string]*Agent)
-var anthropicClient *anthropic.Client
-var agentsFile string
-
-const maxIterations = 5 // Maximum number of SW-QA iteration cycles
+var (
+	agents          = make(map[string]*Agent)
+	anthropicClient *anthropic.Client
+	agentsFile      string
+	updatedFiles    = []string{}
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "ai-cli",
@@ -45,14 +51,15 @@ var rootCmd = &cobra.Command{
 }
 
 var createAgentCmd = &cobra.Command{
-	Use:   "create-agent [name] [specialization] [model_type] [model_name]",
-	Short: "Create a new agent with a specialization and model",
-	Args:  cobra.ExactArgs(4),
+	Use:   "create-agent [name] [specialization] [model_type] [model_name] [system_prompt]",
+	Short: "Create a new agent with a specialization, model, and system prompt",
+	Args:  cobra.ExactArgs(5),
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 		specialization := args[1]
 		modelType := ModelType(args[2])
 		modelName := args[3]
+		systemPrompt := args[4]
 
 		if _, exists := agents[name]; exists {
 			fmt.Printf("Error: Agent %s already exists.\n", name)
@@ -64,8 +71,8 @@ var createAgentCmd = &cobra.Command{
 			return
 		}
 
-		agents[name] = &Agent{Name: name, Specialization: specialization, ModelType: modelType, ModelName: modelName}
-		fmt.Printf("Created agent %s with specialization: %s, model type: %s, model name: %s\n", name, specialization, modelType, modelName)
+		agents[name] = &Agent{Name: name, Specialization: specialization, ModelType: modelType, ModelName: modelName, SystemPrompt: systemPrompt}
+		fmt.Printf("Created agent %s with specialization: %s, model type: %s, model name: %s, system prompt: %s\n", name, specialization, modelType, modelName, systemPrompt)
 		if err := saveAgents(); err != nil {
 			fmt.Printf("Error saving agents: %v\n", err)
 		}
@@ -118,8 +125,6 @@ var chatCmd = &cobra.Command{
 			return
 		}
 
-		systemPrompt := "You are participating in an iterative development process. Respond according to your specialization and make necessary updates based on feedback."
-
 		conversation := fmt.Sprintf("\n\nHuman: %s\n\n", initialMessage)
 		fmt.Println("Development process started. Software engineer will make the first update.")
 
@@ -127,7 +132,7 @@ var chatCmd = &cobra.Command{
 			fmt.Printf("\n--- Iteration %d ---\n", iteration)
 
 			// Software engineer makes an update
-			swUpdateResponse, err := getAgentResponse(swEngineerAgent, conversation, systemPrompt)
+			swUpdateResponse, err := getAgentResponse(swEngineerAgent, conversation, swEngineerAgent.SystemPrompt)
 			if err != nil {
 				fmt.Printf("Error getting response from software engineer agent: %v\n", err)
 				return
@@ -137,6 +142,11 @@ var chatCmd = &cobra.Command{
 			conversation += fullSwResponse
 			fmt.Print(fullSwResponse)
 
+			// Save code to file
+			if err := saveCodeToFile(swUpdateResponse); err != nil {
+				fmt.Printf("Error saving code to file: %v\n", err)
+			}
+
 			// Run go test
 			testOutput, err := runGoTest()
 			if err == nil {
@@ -144,12 +154,15 @@ var chatCmd = &cobra.Command{
 				return
 			}
 
-			fmt.Printf("Tests failed. Invoking QA engineer.\n")
+			fmt.Println("Tests failed. Removing bad files...")
+			removeUpdatedFiles()
+
+			fmt.Printf("Invoking QA engineer.\n")
 
 			// Prepare input for QA engineer
 			qaInput := fmt.Sprintf("Software Engineer's update:\n%s\n\nTest output:\n%s\n\nPlease analyze the test failures and suggest improvements.", swUpdateResponse, testOutput)
 
-			qaResponse, err := getAgentResponse(qaEngineerAgent, qaInput, qaEngineerAgent.Specialization) // Using specialization as predefined prompt
+			qaResponse, err := getAgentResponse(qaEngineerAgent, qaInput, qaEngineerAgent.SystemPrompt)
 			if err != nil {
 				fmt.Printf("Error getting response from QA engineer agent: %v\n", err)
 				return
@@ -157,6 +170,7 @@ var chatCmd = &cobra.Command{
 
 			fullQaResponse := fmt.Sprintf("Assistant (%s, specializing in %s): %s\n\n", qaEngineerAgent.Name, qaEngineerAgent.Specialization, qaResponse)
 			conversation += fullQaResponse
+			fmt.Printf("Test Output:\n%s", testOutput)
 			fmt.Print(fullQaResponse)
 
 			// Add QA feedback to the conversation for the next iteration
@@ -169,11 +183,70 @@ var chatCmd = &cobra.Command{
 	},
 }
 
+func saveCodeToFile(response string) error {
+	re := regexp.MustCompile("```go\n((?s).+?)```")
+	matches := re.FindAllStringSubmatch(response, -1)
+
+	if len(matches) == 0 {
+		return fmt.Errorf("No Go code blocks found in the response")
+	}
+
+	// Create a map to store filenames and their content
+	fileContents := make(map[string]string)
+
+	for _, match := range matches {
+		code := match[1]
+		lines := strings.Split(code, "\n")
+		if len(lines) > 0 {
+			// Extract the package name from the first line
+			packageName := strings.TrimPrefix(lines[0], "package ")
+			packageName = strings.Trim(strings.ToLower(packageName), "// ")
+			packageName = strings.Trim(packageName, "filename: ")
+			filename := fmt.Sprintf("%s", packageName)
+			fullFilename := filepath.Join(OutputDir, filename)
+
+			// validate filename doesn't collide with evaluation test
+			if fullFilename == doNotTouch {
+				return fmt.Errorf("name collides with evaluation test")
+			}
+
+			// If the file already exists in our map, append the new code
+			if existingContent, exists := fileContents[fullFilename]; exists {
+				fileContents[fullFilename] = existingContent + "\n\n" + code
+			} else {
+				fileContents[fullFilename] = code
+			}
+		}
+	}
+
+	// Write or update each file
+	for fullFilename, content := range fileContents {
+		if err := os.MkdirAll(filepath.Dir(fullFilename), 0755); err != nil {
+			return fmt.Errorf("Error creating directory for %s: %w", fullFilename, err)
+		}
+
+		if err := os.WriteFile(fullFilename, []byte(content), 0644); err != nil {
+			return fmt.Errorf("Error writing code to file %s: %w", fullFilename, err)
+		}
+		updatedFiles = append(updatedFiles, fullFilename)
+		fmt.Printf("Saved/Updated code in file: %s\n", fullFilename)
+	}
+
+	return nil
+}
+
+func removeUpdatedFiles() {
+	for _, file := range updatedFiles {
+		os.Remove(file)
+	}
+}
+
 func runGoTest() (string, error) {
 	cmd := exec.Command("go", "test", "./...")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
+	cmd.Dir = OutputDir
 	err := cmd.Run()
 	return out.String(), err
 }
@@ -193,36 +266,41 @@ func getAnthropicResponse(agent *Agent, conversation, systemPrompt string) (stri
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := anthropicClient.Complete(
+	resp, _, err := anthropicClient.Messages.Create(
 		ctx,
-		&anthropic.CompletionRequest{
-			Prompt:            conversation + fmt.Sprintf("Assistant (%s, specializing in %s):", agent.Name, agent.Specialization),
-			Model:             agent.ModelName,
-			MaxTokensToSample: 150,
-			StopSequences:     []string{"\n\nHuman:", "\n\nAssistant"},
-			System:            systemPrompt,
+		&anthropic.CreateMessageInput{
+			Messages: []anthropic.Message{
+				{
+					Role:    "Human",
+					Content: conversation + fmt.Sprintf("Assistant (%s, specializing in %s):", agent.Name, agent.Specialization),
+				},
+			},
+			Model:         anthropic.LanguageModel(agent.ModelName),
+			StopSequences: []string{"\n\nHuman:", "\n\nAssistant"},
+			System:        systemPrompt,
 		},
 	)
 	if err != nil {
 		return "", fmt.Errorf("Anthropic API error: %w", err)
 	}
-	return resp.Completion, nil
+	return resp.String(), nil
 }
 
 func getOllamaResponse(agent *Agent, conversation, systemPrompt string) (string, error) {
-	prompt := fmt.Sprintf("%s\n\nSystem: %s\n\n%sAssistant (%s, specializing in %s):",
-		conversation, systemPrompt, conversation, agent.Name, agent.Specialization)
+	prompt := fmt.Sprintf("%s\n\nSystem: %s\n\nAssistant (%s, specializing in %s):",
+		conversation, systemPrompt, agent.Name, agent.Specialization)
 
-	requestBody, err := json.Marshal(map[string]string{
+	requestBody, err := json.Marshal(map[string]interface{}{
 		"model":  agent.ModelName,
 		"prompt": prompt,
+		"stream": true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("Error marshaling request body: %w", err)
 	}
 
 	ollamaEndpoint := viper.GetString("ollama-endpoint")
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Minute} // Increased timeout for longer conversations
 	resp, err := client.Post(ollamaEndpoint+"/api/generate", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		return "", fmt.Errorf("Ollama API error: %w", err)
@@ -230,21 +308,31 @@ func getOllamaResponse(agent *Agent, conversation, systemPrompt string) (string,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("Ollama API returned non-200 status code: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("Error decoding Ollama API response: %w", err)
+	var fullResponse strings.Builder
+	decoder := json.NewDecoder(resp.Body)
+	for {
+		var result map[string]interface{}
+		if err := decoder.Decode(&result); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("Error decoding Ollama API response: %w", err)
+		}
+
+		if response, ok := result["response"].(string); ok {
+			fullResponse.WriteString(response)
+		}
+
+		if done, ok := result["done"].(bool); ok && done {
+			break
+		}
 	}
 
-	response, ok := result["response"].(string)
-	if !ok {
-		return "", fmt.Errorf("Unexpected response format from Ollama API")
-	}
-
-	return response, nil
+	return fullResponse.String(), nil
 }
 
 func saveAgents() error {
@@ -253,7 +341,7 @@ func saveAgents() error {
 		return fmt.Errorf("Error marshaling agents: %w", err)
 	}
 
-	if err := ioutil.WriteFile(agentsFile, data, 0644); err != nil {
+	if err := os.WriteFile(agentsFile, data, 0644); err != nil {
 		return fmt.Errorf("Error saving agents to file: %w", err)
 	}
 
@@ -261,7 +349,7 @@ func saveAgents() error {
 }
 
 func loadAgents() error {
-	data, err := ioutil.ReadFile(agentsFile)
+	data, err := os.ReadFile(agentsFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // File doesn't exist yet, which is fine for first run
@@ -305,16 +393,18 @@ func main() {
 
 	anthropicApiKey := viper.GetString("anthropic-api-key")
 	if anthropicApiKey == "" {
+		anthropicApiKey = os.Getenv("AI_CLI_ANTHROPIC_API_KEY")
+	}
+	if anthropicApiKey == "" {
 		fmt.Println("Error: Anthropic API key not set. Please set the AI_CLI_ANTHROPIC_API_KEY environment variable or use the --anthropic-api-key flag.")
 		os.Exit(1)
 	}
 
-	var err error
-	anthropicClient, err = anthropic.NewClient(anthropicApiKey)
-	if err != nil {
-		fmt.Printf("Error creating Anthropic client: %v\n", err)
-		os.Exit(1)
-	}
+	anthropicClient = anthropic.NewClient(&http.Client{
+		Transport: &anthropic.Transport{
+			APIKey: anthropicApiKey,
+		},
+	})
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
