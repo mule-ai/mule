@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -94,13 +95,14 @@ var listAgentsCmd = &cobra.Command{
 }
 
 var chatCmd = &cobra.Command{
-	Use:   "chat [agent1,agent2,...] [message]",
+	Use:   "chat [agent1,agent2,...] [message] [file1,file2,...]",
 	Short: "Start a chat session with multiple agents",
 	Long:  `Start a chat session with multiple agents. The conversation will continue until you type 'exit'.`,
-	Args:  cobra.MinimumNArgs(2),
+	Args:  cobra.MinimumNArgs(3),
 	Run: func(cmd *cobra.Command, args []string) {
 		agentNames := strings.Split(args[0], ",")
 		initialMessage := args[1]
+		contextFiles := strings.Split(args[2], ",")
 
 		var validAgents []*Agent
 		var swEngineerAgent *Agent
@@ -125,12 +127,24 @@ var chatCmd = &cobra.Command{
 			return
 		}
 
-		conversation := fmt.Sprintf("\n\nHuman: %s\n\n", initialMessage)
-		fmt.Println("Development process started. Software engineer will make the first update.")
+		fileContents, err := readFiles(contextFiles)
+		if err != nil {
+			fmt.Printf("Error reading context files: %v\n", err)
+			return
+		}
 
+		fmt.Println("Development process started. Software engineer will make the first update.")
+		qaResponse := ""
+		conversation := ""
 		for iteration := 1; iteration <= maxIterations; iteration++ {
 			fmt.Printf("\n--- Iteration %d ---\n", iteration)
 
+			// Create conversation context
+			conversation = fmt.Sprintf("Context Files:\n%s", fileContents)
+			if qaResponse != "" {
+				conversation += fmt.Sprintf("\n\nQA Response from previous attempt:\n%s", qaResponse)
+			}
+			conversation += fmt.Sprintf("\n\nHuman:\n%s", initialMessage)
 			// Software engineer makes an update
 			swUpdateResponse, err := getAgentResponse(swEngineerAgent, conversation, swEngineerAgent.SystemPrompt)
 			if err != nil {
@@ -139,28 +153,38 @@ var chatCmd = &cobra.Command{
 			}
 
 			fullSwResponse := fmt.Sprintf("Assistant (%s, specializing in %s): %s\n\n", swEngineerAgent.Name, swEngineerAgent.Specialization, swUpdateResponse)
-			conversation += fullSwResponse
+			// conversation += fullSwResponse
 			fmt.Print(fullSwResponse)
 
-			// Save code to file
-			if err := saveCodeToFile(swUpdateResponse); err != nil {
-				fmt.Printf("Error saving code to file: %v\n", err)
-			}
-
-			// Run go test
-			testOutput, err := runGoTest()
-			if err == nil {
-				fmt.Println("All tests passed. Development process completed successfully.")
-				return
-			}
-
-			fmt.Println("Tests failed. Removing bad files...")
-			removeUpdatedFiles()
-
 			fmt.Printf("Invoking QA engineer.\n")
+			qaInput := fmt.Sprintf("Context Files:\n%s", fileContents)
+			// Save code to file and apply patch
+			patchApplyOutput := ""
+			err = saveCodeToFile(iteration, swUpdateResponse)
+			if err != nil {
+				fmt.Printf("Error saving code to file: %v\n", err)
+				patchApplyOutput = err.Error()
+				// Prepare input for QA engineer
+				qaInput += fmt.Sprintf("Software Engineer's update:\n%s\n\nPatch Apply output:\n%s\n\nPlease analyze the patch apply failures and suggest improvements.", swUpdateResponse, patchApplyOutput)
+			}
 
-			// Prepare input for QA engineer
-			qaInput := fmt.Sprintf("Software Engineer's update:\n%s\n\nTest output:\n%s\n\nPlease analyze the test failures and suggest improvements.", swUpdateResponse, testOutput)
+			// Skip testing if patch failed to apply
+			testOutput := ""
+			if err == nil {
+				// Run go test
+				testOutput, err = runGoTest()
+				if err == nil {
+					fmt.Printf("All tests passed. Development process completed successfully in %d iterations.", iteration)
+					return
+				}
+				// Prepare input for QA engineer
+				qaInput += fmt.Sprintf("Software Engineer's update:\n%s\n\nTest output:\n%s\n\nPlease analyze the test failures and suggest improvements.", swUpdateResponse, testOutput)
+			}
+
+			// fmt.Println("Tests failed. Removing bad files...")
+			// removeUpdatedFiles()
+			fmt.Println("Resetting workspace...")
+			resetWorkspace()
 
 			qaResponse, err := getAgentResponse(qaEngineerAgent, qaInput, qaEngineerAgent.SystemPrompt)
 			if err != nil {
@@ -169,70 +193,75 @@ var chatCmd = &cobra.Command{
 			}
 
 			fullQaResponse := fmt.Sprintf("Assistant (%s, specializing in %s): %s\n\n", qaEngineerAgent.Name, qaEngineerAgent.Specialization, qaResponse)
-			conversation += fullQaResponse
+			// conversation += fullQaResponse
 			fmt.Printf("Test Output:\n%s", testOutput)
 			fmt.Print(fullQaResponse)
 
 			// Add QA feedback to the conversation for the next iteration
-			conversation += fmt.Sprintf("Human: Please address the following QA feedback and make necessary updates:\n%s\n\n", qaResponse)
+			qaResponse = fmt.Sprintf("Please address the following QA feedback and make necessary updates:\n%s\n\n", qaResponse)
 		}
 
 		fmt.Printf("Maximum number of iterations (%d) reached without passing all tests.\n", maxIterations)
-		fmt.Println("Final conversation state:")
-		fmt.Println(conversation)
 	},
 }
 
-func saveCodeToFile(response string) error {
-	re := regexp.MustCompile("```go\n((?s).+?)```")
+func saveCodeToFile(iter int, response string) error {
+	re := regexp.MustCompile("```((?s).+?)```")
 	matches := re.FindAllStringSubmatch(response, -1)
 
 	if len(matches) == 0 {
-		return fmt.Errorf("No Go code blocks found in the response")
+		return fmt.Errorf("No code blocks found in the response")
 	}
 
-	// Create a map to store filenames and their content
-	fileContents := make(map[string]string)
-
-	for _, match := range matches {
+	for i, match := range matches {
 		code := match[1]
-		lines := strings.Split(code, "\n")
-		if len(lines) > 0 {
-			// Extract the package name from the first line
-			packageName := strings.TrimPrefix(lines[0], "package ")
-			packageName = strings.Trim(strings.ToLower(packageName), "// ")
-			packageName = strings.Trim(packageName, "filename: ")
-			filename := fmt.Sprintf("%s", packageName)
-			fullFilename := filepath.Join(OutputDir, filename)
-
-			// validate filename doesn't collide with evaluation test
-			if fullFilename == doNotTouch {
-				return fmt.Errorf("name collides with evaluation test")
-			}
-
-			// If the file already exists in our map, append the new code
-			if existingContent, exists := fileContents[fullFilename]; exists {
-				fileContents[fullFilename] = existingContent + "\n\n" + code
-			} else {
-				fileContents[fullFilename] = code
-			}
+		filename := "patch-" + strconv.Itoa(iter) + "-" + strconv.Itoa(i) + ".patch"
+		if err := os.WriteFile(filename, []byte(code), 0644); err != nil {
+			return fmt.Errorf("Error writing code to file %s: %w", filename, err)
 		}
+		cmd := exec.Command("git", "apply", "-v", "/home/jbutler/git/dev-team/"+filename)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		cmd.Dir = OutputDir
+		err := cmd.Run()
+		if err != nil {
+			return fmt.Errorf("error: %s, %s", err.Error(), out.String())
+		}
+
 	}
-
-	// Write or update each file
-	for fullFilename, content := range fileContents {
-		if err := os.MkdirAll(filepath.Dir(fullFilename), 0755); err != nil {
-			return fmt.Errorf("Error creating directory for %s: %w", fullFilename, err)
-		}
-
-		if err := os.WriteFile(fullFilename, []byte(content), 0644); err != nil {
-			return fmt.Errorf("Error writing code to file %s: %w", fullFilename, err)
-		}
-		updatedFiles = append(updatedFiles, fullFilename)
-		fmt.Printf("Saved/Updated code in file: %s\n", fullFilename)
-	}
-
 	return nil
+}
+
+func resetWorkspace() error {
+	cmd := exec.Command("git", "reset", "--hard", "HEAD")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	cmd.Dir = OutputDir
+	err := cmd.Run()
+	if err != nil {
+		return err
+	}
+	cmd = exec.Command("git", "clean", "-fd")
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	cmd.Dir = OutputDir
+	return cmd.Run()
+}
+
+func readFiles(filePaths []string) (string, error) {
+	var contents strings.Builder
+	for _, filePath := range filePaths {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", fmt.Errorf("Error reading file %s: %w", filePath, err)
+		}
+		contents.WriteString(fmt.Sprintf("File: %s\n", filePath))
+		contents.WriteString(string(data))
+		contents.WriteString("\n\n")
+	}
+	return contents.String(), nil
 }
 
 func removeUpdatedFiles() {
@@ -242,7 +271,7 @@ func removeUpdatedFiles() {
 }
 
 func runGoTest() (string, error) {
-	cmd := exec.Command("go", "test", "./...")
+	cmd := exec.Command("go", "test", "-v", "./...")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -291,9 +320,10 @@ func getOllamaResponse(agent *Agent, conversation, systemPrompt string) (string,
 		conversation, systemPrompt, agent.Name, agent.Specialization)
 
 	requestBody, err := json.Marshal(map[string]interface{}{
-		"model":  agent.ModelName,
-		"prompt": prompt,
-		"stream": true,
+		"model":   agent.ModelName,
+		"prompt":  prompt,
+		"stream":  true,
+		"options": map[string]interface{}{"num_ctx": 4096},
 	})
 	if err != nil {
 		return "", fmt.Errorf("Error marshaling request body: %w", err)
