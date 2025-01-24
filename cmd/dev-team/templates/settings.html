@@ -1,0 +1,170 @@
+{{define "settings"}}
+<div class="card">
+    <h2>Settings</h2>
+    <form id="settingsForm" onsubmit="return handleUpdateSettings(event)">
+        <div class="form-group">
+            <label class="label" for="aiService">AI Service</label>
+            <select id="aiService" name="aiService" class="input" onchange="handleServiceChange()" required>
+                <option value="ollama" {{if eq .Settings.AIService "ollama"}}selected{{end}}>Ollama</option>
+                <option value="gemini" {{if eq .Settings.AIService "gemini"}}selected{{end}}>Gemini</option>
+            </select>
+        </div>
+
+        <div id="ollamaSettings" {{if eq .Settings.AIService "gemini"}}class="hidden"{{end}}>
+            <div class="form-group">
+                <label class="label" for="ollamaServer">Ollama Server</label>
+                <input type="text" id="ollamaServer" name="ollamaServer" class="input" value="{{.Settings.OllamaServer}}">
+            </div>
+            <div class="form-group">
+                <label class="label" for="ollamaModel">Ollama Model</label>
+                <input type="text" id="ollamaModel" name="ollamaModel" class="input" value="{{.Settings.OllamaModel}}">
+            </div>
+        </div>
+
+        <div id="geminiSettings" {{if ne .Settings.AIService "gemini"}}class="hidden"{{end}}>
+            <div class="form-group">
+                <label class="label" for="geminiAPIKey">Gemini API Key</label>
+                <input type="password" id="geminiAPIKey" name="geminiAPIKey" class="input" value="{{.Settings.GeminiAPIKey}}" placeholder="Enter your Gemini API key">
+            </div>
+            <div class="form-group">
+                <label class="label" for="geminiModel">Gemini Model</label>
+                <select id="geminiModel" name="geminiModel" class="input">
+                    <option value="">Loading models...</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="label" for="githubToken">GitHub Token</label>
+            <input type="password" id="githubToken" name="githubToken" class="input" value="{{.Settings.GitHubToken}}" placeholder="Enter your GitHub token">
+            <small class="help-text">Required for creating pull requests. Token should have 'repo' scope.</small>
+        </div>
+
+        <button type="submit" class="button">Save Settings</button>
+    </form>
+</div>
+
+<style>
+.hidden {
+    display: none;
+}
+
+select.input {
+    background-color: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: var(--text-color);
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 1rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+select.input option {
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    padding: 0.5rem;
+}
+
+select.input option:hover,
+select.input option:focus {
+    background-color: rgba(255,255,255,0.1);
+}
+
+select.input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.button.secondary {
+    background-color: transparent;
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    margin-top: 0.5rem;
+}
+
+.button.secondary:hover {
+    background-color: rgba(var(--primary-color-rgb), 0.1);
+}
+</style>
+
+<script>
+async function loadGeminiModels() {
+    try {
+        const response = await fetch('/api/gemini/models');
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        const models = await response.json();
+        const select = document.getElementById('geminiModel');
+        select.innerHTML = models.map(model => 
+            `<option value="${model}" ${model === "{{.Settings.GeminiModel}}" ? 'selected' : ''}>${model}</option>`
+        ).join('');
+    } catch (error) {
+        console.error('Error loading Gemini models:', error);
+        const select = document.getElementById('geminiModel');
+        select.innerHTML = '<option value="">Error loading models</option>';
+    }
+}
+
+function handleServiceChange() {
+    const service = document.getElementById('aiService').value;
+    document.getElementById('ollamaSettings').classList.toggle('hidden', service !== 'ollama');
+    document.getElementById('geminiSettings').classList.toggle('hidden', service !== 'gemini');
+    if (service === 'gemini') {
+        loadGeminiModels();
+    }
+}
+
+async function handleUpdateSettings(event) {
+    event.preventDefault();
+    const form = event.target;
+    const data = {
+        aiService: form.aiService.value,
+        ollamaServer: form.ollamaServer.value,
+        ollamaModel: form.ollamaModel.value,
+        geminiAPIKey: form.geminiAPIKey.value,
+        geminiModel: form.geminiModel.value,
+        githubToken: form.githubToken.value,
+    };
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+        
+        // If a repository is selected and base path is provided, clone it
+        if (data.remoteRepository && data.basePath) {
+            const cloneResponse = await fetch('/api/github/clone', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    repoUrl: data.remoteRepository,
+                    basePath: data.basePath
+                })
+            });
+            if (!cloneResponse.ok) throw new Error(await cloneResponse.text());
+        }
+        
+        alert('Settings saved successfully');
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+    return false;
+}
+
+// Load Gemini models on page load if Gemini is selected
+if (document.getElementById('aiService').value === 'gemini') {
+    loadGeminiModels();
+}
+
+// Load repositories if GitHub token is present
+if (document.getElementById('githubToken').value) {
+    loadRepositories();
+}
+</script>
+{{end}}

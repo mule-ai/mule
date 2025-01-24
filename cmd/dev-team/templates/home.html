@@ -1,0 +1,335 @@
+{{define "home"}}
+<div class="card">
+    <h2>Add Repository</h2>
+    <form id="addRepoForm" onsubmit="return handleAddRepository(event)">
+        <div class="form-group">
+            <label class="label" for="remoteRepository">Remote Repository</label>
+            <select id="remoteRepository" name="remoteRepository" class="input" required>
+                <option value="">Select a repository...</option>
+            </select>
+            <button type="button" class="button secondary" onclick="loadRepositories()">Refresh Repositories</button>
+        </div>
+        <div class="form-group">
+            <label class="label" for="basePath">Base Path</label>
+            <input type="text" id="basePath" name="basePath" class="input" required placeholder="Enter the base path for cloning repository">
+        </div>
+        <div class="form-group">
+            <label class="label" for="schedule">Schedule (cron format)</label>
+            <input type="text" id="schedule" name="schedule" class="input" value="0 * * * *" required>
+        </div>
+        <button type="submit" class="button">Add Repository</button>
+    </form>
+</div>
+
+<div id="repositories">
+    {{if .Repositories}}
+        {{range $path, $repo := .Repositories}}
+        <div class="card">
+            <h3>{{$path}}</h3>
+            <p>Schedule: <span class="chip">{{$repo.Schedule}}</span></p>
+            {{if $repo.State}}
+                <p>Branch: <span class="chip {{if $repo.State.HasChanges}}warning{{else}}success{{end}}">
+                    {{$repo.State.CurrentBranch}}
+                </span></p>
+                {{if $repo.State.HasChanges}}
+                    <p>Changed files: {{range $repo.State.ChangedFiles}}{{.}} {{end}}</p>
+                {{end}}
+            {{end}}
+            <p>Last Sync: {{$repo.LastSync}}</p>
+            <button onclick="handleUpdateRepo('{{$path}}')" class="button">Update</button>
+            <button onclick="handleCommit('{{$path}}')" class="button" {{if not $repo.State.HasChanges}}disabled{{end}}>Commit</button>
+            <button onclick="handlePush('{{$path}}')" class="button">Push</button>
+            <button onclick="handleCreatePR('{{$path}}')" class="button">Create PR</button>
+            <button onclick="handleShowIssues('{{$path}}')" class="button">Show Issues</button>
+        </div>
+        {{end}}
+    {{else}}
+        <div class="card">
+            <p>No repositories added yet. Add one using the form above.</p>
+        </div>
+    {{end}}
+</div>
+
+<div id="issuesModal" class="modal">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <h2>Dev Team Issues</h2>
+        <div id="issuesList"></div>
+    </div>
+</div>
+
+<style>
+select.input {
+    background-color: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: var(--text-color);
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 1rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+select.input option {
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    padding: 0.5rem;
+}
+
+select.input option:hover,
+select.input option:focus {
+    background-color: rgba(255,255,255,0.1);
+}
+
+select.input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.button.secondary {
+    background-color: transparent;
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    margin-top: 0.5rem;
+}
+
+.button.secondary:hover {
+    background-color: rgba(var(--primary-color-rgb), 0.1);
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4);
+}
+
+.modal-content {
+    background-color: var(--surface-color);
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    width: 80%;
+    max-width: 800px;
+}
+
+.close {
+    color: var(--text-color);
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover {
+    color: var(--primary-color);
+}
+
+.issue-item {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin: 10px 0;
+    padding: 10px;
+}
+
+.issue-title {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.issue-meta {
+    font-size: 0.9em;
+    color: var(--text-secondary-color);
+}
+
+.issue-body {
+    margin-top: 10px;
+    white-space: pre-wrap;
+}
+</style>
+
+<script>
+async function loadRepositories() {
+    try {
+        const response = await fetch('/api/github/repositories', {
+            headers: { 'Authorization': `Bearer {{.Settings.GitHubToken}}` }
+        });
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        const repos = await response.json();
+        const select = document.getElementById('remoteRepository');
+        select.innerHTML = '<option value="">Select a repository...</option>' + 
+            repos.map(repo => `<option value="${repo.clone_url}">${repo.full_name}</option>`).join('');
+    } catch (error) {
+        console.error('Error loading repositories:', error);
+        alert('Error loading repositories: ' + error.message);
+    }
+}
+
+async function handleAddRepository(event) {
+    event.preventDefault();
+    const form = event.target;
+    const repoUrl = form.remoteRepository.value;
+    const basePath = form.basePath.value;
+    
+    try {
+        // First clone the repository
+        const cloneResponse = await fetch('/api/repositories/clone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                repoUrl: repoUrl,
+                basePath: basePath
+            })
+        });
+        if (!cloneResponse.ok) throw new Error(await cloneResponse.text());
+
+        // Then add it to the watched repositories
+        const response = await fetch('/api/repositories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                repoUrl: repoUrl,
+                path: basePath,
+                schedule: form.schedule.value
+            })
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+    return false;
+}
+
+async function handleUpdateRepo(path) {
+    try {
+        const response = await fetch('/api/repositories/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function handleCommit(path) {
+    try {
+        const response = await fetch('/api/repositories/commit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function handlePush(path) {
+    try {
+        const response = await fetch('/api/repositories/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function handleCreatePR(path) {
+    try {
+        const response = await fetch('/api/repositories/pr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function getRepoInfo(path) {
+    const remote = document.querySelector(`#repositories div.card:has(h3:contains('${path}')) select[name="remoteRepository"] option:selected`);
+    if (!remote) return null;
+    
+    const match = remote.textContent.match(/([^/]+)\/([^/]+)/);
+    return match ? { owner: match[1], repo: match[2] } : null;
+}
+
+async function handleShowIssues(path) {
+    const modal = document.getElementById('issuesModal');
+    const issuesList = document.getElementById('issuesList');
+    issuesList.innerHTML = 'Loading issues...';
+    modal.style.display = 'block';
+
+    try {
+        // Extract owner and repo from the repository path
+        const parts = path.split('/');
+        const repoName = parts[parts.length - 1];
+        const ownerName = parts[parts.length - 2];
+
+        const response = await fetch(`/api/github/issues?owner=${ownerName}&repo=${repoName}`, {
+            headers: { 'Authorization': `Bearer {{.Settings.GitHubToken}}` }
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+        const issues = await response.json();
+
+        if (issues.length === 0) {
+            issuesList.innerHTML = '<p>No issues found with label "dev-team"</p>';
+            return;
+        }
+
+        issuesList.innerHTML = issues.map(issue => `
+            <div class="issue-item">
+                <div class="issue-title">
+                    <a href="${issue.html_url}" target="_blank">#${issue.number} ${issue.title}</a>
+                </div>
+                <div class="issue-meta">
+                    Created: ${new Date(issue.created_at).toLocaleDateString()}
+                    | Status: ${issue.state}
+                </div>
+                <div class="issue-body">${issue.body}</div>
+            </div>
+        `).join('');
+    } catch (error) {
+        issuesList.innerHTML = `<p>Error loading issues: ${error.message}</p>`;
+    }
+}
+
+// Close modal when clicking the close button or outside the modal
+document.querySelector('.close').onclick = function() {
+    document.getElementById('issuesModal').style.display = 'none';
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('issuesModal');
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Load repositories on page load if GitHub token is present
+if ("{{.Settings.GitHubToken}}") {
+    loadRepositories();
+}
+</script>
+{{end}}
