@@ -427,12 +427,9 @@ func handleGeminiModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGitHubRepositories(w http.ResponseWriter, r *http.Request) {
-	token := r.Header.Get("Authorization")
-	if token == "" {
-		http.Error(w, "GitHub token not provided", http.StatusBadRequest)
-		return
-	}
-	token = strings.TrimPrefix(token, "Bearer ")
+	state.State.Mu.RLock()
+	token := state.State.Settings.GitHubToken
+	state.State.Mu.RUnlock()
 
 	repos, err := github.FetchRepositories(token)
 	if err != nil {
@@ -491,10 +488,22 @@ func updateRepo(repo *repository.Repository, absPath string) {
 }
 
 func handleGitHubIssues(w http.ResponseWriter, r *http.Request) {
-	owner := r.URL.Query().Get("owner")
-	repo := r.URL.Query().Get("repo")
-	if owner == "" || repo == "" {
-		http.Error(w, "Owner and repo parameters are required", http.StatusBadRequest)
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "Path parameter is required", http.StatusBadRequest)
+		return
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	state.State.Mu.RLock()
+	repo, exists := state.State.Repositories[absPath]
+	state.State.Mu.RUnlock()
+
+	if !exists {
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -507,11 +516,11 @@ func handleGitHubIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issues, err := github.FetchIssues(owner, repo, "dev-team", token)
+	err = repo.UpdateIssues(token)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error fetching issues: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(issues)
+	json.NewEncoder(w).Encode(repo.Issues)
 }

@@ -58,6 +58,7 @@ func LoadConfig() (*state.AppState, error) {
 		r := &repository.Repository{
 			Path:     repo.Path,
 			Schedule: repo.Schedule,
+			ApiUrl:   repo.ApiUrl,
 		}
 		err := r.UpdateStatus()
 		if err != nil {

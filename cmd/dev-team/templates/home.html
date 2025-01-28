@@ -157,9 +157,7 @@ select.input:focus {
 <script>
 async function loadRepositories() {
     try {
-        const response = await fetch('/api/github/repositories', {
-            headers: { 'Authorization': `Bearer {{.Settings.GitHubToken}}` }
-        });
+        const response = await fetch('/api/github/repositories');
         if (!response.ok) {
             throw new Error(await response.text());
         }
@@ -286,9 +284,7 @@ async function handleShowIssues(path) {
         const repoName = parts[parts.length - 1];
         const ownerName = parts[parts.length - 2];
 
-        const response = await fetch(`/api/github/issues?owner=${ownerName}&repo=${repoName}`, {
-            headers: { 'Authorization': `Bearer {{.Settings.GitHubToken}}` }
-        });
+        const response = await fetch(`/api/github/issues?path=${path}`);
 
         if (!response.ok) throw new Error(await response.text());
         const issues = await response.json();

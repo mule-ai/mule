@@ -15,10 +15,13 @@ import (
 )
 
 type Repository struct {
-	Path     string    `json:"path"`
-	Schedule string    `json:"schedule"`
-	LastSync time.Time `json:"lastSync"`
-	State    *Status   `json:"status,omitempty"`
+	Path         string        `json:"path"`
+	Schedule     string        `json:"schedule"`
+	LastSync     time.Time     `json:"lastSync"`
+	State        *Status       `json:"status,omitempty"`
+	Issues       []Issue       `json:"issues,omitempty"`
+	PullRequests []PullRequest `json:"pullRequests,omitempty"`
+	ApiUrl       string        `json:"apiUrl,omitempty"`
 }
 
 type Changes struct {
@@ -35,6 +38,8 @@ func (r *Repository) Clone(repoURL string) error {
 
 	// update url to use ssh
 	repoURL = strings.Replace(repoURL, "https://github.com/", "git@github.com:", 1)
+	r.ApiUrl = strings.Replace(repoURL, "git@github.com:", "https://api.github.com/", 1)
+	r.ApiUrl = strings.TrimSuffix(r.ApiUrl, ".git")
 
 	_, err = git.PlainClone(r.Path, false, &git.CloneOptions{
 		URL:      repoURL,
@@ -141,6 +146,12 @@ func (r *Repository) Sync(aiService genai.AIService, token string) error {
 	err := r.UpdateStatus()
 	if err != nil {
 		log.Printf("Error getting repo status: %v", err)
+		return err
+	}
+
+	err = r.UpdateIssues(token)
+	if err != nil {
+		log.Printf("Error updating issues: %v", err)
 		return err
 	}
 
