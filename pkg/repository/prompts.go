@@ -21,3 +21,10 @@ func PRPrompt(changes string) string {
 		"Provide the output as markdown, but do not wrap it in a code block.\n\n",
 		changes)
 }
+
+func IssuePrompt(issue string) string {
+	// return a prompt that will have an agent write the code to fix the issue
+	return fmt.Sprintf("Write the code to fix the following issue:\n\n%s\n\n"+
+		"The code should be written in the language of the repository.\n"+
+		"Use the tools provided to read and write files.\n\n", issue)
+}

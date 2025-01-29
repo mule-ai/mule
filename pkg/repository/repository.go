@@ -4,6 +4,7 @@ import (
 	"dev-team/pkg/auth"
 	"fmt"
 	"genai"
+	"genai/tools"
 	"log"
 	"strings"
 	"time"
@@ -179,16 +180,32 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 	log.Printf("Current issue: %s", currentIssue.ToString())
 	log.Println("Starting generation")
 	// generate changes for issue
-	changes, err := aiService.Generate(
-		MODEL,
-		currentIssue.ToString(),
-	)
+	toolsToUse, err := tools.GetTools([]string{"readFile", "writeFile"})
 	if err != nil {
-		log.Printf("Error generating changes: %v", err)
+		log.Printf("Error getting tools: %v", err)
 		return err
 	}
+	chat := aiService.Chat(MODEL, toolsToUse)
 
-	log.Printf("Changes: %v", changes)
+	go func() {
+		for response := range chat.Recv {
+			log.Printf("Response: %v", response)
+		}
+	}()
+
+	chat.Send <- IssuePrompt(currentIssue.ToString())
+	chat.Done <- true
+
+	err = r.UpdateStatus()
+	if err != nil {
+		log.Printf("Error updating status: %v", err)
+		return err
+	}
+	if !r.State.HasChanges {
+		log.Printf("No changes found, expected changes from AI")
+		return fmt.Errorf("no changes found, expected changes from AI")
+	}
+
 	/*
 		// Commit changes
 		err = r.Commit("Commit message")
