@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"genai"
 	"html/template"
 	"log"
 	"net/http"
@@ -34,6 +35,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Initialize GenAI provider
+	genaiProvider, err := genai.NewProvider(appState.Settings.Provider, appState.Settings.APIKey)
+	if err != nil {
+		log.Printf("Error initializing GenAI provider: %v", err)
+	}
+	appState.GenAI = genaiProvider
 	state.State = appState
 
 	r := mux.NewRouter()

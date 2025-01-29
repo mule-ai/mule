@@ -29,11 +29,11 @@ func LoadConfig() (*state.AppState, error) {
 			appState := &state.AppState{
 				Repositories: make(map[string]*repository.Repository),
 				Settings: settings.Settings{
-					OllamaServer: "http://localhost:11434",
-					OllamaModel:  "llama2",
+					Provider: "gemini",
 				},
 				Scheduler: scheduler.NewScheduler(),
 			}
+			state.State = appState
 			return appState, SaveConfig()
 		}
 		return nil, err
@@ -68,10 +68,7 @@ func LoadConfig() (*state.AppState, error) {
 		}
 		appState.Repositories[path] = r
 		err = appState.Scheduler.AddTask(path, repo.Schedule, func() {
-			appState.Mu.RLock()
-			aiService := appState.Settings.GetAIService()
-			appState.Mu.RUnlock()
-			err := repo.Sync(aiService, appState.Settings.GitHubToken)
+			err := repo.Sync(state.State.GenAI, appState.Settings.GitHubToken)
 			if err != nil {
 				log.Printf("Error syncing repo: %v", err)
 			}

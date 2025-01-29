@@ -2,27 +2,16 @@ package handlers
 
 import (
 	"dev-team/internal/state"
-	"dev-team/pkg/genai"
 	"encoding/json"
-	"fmt"
 	"net/http"
 )
 
 func HandleGeminiModels(w http.ResponseWriter, r *http.Request) {
-	state.State.Mu.RLock()
-	settings := state.State.Settings
-	state.State.Mu.RUnlock()
-
-	if settings.GeminiAPIKey == "" {
-		http.Error(w, "Gemini API key not configured", http.StatusBadRequest)
+	if state.State.GenAI == nil {
+		http.Error(w, "AI provider not initialized", http.StatusInternalServerError)
 		return
 	}
-
-	models, err := genai.GetGeminiModels(settings.GeminiAPIKey)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error fetching Gemini models: %v", err), http.StatusInternalServerError)
-		return
-	}
+	models := state.State.GenAI.Models()
 
 	json.NewEncoder(w).Encode(models)
 }

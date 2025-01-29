@@ -2,8 +2,8 @@ package repository
 
 import (
 	"dev-team/pkg/auth"
-	"dev-team/pkg/genai"
 	"fmt"
+	"genai"
 	"log"
 	"strings"
 	"time"
@@ -12,6 +12,9 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
+
+// set static model const until agent is implemented
+const MODEL = "models/gemini-2.0-flash-exp"
 
 type Repository struct {
 	Path         string              `json:"path"`
@@ -143,7 +146,7 @@ func (r *Repository) Fetch() error {
 	return nil
 }
 
-func (r *Repository) Sync(aiService genai.AIService, token string) error {
+func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 	err := r.UpdateStatus()
 	if err != nil {
 		log.Printf("Error getting repo status: %v", err)
@@ -176,7 +179,10 @@ func (r *Repository) Sync(aiService genai.AIService, token string) error {
 	log.Printf("Current issue: %s", currentIssue.ToString())
 	log.Println("Starting generation")
 	// generate changes for issue
-	changes, err := genai.Chat(currentIssue.ToString(), aiService)
+	changes, err := aiService.Generate(
+		MODEL,
+		currentIssue.ToString(),
+	)
 	if err != nil {
 		log.Printf("Error generating changes: %v", err)
 		return err

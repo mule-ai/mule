@@ -3,7 +3,6 @@ package handlers
 import (
 	"dev-team/internal/config"
 	"dev-team/internal/state"
-	"dev-team/pkg/genai"
 	"dev-team/pkg/github"
 	"dev-team/pkg/repository"
 	"encoding/json"
@@ -69,10 +68,7 @@ func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
 
 	// Set up scheduler for the repository
 	err = state.State.Scheduler.AddTask(repo.Path, repo.Schedule, func() {
-		state.State.Mu.RLock()
-		aiService := state.State.Settings.GetAIService()
-		state.State.Mu.RUnlock()
-		err := repo.Sync(aiService, state.State.Settings.GitHubToken)
+		err := repo.Sync(state.State.GenAI, state.State.Settings.GitHubToken)
 		if err != nil {
 			log.Printf("Error syncing repo: %v", err)
 		}
@@ -138,17 +134,16 @@ func HandleCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state.State.Mu.RLock()
-	aiService := state.State.Settings.GetAIService()
-	state.State.Mu.RUnlock()
-
 	summary, err := repo.ChangeSummary()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error getting change summary: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	commitMessage, err := genai.Chat(repository.CommitPrompt(summary), aiService)
+	commitMessage, err := state.State.GenAI.Generate(
+		state.State.Settings.Model,
+		repository.CommitPrompt(summary),
+	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error generating commit message: %v", err), http.StatusInternalServerError)
 		return
@@ -210,28 +205,29 @@ func HandleCreatePR(w http.ResponseWriter, r *http.Request) {
 	settings := &state.State.Settings
 	state.State.Mu.RUnlock()
 
-	aiService := settings.GetAIService()
-
 	summary, err := repo.ChangeSummary()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error getting change summary: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	prTitle, err := genai.Chat(repository.CommitPrompt(summary), aiService)
+	prTitle, err := state.State.GenAI.Generate(
+		settings.Model,
+		repository.CommitPrompt(summary),
+	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error generating PR title: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	prDescription, err := genai.Chat(repository.PRPrompt(summary), aiService)
+	prDescription, err := state.State.GenAI.Generate(
+		settings.Model,
+		repository.PRPrompt(summary),
+	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error generating PR description: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	state.State.Mu.RLock()
-	defer state.State.Mu.RUnlock()
 
 	err = github.CreateDraftPR(repo.Path, settings.GitHubToken, github.GitHubPRInput{
 		Title:               prTitle,
@@ -323,12 +319,9 @@ func HandleSyncRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state.State.Mu.RLock()
-	aiService := state.State.Settings.GetAIService()
 	token := state.State.Settings.GitHubToken
-	state.State.Mu.RUnlock()
 
-	err = repo.Sync(aiService, token)
+	err = repo.Sync(state.State.GenAI, token)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
