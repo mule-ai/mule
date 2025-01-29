@@ -13,26 +13,38 @@ type Issue struct {
 	Labels      []string     `json:"labels"`
 	CreatedAt   string       `json:"created_at"`
 	UpdatedAt   string       `json:"updated_at"`
+	SourceURL   string       `json:"source_url"`
 	PullRequest *PullRequest `json:"pull_request"`
+	State       string       `json:"state"`
 }
 
 func (r *Repository) GetIssues() ([]Issue, error) {
-	return r.Issues, nil
+	issues := make([]Issue, 0, len(r.Issues))
+	for _, issue := range r.Issues {
+		issues = append(issues, issue)
+	}
+	return issues, nil
 }
 
 func (r *Repository) UpdateIssues(token string) error {
-	if r.ApiUrl == "" {
-		return fmt.Errorf("API URL is not set")
+	if r.RemotePath == "" {
+		return fmt.Errorf("repository remote path is not set")
 	}
-	issues, err := github.FetchIssues(r.ApiUrl, "dev-team", token)
+	issues, err := github.FetchIssues(r.RemotePath, "dev-team", token)
 	if err != nil {
-		log.Printf("Error fetching issues: %v, request: %v", err, r.ApiUrl)
+		log.Printf("Error fetching issues: %v, request: %v", err, r.RemotePath)
 		return err
 	}
 	for _, issue := range issues {
-		r.Issues = append(r.Issues, ghIssueToIssue(issue))
+		r.Issues[issue.Number] = ghIssueToIssue(issue)
 	}
 	return nil
+}
+
+func (i *Issue) ToString() string {
+	return fmt.Sprintf("Issue: %d\n\n"+
+		"Title: %s\n\n"+
+		"Body: %s\n\n", i.ID, i.Title, i.Body)
 }
 
 func ghIssueToIssue(issue github.Issue) Issue {
@@ -42,5 +54,7 @@ func ghIssueToIssue(issue github.Issue) Issue {
 		Body:      issue.Body,
 		CreatedAt: issue.CreatedAt,
 		UpdatedAt: issue.UpdatedAt,
+		SourceURL: issue.HTMLURL,
+		State:     issue.State,
 	}
 }

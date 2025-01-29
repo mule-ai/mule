@@ -3,7 +3,6 @@ package repository
 import (
 	"dev-team/pkg/auth"
 	"dev-team/pkg/genai"
-	"dev-team/pkg/github"
 	"fmt"
 	"log"
 	"strings"
@@ -15,13 +14,13 @@ import (
 )
 
 type Repository struct {
-	Path         string        `json:"path"`
-	Schedule     string        `json:"schedule"`
-	LastSync     time.Time     `json:"lastSync"`
-	State        *Status       `json:"status,omitempty"`
-	Issues       []Issue       `json:"issues,omitempty"`
-	PullRequests []PullRequest `json:"pullRequests,omitempty"`
-	ApiUrl       string        `json:"apiUrl,omitempty"`
+	Path         string              `json:"path"`
+	Schedule     string              `json:"schedule"`
+	LastSync     time.Time           `json:"lastSync"`
+	State        *Status             `json:"status,omitempty"`
+	Issues       map[int]Issue       `json:"issues,omitempty"`
+	PullRequests map[int]PullRequest `json:"pullRequests,omitempty"`
+	RemotePath   string              `json:"remotePath,omitempty"`
 }
 
 type Changes struct {
@@ -36,10 +35,12 @@ func (r *Repository) Clone(repoURL string) error {
 		return fmt.Errorf("SSH authentication error: %v", err)
 	}
 
+	// set remote path
+	r.RemotePath = strings.TrimPrefix(repoURL, "git@github.com:")
+	r.RemotePath = strings.TrimSuffix(r.RemotePath, ".git")
+
 	// update url to use ssh
 	repoURL = strings.Replace(repoURL, "https://github.com/", "git@github.com:", 1)
-	r.ApiUrl = strings.Replace(repoURL, "git@github.com:", "https://api.github.com/", 1)
-	r.ApiUrl = strings.TrimSuffix(r.ApiUrl, ".git")
 
 	_, err = git.PlainClone(r.Path, false, &git.CloneOptions{
 		URL:      repoURL,
@@ -155,55 +156,79 @@ func (r *Repository) Sync(aiService genai.AIService, token string) error {
 		return err
 	}
 
-	if !r.State.HasChanges {
-		return nil
+	// if there are existing changes, log because we can't start work
+	if r.State.HasChanges {
+		log.Printf("There are existing changes, skipping sync")
+		return fmt.Errorf("there are existing changes, skipping sync")
 	}
 
-	// Commit changes
-	err = r.Commit("Commit message")
+	if len(r.Issues) == 0 {
+		log.Printf("No issues found, skipping sync")
+		return fmt.Errorf("no issues found, skipping sync")
+	}
+
+	var currentIssue Issue
+	for _, issue := range r.Issues {
+		currentIssue = issue
+		break
+	}
+
+	log.Printf("Current issue: %s", currentIssue.ToString())
+	log.Println("Starting generation")
+	// generate changes for issue
+	changes, err := genai.Chat(currentIssue.ToString(), aiService)
 	if err != nil {
-		log.Printf("Error committing changes: %v", err)
+		log.Printf("Error generating changes: %v", err)
 		return err
 	}
 
-	// Push changes
-	err = r.Push()
-	if err != nil {
-		log.Printf("Error pushing changes: %v", err)
-		return err
-	}
+	log.Printf("Changes: %v", changes)
+	/*
+		// Commit changes
+		err = r.Commit("Commit message")
+		if err != nil {
+			log.Printf("Error committing changes: %v", err)
+			return err
+		}
 
-	summary, err := r.ChangeSummary()
-	if err != nil {
-		log.Printf("Error getting change summary: %v", err)
-		return err
-	}
+		// Push changes
+		err = r.Push()
+		if err != nil {
+			log.Printf("Error pushing changes: %v", err)
+			return err
+		}
 
-	prTitle, err := genai.Chat(CommitPrompt(summary), aiService)
-	if err != nil {
-		log.Printf("Error generating PR title: %v", err)
-		return err
-	}
+		summary, err := r.ChangeSummary()
+		if err != nil {
+			log.Printf("Error getting change summary: %v", err)
+			return err
+		}
 
-	prDescription, err := genai.Chat(PRPrompt(summary), aiService)
-	if err != nil {
-		log.Printf("Error generating PR description: %v", err)
-		return err
-	}
+		prTitle, err := genai.Chat(CommitPrompt(summary), aiService)
+		if err != nil {
+			log.Printf("Error generating PR title: %v", err)
+			return err
+		}
 
-	err = github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
-		Title:               prTitle,
-		Branch:              r.State.CurrentBranch,
-		Base:                "main",
-		Description:         prDescription,
-		Draft:               true,
-		MaintainerCanModify: true,
-	})
-	if err != nil {
-		log.Printf("Error creating PR: %v", err)
-		return err
-	}
+		prDescription, err := genai.Chat(PRPrompt(summary), aiService)
+		if err != nil {
+			log.Printf("Error generating PR description: %v", err)
+			return err
+		}
 
+		err = github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
+			Title:               prTitle,
+			Branch:              r.State.CurrentBranch,
+			Base:                "main",
+			Description:         prDescription,
+			Draft:               true,
+			MaintainerCanModify: true,
+		})
+		if err != nil {
+			log.Printf("Error creating PR: %v", err)
+			return err
+		}
+	*/
 	return nil
 }
 

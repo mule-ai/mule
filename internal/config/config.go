@@ -56,9 +56,11 @@ func LoadConfig() (*state.AppState, error) {
 	// Set up repositories and their schedules
 	for path, repo := range config.Repositories {
 		r := &repository.Repository{
-			Path:     repo.Path,
-			Schedule: repo.Schedule,
-			ApiUrl:   repo.ApiUrl,
+			Path:         repo.Path,
+			Schedule:     repo.Schedule,
+			RemotePath:   repo.RemotePath,
+			Issues:       make(map[int]repository.Issue),
+			PullRequests: make(map[int]repository.PullRequest),
 		}
 		err := r.UpdateStatus()
 		if err != nil {
@@ -106,8 +108,9 @@ func SaveConfig() error {
 
 	for path, repo := range state.State.Repositories {
 		config.Repositories[path] = repository.Repository{
-			Path:     repo.Path,
-			Schedule: repo.Schedule,
+			Path:       repo.Path,
+			Schedule:   repo.Schedule,
+			RemotePath: repo.RemotePath,
 		}
 	}
 

@@ -12,34 +12,34 @@ import (
 )
 
 type GitHubPRInput struct {
-	Title               string
-	Description         string
-	Branch              string
-	Base                string
-	Draft               bool
-	MaintainerCanModify bool
+	Title               string `json:"title"`
+	Description         string `json:"description"`
+	Branch              string `json:"branch"`
+	Base                string `json:"base"`
+	Draft               bool   `json:"draft"`
+	MaintainerCanModify bool   `json:"maintainer_can_modify"`
 }
 
 type GitHubPRResponse struct {
-	Number int
+	Number int `json:"number"`
 }
 
 type Repository struct {
-	Name        string
-	FullName    string
-	Description string
-	CloneURL    string
-	SSHURL      string
+	Name        string `json:"name"`
+	FullName    string `json:"full_name"`
+	Description string `json:"description"`
+	CloneURL    string `json:"clone_url"`
+	SSHURL      string `json:"ssh_url"`
 }
 
 type Issue struct {
-	Number    int
-	Title     string
-	Body      string
-	State     string
-	HTMLURL   string
-	CreatedAt string
-	UpdatedAt string
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	State     string `json:"state"`
+	HTMLURL   string `json:"html_url"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 func newGitHubClient(ctx context.Context, token string) *github.Client {
@@ -134,7 +134,7 @@ func FetchRepositories(githubToken string) ([]Repository, error) {
 	return result, nil
 }
 
-func FetchIssues(baseURL, label, githubToken string) ([]Issue, error) {
+func FetchIssues(remotePath, label, githubToken string) ([]Issue, error) {
 	if githubToken == "" {
 		return nil, fmt.Errorf("GitHub token not provided in settings")
 	}
@@ -142,11 +142,11 @@ func FetchIssues(baseURL, label, githubToken string) ([]Issue, error) {
 	ctx := context.Background()
 	client := newGitHubClient(ctx, githubToken)
 
-	// Extract owner and repo from baseURL
-	// Expected format: https://api.github.com/repos/owner/repo
-	parts := strings.Split(strings.TrimPrefix(baseURL, "https://api.github.com/repos/"), "/")
+	// Extract owner and repo from remote path
+	// Expected format: owner/repo
+	parts := strings.Split(remotePath, "/")
 	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid baseURL format")
+		return nil, fmt.Errorf("invalid remote path format")
 	}
 	owner := parts[0]
 	repo := parts[1]
@@ -161,7 +161,7 @@ func FetchIssues(baseURL, label, githubToken string) ([]Issue, error) {
 
 	ghIssues, _, err := client.Issues.ListByRepo(ctx, owner, repo, opt)
 	if err != nil {
-		log.Printf("Error fetching issues: %v, request: %v", err, baseURL)
+		log.Printf("Error fetching issues: %v, request: %v", err, remotePath)
 		return nil, fmt.Errorf("error fetching issues: %v", err)
 	}
 
