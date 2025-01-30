@@ -46,13 +46,9 @@ func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	repo := repository.Repository{
-		Path:         absPath,
-		Schedule:     req.Schedule,
-		RemotePath:   repoName,
-		Issues:       make(map[int]repository.Issue),
-		PullRequests: make(map[int]repository.PullRequest),
-	}
+	repo := repository.NewRepository(absPath)
+	repo.Schedule = req.Schedule
+	repo.RemotePath = repoName
 
 	_, err = git.PlainOpen(repo.Path)
 	if err != nil {
@@ -62,7 +58,7 @@ func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Getting repo status for %s", repo.Path)
 
-	updateRepo(&repo)
+	updateRepo(repo)
 
 	log.Printf("Adding scheduler task for %s", repo.Path)
 
@@ -73,7 +69,7 @@ func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error syncing repo: %v", err)
 		}
 		state.State.Mu.Lock()
-		state.State.Repositories[repo.Path] = &repo
+		state.State.Repositories[repo.Path] = repo
 		state.State.Mu.Unlock()
 	})
 	if err != nil {
@@ -271,7 +267,7 @@ func HandleCloneRepository(w http.ResponseWriter, r *http.Request) {
 	repoName := strings.TrimPrefix(req.RepoURL, "https://github.com/")
 	repoName = strings.TrimSuffix(repoName, ".git")
 	repoPath := filepath.Join(req.BasePath, repoName)
-	repo := repository.Repository{Path: repoPath}
+	repo := repository.NewRepository(repoPath)
 	if err := repo.Clone(req.RepoURL); err != nil {
 		http.Error(w, fmt.Sprintf("Error cloning repository: %v", err), http.StatusInternalServerError)
 		return

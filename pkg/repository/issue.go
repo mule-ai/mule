@@ -7,15 +7,19 @@ import (
 )
 
 type Issue struct {
-	ID          int          `json:"id"`
-	Title       string       `json:"title"`
-	Body        string       `json:"body"`
-	Labels      []string     `json:"labels"`
-	CreatedAt   string       `json:"created_at"`
-	UpdatedAt   string       `json:"updated_at"`
-	SourceURL   string       `json:"source_url"`
-	PullRequest *PullRequest `json:"pull_request"`
-	State       string       `json:"state"`
+	ID                    int      `json:"id"`
+	Title                 string   `json:"title"`
+	Body                  string   `json:"body"`
+	Labels                []string `json:"labels"`
+	CreatedAt             string   `json:"created_at"`
+	UpdatedAt             string   `json:"updated_at"`
+	SourceURL             string   `json:"source_url"`
+	LinkedPullRequestURLs []string `json:"linked_pull_request_urls"`
+	State                 string   `json:"state"`
+}
+
+func (i *Issue) prExists() bool {
+	return len(i.LinkedPullRequestURLs) > 0
 }
 
 func (r *Repository) GetIssues() ([]Issue, error) {
@@ -49,12 +53,13 @@ func (i *Issue) ToString() string {
 
 func ghIssueToIssue(issue github.Issue) Issue {
 	return Issue{
-		ID:        issue.Number,
-		Title:     issue.Title,
-		Body:      issue.Body,
-		CreatedAt: issue.CreatedAt,
-		UpdatedAt: issue.UpdatedAt,
-		SourceURL: issue.HTMLURL,
-		State:     issue.State,
+		ID:                    issue.Number,
+		Title:                 issue.Title,
+		Body:                  issue.Body,
+		CreatedAt:             issue.CreatedAt,
+		UpdatedAt:             issue.UpdatedAt,
+		SourceURL:             issue.HTMLURL,
+		LinkedPullRequestURLs: issue.LinkedPullRequestURLs,
+		State:                 issue.State,
 	}
 }
