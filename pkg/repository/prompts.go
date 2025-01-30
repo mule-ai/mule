@@ -26,5 +26,6 @@ func IssuePrompt(issue string) string {
 	// return a prompt that will have an agent write the code to fix the issue
 	return fmt.Sprintf("Write the code to fix the following issue:\n\n%s\n\n"+
 		"The code should be written in the language of the repository.\n"+
-		"Use the tools provided to read and write files.\n\n", issue)
+		"It is recommended that you first list the files in the repository and read one of them to get an idea of the codebase.\n"+
+		"After that, make sure you use the writeFile tool to write the code to a file.\n\n", issue)
 }
