@@ -3,32 +3,32 @@
     <h2>Settings</h2>
     <form id="settingsForm" onsubmit="return handleUpdateSettings(event)">
         <div class="form-group">
-            <label class="label" for="aiService">AI Service</label>
-            <select id="aiService" name="aiService" class="input" onchange="handleServiceChange()" required>
-                <option value="ollama" {{if eq .Settings.AIService "ollama"}}selected{{end}}>Ollama</option>
-                <option value="gemini" {{if eq .Settings.AIService "gemini"}}selected{{end}}>Gemini</option>
+            <label class="label" for="provider">AI Provider</label>
+            <select id="provider" name="provider" class="input" onchange="handleProviderChange()" required>
+                <option value="ollama" {{if eq .Settings.Provider "ollama"}}selected{{end}}>Ollama</option>
+                <option value="gemini" {{if eq .Settings.Provider "gemini"}}selected{{end}}>Gemini</option>
             </select>
         </div>
 
-        <div id="ollamaSettings" {{if eq .Settings.AIService "gemini"}}class="hidden"{{end}}>
+        <div id="ollamaSettings" {{if eq .Settings.Provider "gemini"}}class="hidden"{{end}}>
             <div class="form-group">
-                <label class="label" for="ollamaServer">Ollama Server</label>
-                <input type="text" id="ollamaServer" name="ollamaServer" class="input" value="{{.Settings.OllamaServer}}">
+                <label class="label" for="server">Ollama Server</label>
+                <input type="text" id="server" name="server" class="input" value="{{.Settings.Server}}">
             </div>
             <div class="form-group">
                 <label class="label" for="ollamaModel">Ollama Model</label>
-                <input type="text" id="ollamaModel" name="ollamaModel" class="input" value="{{.Settings.OllamaModel}}">
+                <input type="text" id="ollamaModel" name="model" class="input" value="{{.Settings.Model}}">
             </div>
         </div>
 
-        <div id="geminiSettings" {{if ne .Settings.AIService "gemini"}}class="hidden"{{end}}>
+        <div id="geminiSettings" {{if ne .Settings.Provider "gemini"}}class="hidden"{{end}}>
             <div class="form-group">
-                <label class="label" for="geminiAPIKey">Gemini API Key</label>
-                <input type="password" id="geminiAPIKey" name="geminiAPIKey" class="input" value="{{.Settings.GeminiAPIKey}}" placeholder="Enter your Gemini API key">
+                <label class="label" for="apiKey">Gemini API Key</label>
+                <input type="password" id="apiKey" name="apiKey" class="input" value="{{.Settings.APIKey}}" placeholder="Enter your Gemini API key">
             </div>
             <div class="form-group">
                 <label class="label" for="geminiModel">Gemini Model</label>
-                <select id="geminiModel" name="geminiModel" class="input">
+                <select id="geminiModel" name="model" class="input">
                     <option value="">Loading models...</option>
                 </select>
             </div>
@@ -98,7 +98,7 @@ async function loadGeminiModels() {
         const models = await response.json();
         const select = document.getElementById('geminiModel');
         select.innerHTML = models.map(model => 
-            `<option value="${model}" ${model === "{{.Settings.GeminiModel}}" ? 'selected' : ''}>${model}</option>`
+            `<option value="${model}" ${model === "{{.Settings.Model}}" ? 'selected' : ''}>${model}</option>`
         ).join('');
     } catch (error) {
         console.error('Error loading Gemini models:', error);
@@ -107,11 +107,11 @@ async function loadGeminiModels() {
     }
 }
 
-function handleServiceChange() {
-    const service = document.getElementById('aiService').value;
-    document.getElementById('ollamaSettings').classList.toggle('hidden', service !== 'ollama');
-    document.getElementById('geminiSettings').classList.toggle('hidden', service !== 'gemini');
-    if (service === 'gemini') {
+function handleProviderChange() {
+    const provider = document.getElementById('provider').value;
+    document.getElementById('ollamaSettings').classList.toggle('hidden', provider !== 'ollama');
+    document.getElementById('geminiSettings').classList.toggle('hidden', provider !== 'gemini');
+    if (provider === 'gemini') {
         loadGeminiModels();
     }
 }
@@ -119,12 +119,12 @@ function handleServiceChange() {
 async function handleUpdateSettings(event) {
     event.preventDefault();
     const form = event.target;
+    const provider = form.provider.value;
     const data = {
-        aiService: form.aiService.value,
-        ollamaServer: form.ollamaServer.value,
-        ollamaModel: form.ollamaModel.value,
-        geminiAPIKey: form.geminiAPIKey.value,
-        geminiModel: form.geminiModel.value,
+        provider: provider,
+        model: provider === 'gemini' ? form.geminiModel.value : form.ollamaModel.value,
+        apiKey: form.apiKey.value,
+        server: form.server.value,
         githubToken: form.githubToken.value,
     };
 
@@ -136,20 +136,6 @@ async function handleUpdateSettings(event) {
         });
 
         if (!response.ok) throw new Error(await response.text());
-        
-        // If a repository is selected and base path is provided, clone it
-        if (data.remoteRepository && data.basePath) {
-            const cloneResponse = await fetch('/api/github/clone', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    repoUrl: data.remoteRepository,
-                    basePath: data.basePath
-                })
-            });
-            if (!cloneResponse.ok) throw new Error(await cloneResponse.text());
-        }
-        
         alert('Settings saved successfully');
     } catch (error) {
         alert('Error: ' + error.message);
@@ -158,13 +144,8 @@ async function handleUpdateSettings(event) {
 }
 
 // Load Gemini models on page load if Gemini is selected
-if (document.getElementById('aiService').value === 'gemini') {
+if (document.getElementById('provider').value === 'gemini') {
     loadGeminiModels();
-}
-
-// Load repositories if GitHub token is present
-if (document.getElementById('githubToken').value) {
-    loadRepositories();
 }
 </script>
 {{end}}

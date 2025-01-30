@@ -2,9 +2,10 @@ package repository
 
 import (
 	"dev-team/pkg/auth"
-	"dev-team/pkg/genai"
 	"dev-team/pkg/github"
 	"fmt"
+	"genai"
+	"genai/tools"
 	"log"
 	"strings"
 	"time"
@@ -14,11 +15,17 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+// set static model const until agent is implemented
+const MODEL = "models/gemini-2.0-flash-exp"
+
 type Repository struct {
-	Path     string    `json:"path"`
-	Schedule string    `json:"schedule"`
-	LastSync time.Time `json:"lastSync"`
-	State    *Status   `json:"status,omitempty"`
+	Path         string              `json:"path"`
+	Schedule     string              `json:"schedule"`
+	LastSync     time.Time           `json:"lastSync"`
+	State        *Status             `json:"status,omitempty"`
+	Issues       map[int]Issue       `json:"issues,omitempty"`
+	PullRequests map[int]PullRequest `json:"pullRequests,omitempty"`
+	RemotePath   string              `json:"remotePath,omitempty"`
 }
 
 type Changes struct {
@@ -32,6 +39,10 @@ func (r *Repository) Clone(repoURL string) error {
 	if err != nil {
 		return fmt.Errorf("SSH authentication error: %v", err)
 	}
+
+	// set remote path
+	r.RemotePath = strings.TrimPrefix(repoURL, "git@github.com:")
+	r.RemotePath = strings.TrimSuffix(r.RemotePath, ".git")
 
 	// update url to use ssh
 	repoURL = strings.Replace(repoURL, "https://github.com/", "git@github.com:", 1)
@@ -137,19 +148,83 @@ func (r *Repository) Fetch() error {
 	return nil
 }
 
-func (r *Repository) Sync(aiService genai.AIService, token string) error {
+func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 	err := r.UpdateStatus()
 	if err != nil {
 		log.Printf("Error getting repo status: %v", err)
 		return err
 	}
 
-	if !r.State.HasChanges {
-		return nil
+	err = r.UpdateIssues(token)
+	if err != nil {
+		log.Printf("Error updating issues: %v", err)
+		return err
 	}
 
+	// if there are existing changes, log because we can't start work
+	if r.State.HasChanges {
+		log.Printf("There are existing changes, skipping sync")
+		return fmt.Errorf("there are existing changes, skipping sync")
+	}
+
+	if len(r.Issues) == 0 {
+		log.Printf("No issues found, skipping sync")
+		return fmt.Errorf("no issues found, skipping sync")
+	}
+
+	var currentIssue Issue
+	for _, issue := range r.Issues {
+		currentIssue = issue
+		break
+	}
+
+	log.Printf("Current issue: %s", currentIssue.ToString())
+	log.Println("Starting generation")
+	// generate changes for issue
+	toolsToUse, err := tools.GetTools([]string{"writeFile"})
+	if err != nil {
+		log.Printf("Error getting tools: %v", err)
+		return err
+	}
+	for _, tool := range toolsToUse {
+		tool.Options["basePath"] = r.Path
+		log.Printf("Setting %s tool base path to %s", tool.Name, r.Path)
+	}
+	chat := aiService.Chat(MODEL, toolsToUse)
+
+	go func() {
+		for response := range chat.Recv {
+			log.Printf("Response: %v", response)
+		}
+	}()
+
+	chat.Send <- IssuePrompt(currentIssue.ToString())
+	chat.Done <- true
+
+	err = r.UpdateStatus()
+	if err != nil {
+		log.Printf("Error updating status: %v", err)
+		return err
+	}
+
+	if !r.State.HasChanges {
+		log.Printf("No changes found, expected changes from AI")
+		return fmt.Errorf("no changes found, expected changes from AI")
+	}
+
+	summary, err := r.ChangeSummary()
+	if err != nil {
+		log.Printf("Error getting change summary: %v", err)
+		return err
+	}
+
+	commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	if err != nil {
+		log.Printf("Error generating commit message: %v", err)
+		return err
+	}
 	// Commit changes
-	err = r.Commit("Commit message")
+	err = r.Commit(commitMessage)
 	if err != nil {
 		log.Printf("Error committing changes: %v", err)
 		return err
@@ -162,19 +237,13 @@ func (r *Repository) Sync(aiService genai.AIService, token string) error {
 		return err
 	}
 
-	summary, err := r.ChangeSummary()
-	if err != nil {
-		log.Printf("Error getting change summary: %v", err)
-		return err
-	}
-
-	prTitle, err := genai.Chat(CommitPrompt(summary), aiService)
+	prTitle, err := aiService.Generate(MODEL, CommitPrompt(summary))
 	if err != nil {
 		log.Printf("Error generating PR title: %v", err)
 		return err
 	}
 
-	prDescription, err := genai.Chat(PRPrompt(summary), aiService)
+	prDescription, err := aiService.Generate(MODEL, PRPrompt(summary))
 	if err != nil {
 		log.Printf("Error generating PR description: %v", err)
 		return err
@@ -192,7 +261,6 @@ func (r *Repository) Sync(aiService genai.AIService, token string) error {
 		log.Printf("Error creating PR: %v", err)
 		return err
 	}
-
 	return nil
 }
 

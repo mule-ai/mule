@@ -29,11 +29,11 @@ func LoadConfig() (*state.AppState, error) {
 			appState := &state.AppState{
 				Repositories: make(map[string]*repository.Repository),
 				Settings: settings.Settings{
-					OllamaServer: "http://localhost:11434",
-					OllamaModel:  "llama2",
+					Provider: "gemini",
 				},
 				Scheduler: scheduler.NewScheduler(),
 			}
+			state.State = appState
 			return appState, SaveConfig()
 		}
 		return nil, err
@@ -56,8 +56,11 @@ func LoadConfig() (*state.AppState, error) {
 	// Set up repositories and their schedules
 	for path, repo := range config.Repositories {
 		r := &repository.Repository{
-			Path:     repo.Path,
-			Schedule: repo.Schedule,
+			Path:         repo.Path,
+			Schedule:     repo.Schedule,
+			RemotePath:   repo.RemotePath,
+			Issues:       make(map[int]repository.Issue),
+			PullRequests: make(map[int]repository.PullRequest),
 		}
 		err := r.UpdateStatus()
 		if err != nil {
@@ -65,10 +68,7 @@ func LoadConfig() (*state.AppState, error) {
 		}
 		appState.Repositories[path] = r
 		err = appState.Scheduler.AddTask(path, repo.Schedule, func() {
-			appState.Mu.RLock()
-			aiService := appState.Settings.GetAIService()
-			appState.Mu.RUnlock()
-			err := repo.Sync(aiService, appState.Settings.GitHubToken)
+			err := repo.Sync(state.State.GenAI, appState.Settings.GitHubToken)
 			if err != nil {
 				log.Printf("Error syncing repo: %v", err)
 			}
@@ -105,8 +105,9 @@ func SaveConfig() error {
 
 	for path, repo := range state.State.Repositories {
 		config.Repositories[path] = repository.Repository{
-			Path:     repo.Path,
-			Schedule: repo.Schedule,
+			Path:       repo.Path,
+			Schedule:   repo.Schedule,
+			RemotePath: repo.RemotePath,
 		}
 	}
 

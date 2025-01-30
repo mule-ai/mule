@@ -25,7 +25,13 @@
     {{if .Repositories}}
         {{range $path, $repo := .Repositories}}
         <div class="card">
-            <h3>{{$path}}</h3>
+            <div class="repository-header">
+                <h3>{{$path}}</h3>
+                <div class="repository-actions">
+                    <button class="sync-button" onclick="syncRepository('{{$path}}')">Sync</button>
+                    <button class="delete-button" onclick="removeRepository('{{$path}}')">Remove</button>
+                </div>
+            </div>
             <p>Schedule: <span class="chip">{{$repo.Schedule}}</span></p>
             {{if $repo.State}}
                 <p>Branch: <span class="chip {{if $repo.State.HasChanges}}warning{{else}}success{{end}}">
@@ -152,14 +158,30 @@ select.input:focus {
     margin-top: 10px;
     white-space: pre-wrap;
 }
+
+.repository-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.delete-button {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.delete-button:hover {
+    background-color: #c82333;
+}
 </style>
 
 <script>
 async function loadRepositories() {
     try {
-        const response = await fetch('/api/github/repositories', {
-            headers: { 'Authorization': `Bearer {{.Settings.GitHubToken}}` }
-        });
+        const response = await fetch('/api/github/repositories');
         if (!response.ok) {
             throw new Error(await response.text());
         }
@@ -281,14 +303,8 @@ async function handleShowIssues(path) {
     modal.style.display = 'block';
 
     try {
-        // Extract owner and repo from the repository path
-        const parts = path.split('/');
-        const repoName = parts[parts.length - 1];
-        const ownerName = parts[parts.length - 2];
 
-        const response = await fetch(`/api/github/issues?owner=${ownerName}&repo=${repoName}`, {
-            headers: { 'Authorization': `Bearer {{.Settings.GitHubToken}}` }
-        });
+        const response = await fetch(`/api/github/issues?path=${path}`);
 
         if (!response.ok) throw new Error(await response.text());
         const issues = await response.json();
@@ -301,7 +317,7 @@ async function handleShowIssues(path) {
         issuesList.innerHTML = issues.map(issue => `
             <div class="issue-item">
                 <div class="issue-title">
-                    <a href="${issue.html_url}" target="_blank">#${issue.number} ${issue.title}</a>
+                    <a href="${issue.source_url}" target="_blank">#${issue.id} ${issue.title}</a>
                 </div>
                 <div class="issue-meta">
                     Created: ${new Date(issue.created_at).toLocaleDateString()}
@@ -330,6 +346,47 @@ window.onclick = function(event) {
 // Load repositories on page load if GitHub token is present
 if ("{{.Settings.GitHubToken}}") {
     loadRepositories();
+}
+
+async function removeRepository(path) {
+    if (!confirm('Are you sure you want to remove this repository from being tracked? This will not delete any files.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/repositories?path=${path}`, {
+            method: 'DELETE',
+        });
+        
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        
+        // Refresh the page to show updated repository list
+        window.location.reload();
+    } catch (error) {
+        console.error('Error removing repository:', error);
+        alert(error.message);
+    }
+}
+
+async function syncRepository(path) {
+    try {
+        const response = await fetch(`/api/repositories/sync?path=${path}`, {
+            method: 'POST',
+        })
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        // Refresh the page to show updated status
+        window.location.reload();
+    } catch (error) {
+        console.error('Error syncing repository:', error);
+        alert(error.message);
+    }
+    
 }
 </script>
 {{end}}

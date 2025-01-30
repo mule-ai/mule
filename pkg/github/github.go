@@ -1,21 +1,20 @@
 package github
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/google/go-github/v60/github"
+	"golang.org/x/oauth2"
 )
 
 type GitHubPRInput struct {
 	Title               string `json:"title"`
-	Description         string `json:"body"`
-	Branch              string `json:"head"`
+	Description         string `json:"description"`
+	Branch              string `json:"branch"`
 	Base                string `json:"base"`
 	Draft               bool   `json:"draft"`
 	MaintainerCanModify bool   `json:"maintainer_can_modify"`
@@ -40,23 +39,32 @@ type Issue struct {
 	State     string `json:"state"`
 	HTMLURL   string `json:"html_url"`
 	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+func newGitHubClient(ctx context.Context, token string) *github.Client {
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token},
+	)
+	tc := oauth2.NewClient(ctx, ts)
+	return github.NewClient(tc)
 }
 
 func CreateDraftPR(path string, githubToken string, input GitHubPRInput) error {
+	ctx := context.Background()
+	client := newGitHubClient(ctx, githubToken)
+
 	repo, err := git.PlainOpen(path)
 	if err != nil {
 		return err
 	}
 
-	// Get remote URL to extract owner and repo name
 	remote, err := repo.Remote("origin")
 	if err != nil {
 		return fmt.Errorf("error getting remote: %v", err)
 	}
 
 	remoteURL := remote.Config().URLs[0]
-	// Extract owner and repo from SSH URL format (git@github.com:owner/repo.git)
-	// or HTTPS URL format (https://github.com/owner/repo.git)
 	var owner, repoName string
 	if strings.Contains(remoteURL, "git@github.com:") {
 		parts := strings.Split(strings.TrimPrefix(remoteURL, "git@github.com:"), "/")
@@ -72,111 +80,102 @@ func CreateDraftPR(path string, githubToken string, input GitHubPRInput) error {
 		return fmt.Errorf("GitHub token not provided in settings")
 	}
 
-	// Create PR using GitHub API
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls", owner, repoName)
-	jsonData, err := json.Marshal(input)
+	newPR := &github.NewPullRequest{
+		Title:               github.String(input.Title),
+		Head:                github.String(input.Branch),
+		Base:                github.String(input.Base),
+		Body:                github.String(input.Description),
+		Draft:               github.Bool(input.Draft),
+		MaintainerCanModify: github.Bool(input.MaintainerCanModify),
+	}
+
+	pr, _, err := client.PullRequests.Create(ctx, owner, repoName, newPR)
 	if err != nil {
-		return fmt.Errorf("error marshaling PR request: %v", err)
+		return fmt.Errorf("error creating PR: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("error creating request: %v", err)
-	}
-
-	req.Header.Set("Authorization", "token "+githubToken)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("error making request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("error creating PR: %s", string(body))
-	}
-
-	var prResponse GitHubPRResponse
-	if err := json.NewDecoder(resp.Body).Decode(&prResponse); err != nil {
-		return fmt.Errorf("error decoding PR response: %v", err)
-	}
-
-	// include the pr link in the response
-	prLink := fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, repoName, prResponse.Number)
+	prLink := pr.GetHTMLURL()
 	log.Printf("PR created successfully: %s", prLink)
 
 	return nil
 }
 
-// FetchRepositories gets the list of repositories for the authenticated user
 func FetchRepositories(githubToken string) ([]Repository, error) {
 	if githubToken == "" {
 		return nil, fmt.Errorf("GitHub token not provided in settings")
 	}
 
-	url := "https://api.github.com/user/repos?sort=updated&per_page=100"
-	req, err := http.NewRequest("GET", url, nil)
+	ctx := context.Background()
+	client := newGitHubClient(ctx, githubToken)
+
+	opt := &github.RepositoryListOptions{
+		Sort: "updated",
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+		},
+	}
+
+	repos, _, err := client.Repositories.List(ctx, "", opt)
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
+		return nil, fmt.Errorf("error fetching repositories: %v", err)
 	}
 
-	req.Header.Set("Authorization", "token "+githubToken)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error making request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error fetching repositories: %s", string(body))
+	var result []Repository
+	for _, repo := range repos {
+		result = append(result, Repository{
+			Name:        repo.GetName(),
+			FullName:    repo.GetFullName(),
+			Description: repo.GetDescription(),
+			CloneURL:    repo.GetCloneURL(),
+			SSHURL:      repo.GetSSHURL(),
+		})
 	}
 
-	var repos []Repository
-	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-
-	return repos, nil
+	return result, nil
 }
 
-// FetchIssues gets the list of issues with a specific label for a repository
-func FetchIssues(owner, repo, label, githubToken string) ([]Issue, error) {
+func FetchIssues(remotePath, label, githubToken string) ([]Issue, error) {
 	if githubToken == "" {
 		return nil, fmt.Errorf("GitHub token not provided in settings")
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues?labels=%s&state=all", owner, repo, label)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
+	ctx := context.Background()
+	client := newGitHubClient(ctx, githubToken)
+
+	// Extract owner and repo from remote path
+	// Expected format: owner/repo
+	parts := strings.Split(remotePath, "/")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid remote path format")
+	}
+	owner := parts[0]
+	repo := parts[1]
+
+	opt := &github.IssueListByRepoOptions{
+		Labels: []string{label},
+		State:  "all",
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+		},
 	}
 
-	req.Header.Set("Authorization", "token "+githubToken)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	ghIssues, _, err := client.Issues.ListByRepo(ctx, owner, repo, opt)
 	if err != nil {
-		return nil, fmt.Errorf("error making request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error fetching issues: %s", string(body))
+		log.Printf("Error fetching issues: %v, request: %v", err, remotePath)
+		return nil, fmt.Errorf("error fetching issues: %v", err)
 	}
 
 	var issues []Issue
-	if err := json.NewDecoder(resp.Body).Decode(&issues); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
+	for _, issue := range ghIssues {
+		issues = append(issues, Issue{
+			Number:    issue.GetNumber(),
+			Title:     issue.GetTitle(),
+			Body:      issue.GetBody(),
+			State:     issue.GetState(),
+			HTMLURL:   issue.GetHTMLURL(),
+			CreatedAt: issue.GetCreatedAt().String(),
+			UpdatedAt: issue.GetUpdatedAt().String(),
+		})
 	}
 
 	return issues, nil
