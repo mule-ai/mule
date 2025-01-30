@@ -2,6 +2,7 @@ package repository
 
 import (
 	"dev-team/pkg/auth"
+	"dev-team/pkg/github"
 	"fmt"
 	"genai"
 	"genai/tools"
@@ -180,10 +181,14 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 	log.Printf("Current issue: %s", currentIssue.ToString())
 	log.Println("Starting generation")
 	// generate changes for issue
-	toolsToUse, err := tools.GetTools([]string{"readFile", "writeFile"})
+	toolsToUse, err := tools.GetTools([]string{"writeFile"})
 	if err != nil {
 		log.Printf("Error getting tools: %v", err)
 		return err
+	}
+	for _, tool := range toolsToUse {
+		tool.Options["basePath"] = r.Path
+		log.Printf("Setting %s tool base path to %s", tool.Name, r.Path)
 	}
 	chat := aiService.Chat(MODEL, toolsToUse)
 
@@ -201,57 +206,61 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		log.Printf("Error updating status: %v", err)
 		return err
 	}
+
 	if !r.State.HasChanges {
 		log.Printf("No changes found, expected changes from AI")
 		return fmt.Errorf("no changes found, expected changes from AI")
 	}
 
-	/*
-		// Commit changes
-		err = r.Commit("Commit message")
-		if err != nil {
-			log.Printf("Error committing changes: %v", err)
-			return err
-		}
+	summary, err := r.ChangeSummary()
+	if err != nil {
+		log.Printf("Error getting change summary: %v", err)
+		return err
+	}
 
-		// Push changes
-		err = r.Push()
-		if err != nil {
-			log.Printf("Error pushing changes: %v", err)
-			return err
-		}
+	commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	if err != nil {
+		log.Printf("Error generating commit message: %v", err)
+		return err
+	}
+	// Commit changes
+	err = r.Commit(commitMessage)
+	if err != nil {
+		log.Printf("Error committing changes: %v", err)
+		return err
+	}
 
-		summary, err := r.ChangeSummary()
-		if err != nil {
-			log.Printf("Error getting change summary: %v", err)
-			return err
-		}
+	// Push changes
+	err = r.Push()
+	if err != nil {
+		log.Printf("Error pushing changes: %v", err)
+		return err
+	}
 
-		prTitle, err := genai.Chat(CommitPrompt(summary), aiService)
-		if err != nil {
-			log.Printf("Error generating PR title: %v", err)
-			return err
-		}
+	prTitle, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	if err != nil {
+		log.Printf("Error generating PR title: %v", err)
+		return err
+	}
 
-		prDescription, err := genai.Chat(PRPrompt(summary), aiService)
-		if err != nil {
-			log.Printf("Error generating PR description: %v", err)
-			return err
-		}
+	prDescription, err := aiService.Generate(MODEL, PRPrompt(summary))
+	if err != nil {
+		log.Printf("Error generating PR description: %v", err)
+		return err
+	}
 
-		err = github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
-			Title:               prTitle,
-			Branch:              r.State.CurrentBranch,
-			Base:                "main",
-			Description:         prDescription,
-			Draft:               true,
-			MaintainerCanModify: true,
-		})
-		if err != nil {
-			log.Printf("Error creating PR: %v", err)
-			return err
-		}
-	*/
+	err = github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
+		Title:               prTitle,
+		Branch:              r.State.CurrentBranch,
+		Base:                "main",
+		Description:         prDescription,
+		Draft:               true,
+		MaintainerCanModify: true,
+	})
+	if err != nil {
+		log.Printf("Error creating PR: %v", err)
+		return err
+	}
 	return nil
 }
 
