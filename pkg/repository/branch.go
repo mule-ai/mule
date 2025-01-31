@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"fmt"
+	"strings"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -34,4 +36,33 @@ func (r *Repository) CheckoutBranch(branchName string) error {
 	return w.Checkout(&git.CheckoutOptions{
 		Branch: plumbing.NewBranchReferenceName(branchName),
 	})
+}
+
+func (r *Repository) createIssueBranch(issueTitle string) (string, error) {
+	branchName := strings.ToLower(strings.ReplaceAll(issueTitle, " ", "-"))
+	if len(branchName) > 100 {
+		branchName = branchName[:100]
+	}
+
+	err := r.Fetch()
+	if err != nil {
+		return "", fmt.Errorf("error fetching before creating branch: %w", err)
+	}
+
+	err = r.CheckoutBranch("main")
+	if err != nil {
+		return "", fmt.Errorf("error checking out main before creating branch: %w", err)
+	}
+
+	err = r.CreateBranch(branchName)
+	if err != nil {
+		return "", fmt.Errorf("error creating branch: %w", err)
+	}
+
+	err = r.CheckoutBranch(branchName)
+	if err != nil {
+		return "", fmt.Errorf("error checking out new branch: %w", err)
+	}
+
+	return branchName, nil
 }

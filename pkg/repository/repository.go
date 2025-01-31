@@ -185,6 +185,12 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 	// select issue to work on
 	for _, issue := range r.Issues {
 		currentIssue := issue
+		branchName, err := r.createIssueBranch(currentIssue.Title)
+		if err != nil {
+			return fmt.Errorf("error creating issue branch: %w", err)
+		}
+
+		r.State.CurrentBranch = branchName
 
 		if currentIssue.prExists() {
 			log.Printf("PR already exists for issue %d", currentIssue.ID)
