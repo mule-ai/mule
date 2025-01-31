@@ -55,25 +55,21 @@ func LoadConfig() (*state.AppState, error) {
 
 	// Set up repositories and their schedules
 	for path, repo := range config.Repositories {
-		r := &repository.Repository{
-			Path:         repo.Path,
-			Schedule:     repo.Schedule,
-			RemotePath:   repo.RemotePath,
-			Issues:       make(map[int]repository.Issue),
-			PullRequests: make(map[int]repository.PullRequest),
-		}
+		r := repository.NewRepository(repo.Path)
+		r.Schedule = repo.Schedule
+		r.RemotePath = repo.RemotePath
 		err := r.UpdateStatus()
 		if err != nil {
 			log.Printf("Error getting repo status: %v", err)
 		}
 		appState.Repositories[path] = r
 		err = appState.Scheduler.AddTask(path, repo.Schedule, func() {
-			err := repo.Sync(state.State.GenAI, appState.Settings.GitHubToken)
+			err := r.Sync(state.State.GenAI, appState.Settings.GitHubToken)
 			if err != nil {
 				log.Printf("Error syncing repo: %v", err)
 			}
 			appState.Mu.Lock()
-			appState.Repositories[path] = &repo
+			appState.Repositories[path] = r
 			appState.Mu.Unlock()
 		})
 		if err != nil {
@@ -104,11 +100,7 @@ func SaveConfig() error {
 	}
 
 	for path, repo := range state.State.Repositories {
-		config.Repositories[path] = repository.Repository{
-			Path:       repo.Path,
-			Schedule:   repo.Schedule,
-			RemotePath: repo.RemotePath,
-		}
+		config.Repositories[path] = *repo
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")

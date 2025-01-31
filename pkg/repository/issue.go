@@ -7,19 +7,34 @@ import (
 )
 
 type Issue struct {
-	ID          int          `json:"id"`
-	Title       string       `json:"title"`
-	Body        string       `json:"body"`
-	Labels      []string     `json:"labels"`
-	CreatedAt   string       `json:"created_at"`
-	UpdatedAt   string       `json:"updated_at"`
-	SourceURL   string       `json:"source_url"`
-	PullRequest *PullRequest `json:"pull_request"`
-	State       string       `json:"state"`
+	ID           int            `json:"id"`
+	Title        string         `json:"title"`
+	Body         string         `json:"body"`
+	Labels       []string       `json:"labels"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+	HTMLURL      string         `json:"html_url"`
+	SourceURL    string         `json:"source_url"`
+	State        string         `json:"state"`
+	PullRequests []*PullRequest `json:"pull_requests"`
 }
 
-func (r *Repository) GetIssues() ([]Issue, error) {
-	issues := make([]Issue, 0, len(r.Issues))
+func (i *Issue) addPullRequests(pullRequests map[int]*PullRequest) {
+	for _, pullRequest := range pullRequests {
+		for _, linkedIssueUrl := range pullRequest.LinkedIssueUrls {
+			if linkedIssueUrl == i.SourceURL || linkedIssueUrl == i.HTMLURL {
+				i.PullRequests = append(i.PullRequests, pullRequest)
+			}
+		}
+	}
+}
+
+func (i *Issue) prExists() bool {
+	return len(i.PullRequests) > 0
+}
+
+func (r *Repository) GetIssues() ([]*Issue, error) {
+	issues := make([]*Issue, 0, len(r.Issues))
 	for _, issue := range r.Issues {
 		issues = append(issues, issue)
 	}
@@ -47,14 +62,15 @@ func (i *Issue) ToString() string {
 		"Body: %s\n\n", i.ID, i.Title, i.Body)
 }
 
-func ghIssueToIssue(issue github.Issue) Issue {
-	return Issue{
+func ghIssueToIssue(issue github.Issue) *Issue {
+	return &Issue{
 		ID:        issue.Number,
 		Title:     issue.Title,
 		Body:      issue.Body,
 		CreatedAt: issue.CreatedAt,
 		UpdatedAt: issue.UpdatedAt,
-		SourceURL: issue.HTMLURL,
+		SourceURL: issue.SourceURL,
+		HTMLURL:   issue.HTMLURL,
 		State:     issue.State,
 	}
 }

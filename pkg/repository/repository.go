@@ -2,6 +2,7 @@ package repository
 
 import (
 	"dev-team/pkg/auth"
+	"dev-team/pkg/github"
 	"fmt"
 	"genai"
 	"genai/tools"
@@ -18,19 +19,27 @@ import (
 const MODEL = "models/gemini-2.0-flash-exp"
 
 type Repository struct {
-	Path         string              `json:"path"`
-	Schedule     string              `json:"schedule"`
-	LastSync     time.Time           `json:"lastSync"`
-	State        *Status             `json:"status,omitempty"`
-	Issues       map[int]Issue       `json:"issues,omitempty"`
-	PullRequests map[int]PullRequest `json:"pullRequests,omitempty"`
-	RemotePath   string              `json:"remotePath,omitempty"`
+	Path         string               `json:"path"`
+	Schedule     string               `json:"schedule"`
+	LastSync     time.Time            `json:"lastSync"`
+	State        *Status              `json:"status,omitempty"`
+	Issues       map[int]*Issue       `json:"issues,omitempty"`
+	PullRequests map[int]*PullRequest `json:"pullRequests,omitempty"`
+	RemotePath   string               `json:"remotePath,omitempty"`
 }
 
 type Changes struct {
 	Files   []string
 	Commits []string
 	Summary string
+}
+
+func NewRepository(path string) *Repository {
+	return &Repository{
+		Path:         path,
+		Issues:       make(map[int]*Issue),
+		PullRequests: make(map[int]*PullRequest),
+	}
 }
 
 func (r *Repository) Clone(repoURL string) error {
@@ -154,110 +163,70 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		return err
 	}
 
+	// get latest pull requests
+	err = r.UpdatePullRequests(token)
+	if err != nil {
+		log.Printf("Error updating pull requests: %v", err)
+		return err
+	}
+
+	// get latest issues
 	err = r.UpdateIssues(token)
 	if err != nil {
 		log.Printf("Error updating issues: %v", err)
 		return err
 	}
 
-	// if there are existing changes, log because we can't start work
-	if r.State.HasChanges {
-		log.Printf("There are existing changes, skipping sync")
-		return fmt.Errorf("there are existing changes, skipping sync")
-	}
-
-	if len(r.Issues) == 0 {
-		log.Printf("No issues found, skipping sync")
-		return fmt.Errorf("no issues found, skipping sync")
-	}
-
-	var currentIssue Issue
+	// add pull requests to issues
 	for _, issue := range r.Issues {
-		currentIssue = issue
-		break
+		issue.addPullRequests(r.PullRequests)
 	}
 
-	log.Println("Starting generation")
-	// generate changes for issue
-	toolsToUse, err := tools.GetTools([]string{"writeFile", "tree", "readFile"})
-	if err != nil {
-		log.Printf("Error getting tools: %v", err)
-		return err
-	}
-	for _, tool := range toolsToUse {
-		tool.Options["basePath"] = r.Path
-	}
-	chat := aiService.Chat(MODEL, toolsToUse)
+	// select issue to work on
+	for _, issue := range r.Issues {
+		currentIssue := issue
 
-	go func() {
-		for response := range chat.Recv {
-			log.Printf("Response: %v", response)
+		if currentIssue.prExists() {
+			log.Printf("PR already exists for issue %d", currentIssue.ID)
+			continue
 		}
-	}()
 
-	chat.Send <- IssuePrompt(currentIssue.ToString())
-	chat.Done <- true
+		// if there are existing changes, log because we can't start work
+		if r.State.HasChanges {
+			log.Printf("There are existing changes, skipping sync")
+			return fmt.Errorf("there are existing changes, skipping sync")
+		}
 
-	err = r.UpdateStatus()
-	if err != nil {
-		log.Printf("Error updating status: %v", err)
-		return err
-	}
+		if len(r.Issues) == 0 {
+			log.Printf("No issues found, skipping sync")
+			return fmt.Errorf("no issues found, skipping sync")
+		}
 
-	if !r.State.HasChanges {
-		log.Printf("No changes found, expected changes from AI")
-		return fmt.Errorf("no changes found, expected changes from AI")
-	}
-	/*
-		summary, err := r.ChangeSummary()
+		log.Println("Starting generation")
+		err = r.generateFromIssue(aiService, currentIssue)
 		if err != nil {
-			log.Printf("Error getting change summary: %v", err)
+			log.Printf("Error generating changes: %v", err)
 			return err
 		}
 
-		commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
+		// validate that generation resulted in changes
+		err = r.UpdateStatus()
 		if err != nil {
-			log.Printf("Error generating commit message: %v", err)
-			return err
-		}
-		// Commit changes
-		err = r.Commit(commitMessage)
-		if err != nil {
-			log.Printf("Error committing changes: %v", err)
+			log.Printf("Error updating status: %v", err)
 			return err
 		}
 
-		// Push changes
-		err = r.Push()
-		if err != nil {
-			log.Printf("Error pushing changes: %v", err)
-			return err
+		if !r.State.HasChanges {
+			log.Printf("No changes found, expected changes from AI")
+			return fmt.Errorf("no changes found, expected changes from AI")
 		}
 
-		prTitle, err := aiService.Generate(MODEL, CommitPrompt(summary))
-		if err != nil {
-			log.Printf("Error generating PR title: %v", err)
-			return err
-		}
-
-		prDescription, err := aiService.Generate(MODEL, PRPrompt(summary))
-		if err != nil {
-			log.Printf("Error generating PR description: %v", err)
-			return err
-		}
-		err = github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
-			Title:               prTitle,
-			Branch:              r.State.CurrentBranch,
-			Base:                "main",
-			Description:         prDescription,
-			Draft:               true,
-			MaintainerCanModify: true,
-		})
+		err = r.createPR(aiService, currentIssue, token)
 		if err != nil {
 			log.Printf("Error creating PR: %v", err)
 			return err
 		}
-	*/
+	}
 	return nil
 }
 
@@ -323,4 +292,85 @@ func (r *Repository) getChanges() (*Changes, error) {
 		Commits: commits,
 		Summary: fmt.Sprintf("Changed files:\n%v\n\nCommits:\n%v", files, commits),
 	}, nil
+}
+
+func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) error {
+	// generate changes for issue
+	toolsToUse, err := tools.GetTools([]string{"writeFile", "tree", "readFile"})
+	if err != nil {
+		log.Printf("Error getting tools: %v", err)
+		return err
+	}
+	for _, tool := range toolsToUse {
+		tool.Options["basePath"] = r.Path
+	}
+	chat := aiService.Chat(MODEL, toolsToUse)
+
+	go func() {
+		for response := range chat.Recv {
+			log.Printf("Response: %v", response)
+		}
+	}()
+
+	chat.Send <- IssuePrompt(issue.ToString())
+	// block until generation is complete
+	// this will also stop the chat
+	chat.Done <- true
+
+	return nil
+}
+
+// ignore unused code error
+func (r *Repository) createPR(aiService *genai.Provider, issue *Issue, token string) error {
+	summary, err := r.ChangeSummary()
+	if err != nil {
+		log.Printf("Error getting change summary: %v", err)
+		return err
+	}
+
+	commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	if err != nil {
+		log.Printf("Error generating commit message: %v", err)
+		return err
+	}
+	// Commit changes
+	err = r.Commit(commitMessage)
+	if err != nil {
+		log.Printf("Error committing changes: %v", err)
+		return err
+	}
+
+	// Push changes
+	err = r.Push()
+	if err != nil {
+		log.Printf("Error pushing changes: %v", err)
+		return err
+	}
+
+	prTitle, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	if err != nil {
+		log.Printf("Error generating PR title: %v", err)
+		return err
+	}
+
+	prDescription, err := aiService.Generate(MODEL, PRPrompt(summary))
+	if err != nil {
+		log.Printf("Error generating PR description: %v", err)
+		return err
+	}
+
+	// add issue close tag to description
+	prDescription = fmt.Sprintf("%s\n\n%s\n<!--%s-->",
+		prDescription,
+		fmt.Sprintf("Closes #%d", issue.ID),
+		issue.SourceURL)
+
+	return github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
+		Title:               prTitle,
+		Branch:              r.State.CurrentBranch,
+		Base:                "main",
+		Description:         prDescription,
+		Draft:               true,
+		MaintainerCanModify: true,
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -38,9 +39,32 @@ type Issue struct {
 	Body      string `json:"body"`
 	State     string `json:"state"`
 	HTMLURL   string `json:"html_url"`
+	SourceURL string `json:"source_url"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
+
+type PullRequest struct {
+	Number          int      `json:"number"`
+	Title           string   `json:"title"`
+	Body            string   `json:"body"`
+	State           string   `json:"state"`
+	HTMLURL         string   `json:"html_url"`
+	Labels          []string `json:"labels"`
+	IssueURL        string   `json:"issue_url"`
+	CreatedAt       string   `json:"created_at"`
+	UpdatedAt       string   `json:"updated_at"`
+	LinkedIssueURLs []string `json:"linked_issue_urls"`
+}
+
+type IssueEvent struct {
+	Event     string `json:"event"`
+	CreatedAt string `json:"created_at"`
+	PRNumber  int    `json:"pr_number,omitempty"`
+	PRURL     string `json:"pr_url,omitempty"`
+}
+
+var re = regexp.MustCompile(`<!--(.*?)-->`)
 
 func newGitHubClient(ctx context.Context, token string) *github.Client {
 	ts := oauth2.StaticTokenSource(
@@ -167,16 +191,81 @@ func FetchIssues(remotePath, label, githubToken string) ([]Issue, error) {
 
 	var issues []Issue
 	for _, issue := range ghIssues {
-		issues = append(issues, Issue{
+		i := Issue{
 			Number:    issue.GetNumber(),
 			Title:     issue.GetTitle(),
 			Body:      issue.GetBody(),
 			State:     issue.GetState(),
 			HTMLURL:   issue.GetHTMLURL(),
+			SourceURL: issue.GetHTMLURL(),
 			CreatedAt: issue.GetCreatedAt().String(),
 			UpdatedAt: issue.GetUpdatedAt().String(),
-		})
+		}
+		issues = append(issues, i)
 	}
 
 	return issues, nil
+}
+
+func FetchPullRequests(remotePath, label, githubToken string) ([]PullRequest, error) {
+	if githubToken == "" {
+		return nil, fmt.Errorf("GitHub token not provided in settings")
+	}
+
+	ctx := context.Background()
+	client := newGitHubClient(ctx, githubToken)
+
+	parts := strings.Split(remotePath, "/")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid remote path format")
+	}
+	owner := parts[0]
+	repo := parts[1]
+
+	opt := &github.PullRequestListOptions{
+		State: "open",
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+		},
+	}
+
+	ghPullRequests, _, err := client.PullRequests.List(ctx, owner, repo, opt)
+	if err != nil {
+		log.Printf("Error fetching pull requests: %v, request: %v", err, remotePath)
+		return nil, fmt.Errorf("error fetching pull requests: %v", err)
+	}
+
+	var pullRequests []PullRequest
+	for _, pullRequest := range ghPullRequests {
+		pr := PullRequest{
+			Number:          pullRequest.GetNumber(),
+			Title:           pullRequest.GetTitle(),
+			Body:            pullRequest.GetBody(),
+			State:           pullRequest.GetState(),
+			Labels:          make([]string, 0, len(pullRequest.Labels)),
+			HTMLURL:         pullRequest.GetHTMLURL(),
+			IssueURL:        pullRequest.GetIssueURL(),
+			CreatedAt:       pullRequest.GetCreatedAt().String(),
+			UpdatedAt:       pullRequest.GetUpdatedAt().String(),
+			LinkedIssueURLs: getLinkedIssueURLs(pullRequest.GetBody()),
+		}
+		for i, label := range pullRequest.Labels {
+			pr.Labels[i] = label.GetName()
+		}
+		pullRequests = append(pullRequests, pr)
+	}
+
+	return pullRequests, nil
+}
+
+func getLinkedIssueURLs(body string) []string {
+	// URLs are in HTML comments
+	matches := re.FindAllString(body, -1)
+	urls := make([]string, len(matches))
+	for i, match := range matches {
+		match = strings.TrimPrefix(match, "<!--")
+		match = strings.TrimSuffix(match, "-->")
+		urls[i] = match
+	}
+	return urls
 }
