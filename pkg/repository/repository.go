@@ -19,13 +19,13 @@ import (
 const MODEL = "models/gemini-2.0-flash-exp"
 
 type Repository struct {
-	Path         string              `json:"path"`
-	Schedule     string              `json:"schedule"`
-	LastSync     time.Time           `json:"lastSync"`
-	State        *Status             `json:"status,omitempty"`
-	Issues       map[int]Issue       `json:"issues,omitempty"`
-	PullRequests map[int]PullRequest `json:"pullRequests,omitempty"`
-	RemotePath   string              `json:"remotePath,omitempty"`
+	Path         string               `json:"path"`
+	Schedule     string               `json:"schedule"`
+	LastSync     time.Time            `json:"lastSync"`
+	State        *Status              `json:"status,omitempty"`
+	Issues       map[int]*Issue       `json:"issues,omitempty"`
+	PullRequests map[int]*PullRequest `json:"pullRequests,omitempty"`
+	RemotePath   string               `json:"remotePath,omitempty"`
 }
 
 type Changes struct {
@@ -37,8 +37,8 @@ type Changes struct {
 func NewRepository(path string) *Repository {
 	return &Repository{
 		Path:         path,
-		Issues:       make(map[int]Issue),
-		PullRequests: make(map[int]PullRequest),
+		Issues:       make(map[int]*Issue),
+		PullRequests: make(map[int]*PullRequest),
 	}
 }
 
@@ -177,58 +177,57 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		return err
 	}
 
+	// add pull requests to issues
+	for _, issue := range r.Issues {
+		issue.addPullRequests(r.PullRequests)
+	}
+
 	// select issue to work on
+	for _, issue := range r.Issues {
+		currentIssue := issue
 
-	// var currentIssue Issue
-	// for _, issue := range r.Issues {
-	// 	currentIssue = issue
-	// 	break
-	// }
-	currentIssue := r.Issues[8]
-	if currentIssue.prExists() {
-		log.Printf("PR already exists for issue %d", currentIssue.ID)
-		return nil
-	}
+		if currentIssue.prExists() {
+			log.Printf("PR already exists for issue %d", currentIssue.ID)
+			continue
+		}
 
-	// if there are existing changes, log because we can't start work
-	if r.State.HasChanges {
-		log.Printf("There are existing changes, skipping sync")
-		return fmt.Errorf("there are existing changes, skipping sync")
-	}
+		// if there are existing changes, log because we can't start work
+		if r.State.HasChanges {
+			log.Printf("There are existing changes, skipping sync")
+			return fmt.Errorf("there are existing changes, skipping sync")
+		}
 
-	if len(r.Issues) == 0 {
-		log.Printf("No issues found, skipping sync")
-		return fmt.Errorf("no issues found, skipping sync")
-	}
+		if len(r.Issues) == 0 {
+			log.Printf("No issues found, skipping sync")
+			return fmt.Errorf("no issues found, skipping sync")
+		}
 
-	log.Println("Starting generation")
-	err = r.generateFromIssue(aiService, &currentIssue)
-	if err != nil {
-		log.Printf("Error generating changes: %v", err)
-		return err
-	}
+		log.Println("Starting generation")
+		err = r.generateFromIssue(aiService, currentIssue)
+		if err != nil {
+			log.Printf("Error generating changes: %v", err)
+			return err
+		}
 
-	// validate that generation resulted in changes
-	err = r.UpdateStatus()
-	if err != nil {
-		log.Printf("Error updating status: %v", err)
-		return err
-	}
+		// validate that generation resulted in changes
+		err = r.UpdateStatus()
+		if err != nil {
+			log.Printf("Error updating status: %v", err)
+			return err
+		}
 
-	if !r.State.HasChanges {
-		log.Printf("No changes found, expected changes from AI")
-		return fmt.Errorf("no changes found, expected changes from AI")
-	}
+		if !r.State.HasChanges {
+			log.Printf("No changes found, expected changes from AI")
+			return fmt.Errorf("no changes found, expected changes from AI")
+		}
 
-	return nil
-	/*
-		err = r.createPR(aiService, &currentIssue, token)
+		err = r.createPR(aiService, currentIssue, token)
 		if err != nil {
 			log.Printf("Error creating PR: %v", err)
 			return err
 		}
-		return nil
-	*/
+	}
+	return nil
 }
 
 func (r *Repository) ChangeSummary() (string, error) {
@@ -361,7 +360,10 @@ func (r *Repository) createPR(aiService *genai.Provider, issue *Issue, token str
 	}
 
 	// add issue close tag to description
-	prDescription = fmt.Sprintf("%s\n\n%s", prDescription, fmt.Sprintf("Closes #%d", issue.ID))
+	prDescription = fmt.Sprintf("%s\n\n%s\n<!--%s-->",
+		prDescription,
+		fmt.Sprintf("Closes #%d", issue.ID),
+		issue.SourceURL)
 
 	return github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
 		Title:               prTitle,

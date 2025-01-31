@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -33,26 +34,27 @@ type Repository struct {
 }
 
 type Issue struct {
-	Number                int      `json:"number"`
-	Title                 string   `json:"title"`
-	Body                  string   `json:"body"`
-	State                 string   `json:"state"`
-	HTMLURL               string   `json:"html_url"`
-	CreatedAt             string   `json:"created_at"`
-	UpdatedAt             string   `json:"updated_at"`
-	LinkedPullRequestURLs []string `json:"linked_pull_request_urls"`
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	State     string `json:"state"`
+	HTMLURL   string `json:"html_url"`
+	SourceURL string `json:"source_url"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type PullRequest struct {
-	Number    int      `json:"number"`
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	State     string   `json:"state"`
-	HTMLURL   string   `json:"html_url"`
-	Labels    []string `json:"labels"`
-	IssueURL  string   `json:"issue_url"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
+	Number          int      `json:"number"`
+	Title           string   `json:"title"`
+	Body            string   `json:"body"`
+	State           string   `json:"state"`
+	HTMLURL         string   `json:"html_url"`
+	Labels          []string `json:"labels"`
+	IssueURL        string   `json:"issue_url"`
+	CreatedAt       string   `json:"created_at"`
+	UpdatedAt       string   `json:"updated_at"`
+	LinkedIssueURLs []string `json:"linked_issue_urls"`
 }
 
 type IssueEvent struct {
@@ -61,6 +63,8 @@ type IssueEvent struct {
 	PRNumber  int    `json:"pr_number,omitempty"`
 	PRURL     string `json:"pr_url,omitempty"`
 }
+
+var re = regexp.MustCompile(`<!--(.*?)-->`)
 
 func newGitHubClient(ctx context.Context, token string) *github.Client {
 	ts := oauth2.StaticTokenSource(
@@ -193,14 +197,10 @@ func FetchIssues(remotePath, label, githubToken string) ([]Issue, error) {
 			Body:      issue.GetBody(),
 			State:     issue.GetState(),
 			HTMLURL:   issue.GetHTMLURL(),
+			SourceURL: issue.GetHTMLURL(),
 			CreatedAt: issue.GetCreatedAt().String(),
 			UpdatedAt: issue.GetUpdatedAt().String(),
 		}
-		urls, err := GetLinkedPullRequestURLs(remotePath, i.Number, githubToken)
-		if err != nil {
-			log.Printf("Error fetching linked pull request URLs: %v", err)
-		}
-		i.LinkedPullRequestURLs = urls
 		issues = append(issues, i)
 	}
 
@@ -238,15 +238,16 @@ func FetchPullRequests(remotePath, label, githubToken string) ([]PullRequest, er
 	var pullRequests []PullRequest
 	for _, pullRequest := range ghPullRequests {
 		pr := PullRequest{
-			Number:    pullRequest.GetNumber(),
-			Title:     pullRequest.GetTitle(),
-			Body:      pullRequest.GetBody(),
-			State:     pullRequest.GetState(),
-			Labels:    make([]string, 0, len(pullRequest.Labels)),
-			HTMLURL:   pullRequest.GetHTMLURL(),
-			IssueURL:  pullRequest.GetIssueURL(),
-			CreatedAt: pullRequest.GetCreatedAt().String(),
-			UpdatedAt: pullRequest.GetUpdatedAt().String(),
+			Number:          pullRequest.GetNumber(),
+			Title:           pullRequest.GetTitle(),
+			Body:            pullRequest.GetBody(),
+			State:           pullRequest.GetState(),
+			Labels:          make([]string, 0, len(pullRequest.Labels)),
+			HTMLURL:         pullRequest.GetHTMLURL(),
+			IssueURL:        pullRequest.GetIssueURL(),
+			CreatedAt:       pullRequest.GetCreatedAt().String(),
+			UpdatedAt:       pullRequest.GetUpdatedAt().String(),
+			LinkedIssueURLs: getLinkedIssueURLs(pullRequest.GetBody()),
 		}
 		for i, label := range pullRequest.Labels {
 			pr.Labels[i] = label.GetName()
@@ -257,83 +258,14 @@ func FetchPullRequests(remotePath, label, githubToken string) ([]PullRequest, er
 	return pullRequests, nil
 }
 
-func FetchIssueEvents(remotePath string, issueNumber int, githubToken string) ([]IssueEvent, error) {
-	if githubToken == "" {
-		return nil, fmt.Errorf("GitHub token not provided in settings")
+func getLinkedIssueURLs(body string) []string {
+	// URLs are in HTML comments
+	matches := re.FindAllString(body, -1)
+	urls := make([]string, len(matches))
+	for i, match := range matches {
+		match = strings.TrimPrefix(match, "<!--")
+		match = strings.TrimSuffix(match, "-->")
+		urls[i] = match
 	}
-
-	ctx := context.Background()
-	client := newGitHubClient(ctx, githubToken)
-
-	parts := strings.Split(remotePath, "/")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid remote path format")
-	}
-	owner := parts[0]
-	repo := parts[1]
-
-	// First get the issue to check for PR links
-	issue, _, err := client.Issues.Get(ctx, owner, repo, issueNumber)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching issue: %v", err)
-	}
-
-	events, _, err := client.Issues.ListIssueEvents(ctx, owner, repo, issueNumber, &github.ListOptions{
-		PerPage: 100,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error fetching issue events: %v", err)
-	}
-
-	var issueEvents []IssueEvent
-
-	// If the issue has PR links, add it as first event
-	if issue.PullRequestLinks != nil {
-		// Extract PR number from the URL
-		url := issue.PullRequestLinks.GetURL()
-		var prNumber int
-		fmt.Sscanf(url, "https://api.github.com/repos/%s/%s/pulls/%d", &owner, &repo, &prNumber)
-
-		issueEvents = append(issueEvents, IssueEvent{
-			Event:     "pull_request_linked",
-			CreatedAt: issue.GetCreatedAt().String(),
-			PRNumber:  prNumber,
-			PRURL:     issue.PullRequestLinks.GetHTMLURL(),
-		})
-	}
-
-	// Add all other events
-	for _, event := range events {
-		e := IssueEvent{
-			Event:     *event.Event,
-			CreatedAt: event.GetCreatedAt().String(),
-		}
-		issueEvents = append(issueEvents, e)
-	}
-
-	return issueEvents, nil
-}
-
-func GetLinkedPullRequestURLs(remotePath string, issueNumber int, githubToken string) ([]string, error) {
-	events, err := FetchIssueEvents(remotePath, issueNumber, githubToken)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching issue events: %v", err)
-	}
-	log.Printf("Issue events: %+v", events)
-
-	// Use a map to deduplicate URLs
-	urlMap := make(map[string]struct{})
-	for _, event := range events {
-		if event.PRURL != "" {
-			urlMap[event.PRURL] = struct{}{}
-		}
-	}
-
-	// Convert map keys to slice
-	urls := make([]string, 0, len(urlMap))
-	for url := range urlMap {
-		urls = append(urls, url)
-	}
-
-	return urls, nil
+	return urls
 }

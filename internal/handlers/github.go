@@ -61,7 +61,7 @@ func HandleGitHubIssues(w http.ResponseWriter, r *http.Request) {
 
 	issues := make([]repository.Issue, 0, len(repo.Issues))
 	for _, issue := range repo.Issues {
-		issues = append(issues, issue)
+		issues = append(issues, *issue)
 	}
 
 	json.NewEncoder(w).Encode(issues)
