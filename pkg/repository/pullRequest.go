@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"dev-team/pkg/github"
+	"github.com/jbutlerdev/dev-team/pkg/github"
 )
 
 type PullRequest struct {

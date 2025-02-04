@@ -1,13 +1,14 @@
 package handlers
 
 import (
-	"dev-team/internal/state"
-	"dev-team/pkg/github"
-	"dev-team/pkg/repository"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
+
+	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/github"
+	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
 func HandleGitHubRepositories(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +22,11 @@ func HandleGitHubRepositories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(repos)
+	err = json.NewEncoder(w).Encode(repos)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func HandleGitHubIssues(w http.ResponseWriter, r *http.Request) {
@@ -64,5 +69,9 @@ func HandleGitHubIssues(w http.ResponseWriter, r *http.Request) {
 		issues = append(issues, *issue)
 	}
 
-	json.NewEncoder(w).Encode(issues)
+	err = json.NewEncoder(w).Encode(issues)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

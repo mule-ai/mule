@@ -1,14 +1,15 @@
 package config
 
 import (
-	"dev-team/internal/scheduler"
-	"dev-team/internal/settings"
-	"dev-team/internal/state"
-	"dev-team/pkg/repository"
 	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/jbutlerdev/dev-team/internal/scheduler"
+	"github.com/jbutlerdev/dev-team/internal/settings"
+	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
 func LoadConfig() (*state.AppState, error) {

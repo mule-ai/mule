@@ -1,9 +1,10 @@
 package handlers
 
 import (
-	"dev-team/internal/state"
 	"encoding/json"
 	"net/http"
+
+	"github.com/jbutlerdev/dev-team/internal/state"
 )
 
 func HandleGeminiModels(w http.ResponseWriter, r *http.Request) {
@@ -13,5 +14,9 @@ func HandleGeminiModels(w http.ResponseWriter, r *http.Request) {
 	}
 	models := state.State.GenAI.Models()
 
-	json.NewEncoder(w).Encode(models)
+	err := json.NewEncoder(w).Encode(models)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

@@ -132,14 +132,14 @@ func FetchRepositories(githubToken string) ([]Repository, error) {
 	ctx := context.Background()
 	client := newGitHubClient(ctx, githubToken)
 
-	opt := &github.RepositoryListOptions{
+	opt := &github.RepositoryListByAuthenticatedUserOptions{
 		Sort: "updated",
 		ListOptions: github.ListOptions{
 			PerPage: 100,
 		},
 	}
 
-	repos, _, err := client.Repositories.List(ctx, "", opt)
+	repos, _, err := client.Repositories.ListByAuthenticatedUser(ctx, opt)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching repositories: %v", err)
 	}

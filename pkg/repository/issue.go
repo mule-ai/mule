@@ -1,9 +1,10 @@
 package repository
 
 import (
-	"dev-team/pkg/github"
 	"fmt"
 	"log"
+
+	"github.com/jbutlerdev/dev-team/pkg/github"
 )
 
 type Issue struct {

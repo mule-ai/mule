@@ -1,18 +1,20 @@
 package repository
 
 import (
-	"dev-team/pkg/auth"
-	"dev-team/pkg/github"
 	"fmt"
-	"genai"
-	"genai/tools"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/jbutlerdev/dev-team/pkg/auth"
+	"github.com/jbutlerdev/dev-team/pkg/github"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/jbutlerdev/genai"
+	"github.com/jbutlerdev/genai/tools"
 )
 
 // set static model const until agent is implemented
@@ -176,7 +178,6 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		log.Printf("Error updating issues: %v", err)
 		return err
 	}
-
 	// add pull requests to issues
 	for _, issue := range r.Issues {
 		issue.addPullRequests(r.PullRequests)
@@ -226,7 +227,6 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 			log.Printf("No changes found, expected changes from AI")
 			return fmt.Errorf("no changes found, expected changes from AI")
 		}
-
 		err = r.createPR(aiService, currentIssue, token)
 		if err != nil {
 			log.Printf("Error creating PR: %v", err)
@@ -319,9 +319,22 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 	}()
 
 	chat.Send <- IssuePrompt(issue.ToString())
+	defer func() {
+		chat.Done <- true
+	}()
 	// block until generation is complete
-	// this will also stop the chat
-	chat.Done <- true
+	<-chat.GenerationComplete
+	// validate output
+	err = r.validateOutput(&ValidationInput{
+		attempts:    10,
+		validations: []func(string) (string, error){goFmt, goModTidy, golangciLint, goTest},
+		send:        chat.Send,
+		done:        chat.GenerationComplete,
+	})
+	if err != nil {
+		log.Printf("Error validating output: %v", err)
+		return err
+	}
 
 	return nil
 }

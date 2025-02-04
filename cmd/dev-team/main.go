@@ -2,16 +2,17 @@ package main
 
 import (
 	"embed"
-	"genai"
 	"html/template"
 	"log"
 	"net/http"
 
-	"dev-team/internal/config"
-	"dev-team/internal/handlers"
-	"dev-team/internal/settings"
-	"dev-team/internal/state"
-	"dev-team/pkg/repository"
+	"github.com/jbutlerdev/dev-team/internal/config"
+	"github.com/jbutlerdev/dev-team/internal/handlers"
+	"github.com/jbutlerdev/dev-team/internal/settings"
+	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/repository"
+
+	"github.com/jbutlerdev/genai"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -79,6 +80,12 @@ func main() {
 	defer state.State.Scheduler.Stop()
 
 	handler := c.Handler(r)
+	for _, repo := range state.State.Repositories {
+		err := repo.Sync(state.State.GenAI, appState.Settings.GitHubToken)
+		if err != nil {
+			log.Printf("Error syncing repo: %v", err)
+		}
+	}
 	log.Printf("Server starting on http://0.0.0.0:8083")
 	log.Fatal(http.ListenAndServe("0.0.0.0:8083", handler))
 }

@@ -1,10 +1,6 @@
 package handlers
 
 import (
-	"dev-team/internal/config"
-	"dev-team/internal/state"
-	"dev-team/pkg/github"
-	"dev-team/pkg/repository"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,6 +10,11 @@ import (
 	"strings"
 
 	"github.com/go-git/go-git/v5"
+
+	"github.com/jbutlerdev/dev-team/internal/config"
+	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/github"
+	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
 type RepoAddRequest struct {
@@ -26,7 +27,11 @@ func HandleListRepositories(w http.ResponseWriter, r *http.Request) {
 	state.State.Mu.RLock()
 	defer state.State.Mu.RUnlock()
 
-	json.NewEncoder(w).Encode(state.State.Repositories)
+	err := json.NewEncoder(w).Encode(state.State.Repositories)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +117,11 @@ func HandleUpdateRepository(w http.ResponseWriter, r *http.Request) {
 
 	updateRepo(repo)
 
-	json.NewEncoder(w).Encode(repo.State)
+	err = json.NewEncoder(w).Encode(repo.State)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func HandleCommit(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +162,11 @@ func HandleCommit(w http.ResponseWriter, r *http.Request) {
 
 	updateRepo(repo)
 
-	json.NewEncoder(w).Encode(repo.State)
+	err = json.NewEncoder(w).Encode(repo.State)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func HandlePush(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +308,11 @@ func HandleDeleteRepository(w http.ResponseWriter, r *http.Request) {
 	state.State.Scheduler.RemoveTask(repo.Path)
 	state.State.Mu.Unlock()
 
-	config.SaveConfig()
+	err = config.SaveConfig()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error saving config: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	log.Printf("repository deleted %s", repo.Path)
 	w.WriteHeader(http.StatusOK)

@@ -1,20 +1,25 @@
 package handlers
 
 import (
-	"dev-team/internal/config"
-	"dev-team/internal/settings"
-	"dev-team/internal/state"
 	"encoding/json"
 	"fmt"
-	"genai"
 	"net/http"
+
+	"github.com/jbutlerdev/dev-team/internal/config"
+	"github.com/jbutlerdev/dev-team/internal/settings"
+	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/genai"
 )
 
 func HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 	state.State.Mu.RLock()
 	defer state.State.Mu.RUnlock()
 
-	json.NewEncoder(w).Encode(state.State.Settings)
+	err := json.NewEncoder(w).Encode(state.State.Settings)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {

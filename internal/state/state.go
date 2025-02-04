@@ -1,11 +1,12 @@
 package state
 
 import (
-	"dev-team/internal/scheduler"
-	"dev-team/internal/settings"
-	"dev-team/pkg/repository"
-	"genai"
 	"sync"
+
+	"github.com/jbutlerdev/dev-team/internal/scheduler"
+	"github.com/jbutlerdev/dev-team/internal/settings"
+	"github.com/jbutlerdev/dev-team/pkg/repository"
+	"github.com/jbutlerdev/genai"
 )
 
 var State *AppState
