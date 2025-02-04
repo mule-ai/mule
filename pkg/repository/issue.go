@@ -21,6 +21,7 @@ type Issue struct {
 }
 
 func (i *Issue) addPullRequests(pullRequests map[int]*PullRequest) {
+	i.PullRequests = make([]*PullRequest, 0)
 	for _, pullRequest := range pullRequests {
 		for _, linkedIssueUrl := range pullRequest.LinkedIssueUrls {
 			if linkedIssueUrl == i.SourceURL || linkedIssueUrl == i.HTMLURL {
@@ -51,6 +52,8 @@ func (r *Repository) UpdateIssues(token string) error {
 		log.Printf("Error fetching issues: %v, request: %v", err, r.RemotePath)
 		return err
 	}
+	// reset tracked issues
+	r.Issues = make(map[int]*Issue)
 	for _, issue := range issues {
 		r.Issues[issue.Number] = ghIssueToIssue(issue)
 	}

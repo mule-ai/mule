@@ -177,7 +177,7 @@ func FetchIssues(remotePath, label, githubToken string) ([]Issue, error) {
 
 	opt := &github.IssueListByRepoOptions{
 		Labels: []string{label},
-		State:  "all",
+		State:  "open",
 		ListOptions: github.ListOptions{
 			PerPage: 100,
 		},

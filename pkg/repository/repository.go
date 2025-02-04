@@ -194,7 +194,7 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		r.State.CurrentBranch = branchName
 
 		if currentIssue.prExists() {
-			log.Printf("PR already exists for issue %d", currentIssue.ID)
+			log.Printf("PR already exists for repository %s, issue %d", r.Path, currentIssue.ID)
 			continue
 		}
 

@@ -42,6 +42,8 @@ func (r *Repository) UpdatePullRequests(token string) error {
 		log.Printf("Error fetching pull requests: %v, request: %v", err, r.RemotePath)
 		return err
 	}
+	// reset tracked pull requests
+	r.PullRequests = make(map[int]*PullRequest)
 	for _, pullRequest := range pullRequests {
 		r.PullRequests[pullRequest.Number] = ghPullRequestToPullRequest(pullRequest)
 	}
