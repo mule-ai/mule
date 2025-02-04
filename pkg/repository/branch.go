@@ -2,9 +2,9 @@ package repository
 
 import (
 	"fmt"
-	"strings"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"strings"
 )
 
 func (r *Repository) CreateBranch(branchName string) error {

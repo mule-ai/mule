@@ -48,3 +48,8 @@ dist/
 # Temporary files
 tmp/
 temp/ 
+
+# config files
+config.yaml
+config.json
+config.yml

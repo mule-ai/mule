@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/jbutlerdev/dev-team/internal/config"
 	"github.com/jbutlerdev/dev-team/internal/handlers"
@@ -32,7 +34,19 @@ func init() {
 }
 
 func main() {
-	appState, err := config.LoadConfig()
+	// Create config path
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	configDir := filepath.Join(homeDir, ".config", "dev-team")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "config.json")
+
+	// Load config
+	appState, err := config.LoadConfig(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}

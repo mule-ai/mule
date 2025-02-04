@@ -327,7 +327,7 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 	// validate output
 	err = r.validateOutput(&ValidationInput{
 		attempts:    10,
-		validations: []func(string) (string, error){goFmt, goModTidy, golangciLint, goTest},
+		validations: []func(string) (string, error){getDeps, goFmt, goModTidy, golangciLint, goTest},
 		send:        chat.Send,
 		done:        chat.GenerationComplete,
 	})

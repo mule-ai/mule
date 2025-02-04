@@ -5,7 +5,7 @@ tmp_dir = "tmp"
 [build]
   args_bin = []
   bin = "./cmd/dev-team/bin/dev-team"
-  cmd = "make build"
+  cmd = "make all"
   delay = 1000
   exclude_dir = [
     "assets",

@@ -59,7 +59,7 @@ func handleSettingsChange(newSettings settings.Settings) error {
 	}
 	state.State.Settings = newSettings
 	state.State.Mu.Unlock()
-	if err := config.SaveConfig(); err != nil {
+	if err := config.SaveConfig(config.ConfigPath); err != nil {
 		return fmt.Errorf("error saving config: %v", err)
 	}
 	return nil

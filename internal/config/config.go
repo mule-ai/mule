@@ -12,18 +12,10 @@ import (
 	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
-func LoadConfig() (*state.AppState, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	configDir := filepath.Join(homeDir, ".config", "dev-team")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return nil, err
-	}
-	configPath := filepath.Join(configDir, "config.json")
+const ConfigPath = ".config/dev-team/config.json"
 
-	data, err := os.ReadFile(configPath)
+func LoadConfig(path string) (*state.AppState, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create default state if config doesn't exist
@@ -35,7 +27,7 @@ func LoadConfig() (*state.AppState, error) {
 				Scheduler: scheduler.NewScheduler(),
 			}
 			state.State = appState
-			return appState, SaveConfig()
+			return appState, SaveConfig(path)
 		}
 		return nil, err
 	}
@@ -81,13 +73,10 @@ func LoadConfig() (*state.AppState, error) {
 	return appState, nil
 }
 
-func SaveConfig() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
+func SaveConfig(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	configPath := filepath.Join(homeDir, ".config", "dev-team", "config.json")
-
 	state.State.Mu.RLock()
 	defer state.State.Mu.RUnlock()
 
@@ -109,5 +98,5 @@ func SaveConfig() error {
 		return err
 	}
 
-	return os.WriteFile(configPath, data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
