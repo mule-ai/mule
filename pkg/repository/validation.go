@@ -2,9 +2,12 @@ package repository
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
+
+	"github.com/go-logr/logr"
 )
+
+var discard = logr.Discard()
 
 type ValidationInput struct {
 	attempts    int
@@ -22,7 +25,7 @@ func (r *Repository) validateOutput(in *ValidationInput) error {
 			out, err := validation(r.Path)
 			if err != nil {
 				validated = false
-				log.Printf("validation failed: %s, %s", err, out)
+				discard.Info("validation failed", "error", err, "output", out)
 				in.send <- out
 				<-in.done
 				break
@@ -44,7 +47,7 @@ func goFmt(path string) (string, error) {
 	cmd.Dir = path
 	_, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("go fmt updated files, ignoring error")
+		discard.Info("go fmt updated files, ignoring error")
 	}
 	return "", nil
 }
@@ -54,7 +57,7 @@ func goModTidy(path string) (string, error) {
 	cmd.Dir = path
 	_, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("go mod tidy failed, ignoring error")
+		discard.Info("go mod tidy failed, ignoring error")
 	}
 	return "", nil
 }
@@ -79,7 +82,7 @@ func getDeps(path string) (string, error) {
 	cmd.Dir = path
 	_, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Println("download golangci-lint failed")
+		discard.Info("download golangci-lint failed")
 	}
 	return "", nil
 }

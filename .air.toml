@@ -17,7 +17,7 @@ tmp_dir = "tmp"
     "frontend/dist"
   ]
   exclude_file = []
-  exclude_regex = ["_test.go"]
+  exclude_regex = []
   exclude_unchanged = false
   follow_symlink = false
   full_bin = ""

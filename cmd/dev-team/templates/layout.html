@@ -132,6 +132,7 @@
             <a href="/" class="navbar-brand">Dev Team</a>
             <div class="navbar-links">
                 <a href="/" class="{{if eq .Page "home"}}active{{end}}">Repositories</a>
+                <a href="/logs" class="{{if eq .Page "logs"}}active{{end}}">Logs</a>
                 <a href="/settings" class="{{if eq .Page "settings"}}active{{end}}">Settings</a>
             </div>
         </div>
@@ -139,6 +140,8 @@
     <main class="container">
         {{if eq .Page "home"}}
             {{template "home" .}}
+        {{else if eq .Page "logs"}}
+            {{template "logs" .}}
         {{else}}
             {{template "settings" .}}
         {{end}}

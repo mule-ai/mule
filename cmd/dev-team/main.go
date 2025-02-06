@@ -3,7 +3,6 @@ package main
 import (
 	"embed"
 	"html/template"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"github.com/jbutlerdev/dev-team/internal/handlers"
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/log"
 	"github.com/jbutlerdev/dev-team/pkg/repository"
 
 	"github.com/jbutlerdev/genai"
@@ -29,32 +29,40 @@ func init() {
 	var err error
 	templates, err = template.ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
+	handlers.InitTemplates(templates)
 }
 
 func main() {
+	// Initialize log
+	l := log.New("dev-team.log")
+
 	// Create config path
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal(err)
+		l.Error(err, "Error getting user home directory")
 	}
 	configDir := filepath.Join(homeDir, ".config", "dev-team")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		log.Fatal(err)
+		l.Error(err, "Error creating config directory")
 	}
 	configPath := filepath.Join(configDir, "config.json")
 
 	// Load config
-	appState, err := config.LoadConfig(configPath)
+	appState, err := config.LoadConfig(configPath, l)
 	if err != nil {
-		log.Fatal(err)
+		l.Error(err, "Error loading config")
 	}
 
 	// Initialize GenAI provider
-	genaiProvider, err := genai.NewProvider(appState.Settings.Provider, appState.Settings.APIKey)
+	genaiProvider, err := genai.NewProviderWithLog(
+		appState.Settings.Provider,
+		appState.Settings.APIKey,
+		l.WithName("genai-provider"),
+	)
 	if err != nil {
-		log.Printf("Error initializing GenAI provider: %v", err)
+		l.Error(err, "Error initializing GenAI provider")
 	}
 	appState.GenAI = genaiProvider
 	state.State = appState
@@ -80,6 +88,7 @@ func main() {
 
 	// Web routes
 	r.HandleFunc("/", handleHome).Methods("GET")
+	r.HandleFunc("/logs", handlers.HandleLogs).Methods("GET")
 	r.HandleFunc("/settings", handleSettingsPage).Methods("GET")
 
 	// Configure CORS for API routes
@@ -94,14 +103,16 @@ func main() {
 	defer state.State.Scheduler.Stop()
 
 	handler := c.Handler(r)
-	for _, repo := range state.State.Repositories {
-		err := repo.Sync(state.State.GenAI, appState.Settings.GitHubToken)
-		if err != nil {
-			log.Printf("Error syncing repo: %v", err)
+	go func() {
+		for _, repo := range state.State.Repositories {
+			err := repo.Sync(state.State.GenAI, appState.Settings.GitHubToken)
+			if err != nil {
+				l.Error(err, "Error syncing repo")
+			}
 		}
-	}
-	log.Printf("Server starting on http://0.0.0.0:8083")
-	log.Fatal(http.ListenAndServe("0.0.0.0:8083", handler))
+	}()
+	l.Info("Server starting on http://0.0.0.0:8083")
+	l.Error(http.ListenAndServe("0.0.0.0:8083", handler), "Error starting server")
 }
 
 type PageData struct {

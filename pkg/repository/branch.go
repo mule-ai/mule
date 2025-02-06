@@ -2,9 +2,10 @@ package repository
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"strings"
 )
 
 func (r *Repository) CreateBranch(branchName string) error {
@@ -65,4 +66,18 @@ func (r *Repository) createIssueBranch(issueTitle string) (string, error) {
 	}
 
 	return branchName, nil
+}
+
+func (r *Repository) Reset() error {
+	repo, err := git.PlainOpen(r.Path)
+	if err != nil {
+		return err
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return err
+	}
+
+	return w.Reset(&git.ResetOptions{Mode: git.HardReset})
 }

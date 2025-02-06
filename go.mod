@@ -4,11 +4,14 @@ go 1.22.4
 
 require (
 	github.com/go-git/go-git/v5 v5.13.2
+	github.com/go-logr/logr v1.4.2
+	github.com/go-logr/zapr v1.3.0
 	github.com/google/go-github/v60 v60.0.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jbutlerdev/genai v0.0.0-20250203230504-b181adf3cd9a
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
+	go.uber.org/zap v1.27.0
 	golang.org/x/oauth2 v0.25.0
 )
 
@@ -28,7 +31,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/generative-ai-go v0.19.0 // indirect
@@ -48,6 +50,7 @@ require (
 	go.opentelemetry.io/otel v1.32.0 // indirect
 	go.opentelemetry.io/otel/metric v1.32.0 // indirect
 	go.opentelemetry.io/otel/trace v1.32.0 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.34.0 // indirect

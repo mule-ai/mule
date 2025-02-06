@@ -1,9 +1,9 @@
 package scheduler
 
 import (
-	"log"
 	"sync"
 
+	"github.com/go-logr/logr"
 	"github.com/robfig/cron/v3"
 )
 
@@ -14,15 +14,17 @@ type Task struct {
 }
 
 type Scheduler struct {
-	cron  *cron.Cron
-	tasks map[string]*Task
-	mu    sync.RWMutex
+	cron   *cron.Cron
+	tasks  map[string]*Task
+	mu     sync.RWMutex
+	Logger logr.Logger
 }
 
-func NewScheduler() *Scheduler {
+func NewScheduler(l logr.Logger) *Scheduler {
 	return &Scheduler{
-		cron:  cron.New(),
-		tasks: make(map[string]*Task),
+		cron:   cron.New(),
+		tasks:  make(map[string]*Task),
+		Logger: l,
 	}
 }
 
@@ -45,7 +47,7 @@ func (s *Scheduler) AddTask(key string, schedule string, action func()) error {
 	}
 
 	id, err := s.cron.AddFunc(schedule, func() {
-		log.Printf("Running scheduled task for %s", key)
+		s.Logger.Info("Running scheduled task", "key", key)
 		action()
 	})
 

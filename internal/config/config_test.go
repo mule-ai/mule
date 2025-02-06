@@ -6,16 +6,17 @@ import (
 	"testing"
 
 	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/log"
 )
 
 func TestLoadConfig(t *testing.T) {
 	configPath := filepath.Join("testdata", "config.json")
-
+	l := log.NewStdoutLogger()
 	// Clean up config file after test
 	defer os.RemoveAll("testdata")
 
 	// Test when config file doesn't exist
-	appState, err := LoadConfig(configPath)
+	appState, err := LoadConfig(configPath, l)
 	if err != nil {
 		t.Fatalf("Error loading config: %v", err)
 	}
@@ -31,7 +32,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 
 	// Test when config file exists
-	appState, err = LoadConfig(configPath)
+	appState, err = LoadConfig(configPath, l)
 	if err != nil {
 		t.Fatalf("Error loading config: %v", err)
 	}

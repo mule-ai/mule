@@ -2,10 +2,10 @@ package config
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 	"path/filepath"
 
+	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/dev-team/internal/scheduler"
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
@@ -14,7 +14,12 @@ import (
 
 const ConfigPath = ".config/dev-team/config.json"
 
-func LoadConfig(path string) (*state.AppState, error) {
+type Config struct {
+	Repositories map[string]*repository.Repository `json:"repositories"`
+	Settings     settings.Settings                 `json:"settings"`
+}
+
+func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -24,7 +29,7 @@ func LoadConfig(path string) (*state.AppState, error) {
 				Settings: settings.Settings{
 					Provider: "gemini",
 				},
-				Scheduler: scheduler.NewScheduler(),
+				Scheduler: scheduler.NewScheduler(l),
 			}
 			state.State = appState
 			return appState, SaveConfig(path)
@@ -32,10 +37,7 @@ func LoadConfig(path string) (*state.AppState, error) {
 		return nil, err
 	}
 
-	var config struct {
-		Repositories map[string]repository.Repository `json:"repositories"`
-		Settings     settings.Settings                `json:"settings"`
-	}
+	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
@@ -43,30 +45,31 @@ func LoadConfig(path string) (*state.AppState, error) {
 	appState := &state.AppState{
 		Repositories: make(map[string]*repository.Repository),
 		Settings:     config.Settings,
-		Scheduler:    scheduler.NewScheduler(),
+		Scheduler:    scheduler.NewScheduler(l),
 	}
 
 	// Set up repositories and their schedules
 	for path, repo := range config.Repositories {
 		r := repository.NewRepository(repo.Path)
+		r.Logger = l.WithName("repository").WithValues("path", repo.Path)
 		r.Schedule = repo.Schedule
 		r.RemotePath = repo.RemotePath
 		err := r.UpdateStatus()
 		if err != nil {
-			log.Printf("Error getting repo status: %v", err)
+			l.Error(err, "Error getting repo status")
 		}
 		appState.Repositories[path] = r
 		err = appState.Scheduler.AddTask(path, repo.Schedule, func() {
 			err := r.Sync(state.State.GenAI, appState.Settings.GitHubToken)
 			if err != nil {
-				log.Printf("Error syncing repo: %v", err)
+				l.Error(err, "Error syncing repo")
 			}
 			appState.Mu.Lock()
 			appState.Repositories[path] = r
 			appState.Mu.Unlock()
 		})
 		if err != nil {
-			log.Printf("Error setting up schedule for %s: %v", path, err)
+			l.Error(err, "Error setting up schedule for %s", path)
 		}
 	}
 
@@ -81,16 +84,13 @@ func SaveConfig(path string) error {
 	defer state.State.Mu.RUnlock()
 
 	// Create config from state
-	config := struct {
-		Repositories map[string]repository.Repository `json:"repositories"`
-		Settings     settings.Settings                `json:"settings"`
-	}{
-		Repositories: make(map[string]repository.Repository),
+	config := Config{
+		Repositories: make(map[string]*repository.Repository),
 		Settings:     state.State.Settings,
 	}
 
 	for path, repo := range state.State.Repositories {
-		config.Repositories[path] = *repo
+		config.Repositories[path] = repo
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")

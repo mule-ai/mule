@@ -2,10 +2,11 @@ package repository
 
 import (
 	"fmt"
-	"log"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/dev-team/pkg/auth"
 	"github.com/jbutlerdev/dev-team/pkg/github"
 
@@ -18,16 +19,19 @@ import (
 )
 
 // set static model const until agent is implemented
-const MODEL = "models/gemini-2.0-flash-exp"
+const MODEL = "models/gemini-2.0-flash"
 
 type Repository struct {
-	Path         string               `json:"path"`
-	Schedule     string               `json:"schedule"`
-	LastSync     time.Time            `json:"lastSync"`
-	State        *Status              `json:"status,omitempty"`
-	Issues       map[int]*Issue       `json:"issues,omitempty"`
-	PullRequests map[int]*PullRequest `json:"pullRequests,omitempty"`
-	RemotePath   string               `json:"remotePath,omitempty"`
+	Path         string    `json:"path"`
+	Schedule     string    `json:"schedule"`
+	LastSync     time.Time `json:"lastSync"`
+	State        *Status   `json:"status,omitempty"`
+	RemotePath   string    `json:"remotePath,omitempty"`
+	Issues       map[int]*Issue
+	PullRequests map[int]*PullRequest
+	mu           sync.RWMutex
+	Locked       bool
+	Logger       logr.Logger
 }
 
 type Changes struct {
@@ -41,6 +45,8 @@ func NewRepository(path string) *Repository {
 		Path:         path,
 		Issues:       make(map[int]*Issue),
 		PullRequests: make(map[int]*PullRequest),
+		mu:           sync.RWMutex{},
+		Locked:       false,
 	}
 }
 
@@ -63,7 +69,7 @@ func (r *Repository) Clone(repoURL string) error {
 		Auth:     auth,
 	})
 	if err != nil {
-		log.Printf("Error cloning repository: %s into %s: error: %v", repoURL, r.Path, err)
+		r.Logger.Error(err, "Error cloning repository", "repoURL", repoURL, "path", r.Path)
 		return fmt.Errorf("error cloning repository: %v", err)
 	}
 	return nil
@@ -129,7 +135,7 @@ func (r *Repository) Push() error {
 		currentBranch.Name().Short(),
 	)
 	refSpec := config.RefSpec(refSpecStr)
-	log.Printf("Pushing %s", refSpec)
+	r.Logger.Info("Pushing", "refSpec", refSpec)
 	// Update push options to include SSH auth
 	return repo.Push(&git.PushOptions{
 		RemoteName: "origin",
@@ -159,23 +165,30 @@ func (r *Repository) Fetch() error {
 }
 
 func (r *Repository) Sync(aiService *genai.Provider, token string) error {
-	err := r.UpdateStatus()
+	err := r.lock()
 	if err != nil {
-		log.Printf("Error getting repo status: %v", err)
+		r.Logger.Error(err, "Error locking repository")
+		return err
+	}
+	defer r.unlock()
+
+	err = r.UpdateStatus()
+	if err != nil {
+		r.Logger.Error(err, "Error getting repo status")
 		return err
 	}
 
 	// get latest pull requests
 	err = r.UpdatePullRequests(token)
 	if err != nil {
-		log.Printf("Error updating pull requests: %v", err)
+		r.Logger.Error(err, "Error updating pull requests")
 		return err
 	}
 
 	// get latest issues
 	err = r.UpdateIssues(token)
 	if err != nil {
-		log.Printf("Error updating issues: %v", err)
+		r.Logger.Error(err, "Error updating issues")
 		return err
 	}
 	// add pull requests to issues
@@ -185,6 +198,16 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 
 	// select issue to work on
 	for _, issue := range r.Issues {
+		// if there are existing changes, log because we can't start work
+		if r.State.HasChanges {
+			r.Logger.Info("There are existing changes, resetting")
+			err = r.Reset()
+			if err != nil {
+				r.Logger.Error(err, "Error resetting repository")
+				return err
+			}
+		}
+
 		currentIssue := issue
 		branchName, err := r.createIssueBranch(currentIssue.Title)
 		if err != nil {
@@ -194,42 +217,31 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		r.State.CurrentBranch = branchName
 
 		if currentIssue.prExists() {
-			log.Printf("PR already exists for repository %s, issue %d", r.Path, currentIssue.ID)
+			r.Logger.Info("PR already exists for repository", "path", r.Path, "issue", currentIssue.ID)
 			continue
 		}
 
-		// if there are existing changes, log because we can't start work
-		if r.State.HasChanges {
-			log.Printf("There are existing changes, skipping sync")
-			return fmt.Errorf("there are existing changes, skipping sync")
-		}
-
-		if len(r.Issues) == 0 {
-			log.Printf("No issues found, skipping sync")
-			return fmt.Errorf("no issues found, skipping sync")
-		}
-
-		log.Println("Starting generation")
+		r.Logger.Info("Starting generation")
 		err = r.generateFromIssue(aiService, currentIssue)
 		if err != nil {
-			log.Printf("Error generating changes: %v", err)
+			r.Logger.Error(err, "Error generating changes")
 			return err
 		}
 
 		// validate that generation resulted in changes
 		err = r.UpdateStatus()
 		if err != nil {
-			log.Printf("Error updating status: %v", err)
+			r.Logger.Error(err, "Error updating status")
 			return err
 		}
 
 		if !r.State.HasChanges {
-			log.Printf("No changes found, expected changes from AI")
+			r.Logger.Info("No changes found, expected changes from AI")
 			return fmt.Errorf("no changes found, expected changes from AI")
 		}
 		err = r.createPR(aiService, currentIssue, token)
 		if err != nil {
-			log.Printf("Error creating PR: %v", err)
+			r.Logger.Error(err, "Error creating PR")
 			return err
 		}
 	}
@@ -304,7 +316,7 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 	// generate changes for issue
 	toolsToUse, err := tools.GetTools([]string{"writeFile", "tree", "readFile"})
 	if err != nil {
-		log.Printf("Error getting tools: %v", err)
+		r.Logger.Error(err, "Error getting tools")
 		return err
 	}
 	for _, tool := range toolsToUse {
@@ -314,7 +326,7 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 
 	go func() {
 		for response := range chat.Recv {
-			log.Printf("Response: %v", response)
+			r.Logger.Info("Response", "response", response)
 		}
 	}()
 
@@ -332,7 +344,7 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 		done:        chat.GenerationComplete,
 	})
 	if err != nil {
-		log.Printf("Error validating output: %v", err)
+		r.Logger.Error(err, "Error validating output")
 		return err
 	}
 
@@ -343,38 +355,38 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 func (r *Repository) createPR(aiService *genai.Provider, issue *Issue, token string) error {
 	summary, err := r.ChangeSummary()
 	if err != nil {
-		log.Printf("Error getting change summary: %v", err)
+		r.Logger.Error(err, "Error getting change summary")
 		return err
 	}
 
 	commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
 	if err != nil {
-		log.Printf("Error generating commit message: %v", err)
+		r.Logger.Error(err, "Error generating commit message")
 		return err
 	}
 	// Commit changes
 	err = r.Commit(commitMessage)
 	if err != nil {
-		log.Printf("Error committing changes: %v", err)
+		r.Logger.Error(err, "Error committing changes")
 		return err
 	}
 
 	// Push changes
 	err = r.Push()
 	if err != nil {
-		log.Printf("Error pushing changes: %v", err)
+		r.Logger.Error(err, "Error pushing changes")
 		return err
 	}
 
 	prTitle, err := aiService.Generate(MODEL, CommitPrompt(summary))
 	if err != nil {
-		log.Printf("Error generating PR title: %v", err)
+		r.Logger.Error(err, "Error generating PR title")
 		return err
 	}
 
 	prDescription, err := aiService.Generate(MODEL, PRPrompt(summary))
 	if err != nil {
-		log.Printf("Error generating PR description: %v", err)
+		r.Logger.Error(err, "Error generating PR description")
 		return err
 	}
 
@@ -383,7 +395,6 @@ func (r *Repository) createPR(aiService *genai.Provider, issue *Issue, token str
 		prDescription,
 		fmt.Sprintf("Closes #%d", issue.ID),
 		issue.SourceURL)
-
 	return github.CreateDraftPR(r.Path, token, github.GitHubPRInput{
 		Title:               prTitle,
 		Branch:              r.State.CurrentBranch,
@@ -392,4 +403,23 @@ func (r *Repository) createPR(aiService *genai.Provider, issue *Issue, token str
 		Draft:               true,
 		MaintainerCanModify: true,
 	})
+}
+
+func (r *Repository) lock() error {
+	r.mu.RLock()
+	locked := r.Locked
+	r.mu.RUnlock()
+	if locked {
+		return fmt.Errorf("repository is locked")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Locked = true
+	return nil
+}
+
+func (r *Repository) unlock() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Locked = false
 }

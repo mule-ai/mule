@@ -28,9 +28,19 @@
             <div class="repository-header">
                 <h3>{{$path}}</h3>
                 <div class="repository-actions">
-                    <button class="sync-button" onclick="syncRepository('{{$path}}')">Sync</button>
+                    <button class="sync-button" onclick="syncRepository('{{$path}}')" {{if $repo.Locked}}disabled{{end}}>Sync</button>
                     <button class="delete-button" onclick="removeRepository('{{$path}}')">Remove</button>
                 </div>
+            </div>
+            <div class="repository-status">
+                {{if $repo.Locked}}
+                    <a href="/logs" class="status syncing">
+                        <span class="spinner"></span>
+                        Syncing...
+                    </a>
+                {{else}}
+                    <span class="status idle">Ready</span>
+                {{end}}
             </div>
             <p>Schedule: <span class="chip">{{$repo.Schedule}}</span></p>
             {{if $repo.State}}
@@ -175,6 +185,55 @@ select.input:focus {
 
 .delete-button:hover {
     background-color: #c82333;
+}
+
+.repository-status {
+    margin: 0.5rem 0;
+}
+
+.status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    text-decoration: none;
+}
+
+.status.syncing {
+    background-color: #2196f3;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.status.syncing:hover {
+    background-color: #1976d2;
+}
+
+.status.idle {
+    background-color: #4caf50;
+    color: white;
+}
+
+.spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid #ffffff;
+    border-top: 2px solid transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.sync-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 </style>
 
