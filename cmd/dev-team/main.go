@@ -58,8 +58,11 @@ func main() {
 	// Initialize GenAI provider
 	genaiProvider, err := genai.NewProviderWithLog(
 		appState.Settings.Provider,
-		appState.Settings.APIKey,
-		l.WithName("genai-provider"),
+		genai.ProviderOptions{
+			APIKey:  appState.Settings.APIKey,
+			BaseURL: appState.Settings.Server,
+			Log:     l.WithName("genai-provider"),
+		},
 	)
 	if err != nil {
 		l.Error(err, "Error initializing GenAI provider")

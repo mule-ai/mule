@@ -19,7 +19,8 @@ import (
 )
 
 // set static model const until agent is implemented
-const MODEL = "models/gemini-2.0-flash"
+// const MODEL = "models/gemini-2.0-flash"
+const MODEL = "qwen2.5:7b-instruct-q6_K"
 
 type Repository struct {
 	Path         string    `json:"path"`

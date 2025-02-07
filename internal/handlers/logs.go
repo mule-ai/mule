@@ -63,7 +63,7 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 		var entry LogEntry
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
 			log.Printf("Error unmarshalling log entry: %v", err)
-			log.Printf("Log entry: %v", fmt.Sprintf("%v", scanner.Bytes()))
+			log.Printf("Log entry: %v", fmt.Sprintf("%v", string(scanner.Bytes())))
 			continue // Skip invalid JSON entries
 		}
 		entry.Time = time.Unix(int64(entry.TimeStamp), 0)
