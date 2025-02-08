@@ -58,6 +58,8 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 	// Map to store conversations by ID
 	conversations := make(map[string]*Conversation)
 	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 
 	for scanner.Scan() {
 		var entry LogEntry
@@ -70,9 +72,11 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 
 		// Apply filters
 		if level != "" && !strings.EqualFold(entry.Level, level) {
+			log.Printf("Skipping log entry due to level: %v", entry)
 			continue
 		}
 		if search != "" && !strings.Contains(strings.ToLower(entry.Message), strings.ToLower(search)) {
+			log.Printf("Skipping log entry due to search: %v", entry)
 			continue
 		}
 
@@ -90,6 +94,10 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+	err = scanner.Err()
+	if err != nil {
+		log.Printf("Error scanning log file: %v", err)
 	}
 
 	// Convert map to slice and sort by start time
