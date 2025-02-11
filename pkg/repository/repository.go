@@ -19,8 +19,9 @@ import (
 )
 
 // set static model const until agent is implemented
-// const MODEL = "models/gemini-2.0-flash"
-const MODEL = "qwen2.5:7b-instruct-q6_K"
+const MODEL = "models/gemini-2.0-flash"
+
+// const MODEL = "qwen2.5:7b-instruct-q6_K"
 
 type Repository struct {
 	Path         string    `json:"path"`
@@ -209,21 +210,20 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 			}
 		}
 
-		currentIssue := issue
-		branchName, err := r.createIssueBranch(currentIssue.Title)
-		if err != nil {
-			return fmt.Errorf("error creating issue branch: %w", err)
-		}
-
-		r.State.CurrentBranch = branchName
-
-		if currentIssue.prExists() {
-			r.Logger.Info("PR already exists for repository", "path", r.Path, "issue", currentIssue.ID)
+		if issue.Completed() {
+			r.Logger.Info("Issue already completed", "path", r.Path, "issue", issue.ID)
 			continue
 		}
 
+		// checkout new branch for issue
+		branchName, err := r.createIssueBranch(issue.Title)
+		if err != nil {
+			return fmt.Errorf("error creating issue branch: %w", err)
+		}
+		r.State.CurrentBranch = branchName
+
 		r.Logger.Info("Starting generation")
-		err = r.generateFromIssue(aiService, currentIssue)
+		err = r.generateFromIssue(aiService, issue, token)
 		if err != nil {
 			r.Logger.Error(err, "Error generating changes")
 			return err
@@ -240,7 +240,7 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 			r.Logger.Info("No changes found, expected changes from AI")
 			return fmt.Errorf("no changes found, expected changes from AI")
 		}
-		err = r.createPR(aiService, currentIssue, token)
+		err = r.createPR(aiService, issue, token)
 		if err != nil {
 			r.Logger.Error(err, "Error creating PR")
 			return err
@@ -313,7 +313,7 @@ func (r *Repository) getChanges() (*Changes, error) {
 	}, nil
 }
 
-func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) error {
+func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue, token string) error {
 	// generate changes for issue
 	toolsToUse, err := tools.GetTools([]string{"writeFile", "tree", "readFile"})
 	if err != nil {
@@ -330,8 +330,22 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 			r.Logger.Info("Response", "response", response)
 		}
 	}()
+	var unresolvedCommentId int64
+	// if issue has not PR, send issue prompt
+	if !issue.PrExists() {
+		chat.Send <- IssuePrompt(issue.ToString())
+	} else {
+		// if issue has PR, send PR comment prompt
+		pr, hasUnresolvedComments := issue.PRHasUnresolvedComments()
+		unresolvedComment := pr.FirstUnresolvedComment()
+		if hasUnresolvedComments {
+			unresolvedCommentId = unresolvedComment.ID
+			chat.Send <- PRCommentPrompt(issue.ToString(), pr.Diff, unresolvedComment.Body, unresolvedComment.DiffHunk)
+		} else {
+			return fmt.Errorf("expected PR with unresolved comments, but none found")
+		}
+	}
 
-	chat.Send <- IssuePrompt(issue.ToString())
 	defer func() {
 		chat.Done <- true
 	}()
@@ -348,7 +362,13 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 		r.Logger.Error(err, "Error validating output")
 		return err
 	}
-
+	if unresolvedCommentId != 0 {
+		err = github.AddCommentReaction(r.Path, token, "+1", unresolvedCommentId)
+		if err != nil {
+			r.Logger.Error(err, "Error acknowledging PR comment")
+			return err
+		}
+	}
 	return nil
 }
 

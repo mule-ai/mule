@@ -18,9 +18,17 @@ func (r *Repository) CreateBranch(branchName string) error {
 	if err != nil {
 		return err
 	}
-
-	ref := plumbing.NewHashReference(plumbing.NewBranchReferenceName(branchName), head.Hash())
-	return repo.Storer.SetReference(ref)
+	// check if branch exists
+	_, err = repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	if err == plumbing.ErrReferenceNotFound {
+		// branch doesn't exist, create it
+		ref := plumbing.NewHashReference(plumbing.NewBranchReferenceName(branchName), head.Hash())
+		return repo.Storer.SetReference(ref)
+	} else if err != nil {
+		return err
+	}
+	// branch exists, nothing to do
+	return nil
 }
 
 func (r *Repository) CheckoutBranch(branchName string) error {

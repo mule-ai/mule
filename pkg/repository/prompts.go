@@ -29,3 +29,14 @@ func IssuePrompt(issue string) string {
 		"It is recommended that you first list the files in the repository and read one of them to get an idea of the codebase.\n"+
 		"After that, make sure you use the writeFile tool to write the code to a file.\n\n", issue)
 }
+
+func PRCommentPrompt(issue, diffs, comment, diffHunk string) string {
+	// return a prompt that includes the original issue and the comment
+	return fmt.Sprintf("You were given the following Issue to address:\n\n%s\n\n"+
+		"From this, you generated the following pull request:\n\n%s\n\n"+
+		"A User provided you the following comment on the pull request:\n\n%s\n\n"+
+		"Which applies to the following diff hunk:\n\n%s\n\n"+
+		"Update your code to properly and thoroughly address the comment.\n"+
+		"It is recommended that you first list the files in the repository and read one of them to get an idea of the codebase.\n"+
+		"After that, make sure you use the writeFile tool to write the code to a file.\n\n", issue, diffs, comment, diffHunk)
+}

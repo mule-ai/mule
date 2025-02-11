@@ -31,8 +31,27 @@ func (i *Issue) addPullRequests(pullRequests map[int]*PullRequest) {
 	}
 }
 
-func (i *Issue) prExists() bool {
+func (i *Issue) Completed() bool {
+	_, hasUnresolvedComments := i.PRHasUnresolvedComments()
+	if hasUnresolvedComments {
+		return false
+	} else if i.PrExists() {
+		return true
+	}
+	return false
+}
+
+func (i *Issue) PrExists() bool {
 	return len(i.PullRequests) > 0
+}
+
+func (i *Issue) PRHasUnresolvedComments() (*PullRequest, bool) {
+	for _, pullRequest := range i.PullRequests {
+		if pullRequest.HasUnresolvedComments() {
+			return pullRequest, true
+		}
+	}
+	return nil, false
 }
 
 func (r *Repository) GetIssues() ([]*Issue, error) {
