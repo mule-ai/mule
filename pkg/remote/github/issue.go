@@ -74,3 +74,15 @@ func (p *Provider) AddLabelToIssue(issueNumber int, label string) error {
 func (p *Provider) UpdateIssueState(issueNumber int, state string) error {
 	return nil
 }
+
+func (p *Provider) CreateIssueComment(remotePath string, issueNumber int, comment types.Comment) error {
+	return nil
+}
+
+func (p *Provider) DeleteIssue(repoPath string, issueNumber int) error {
+	return nil
+}
+
+func (p *Provider) DeletePullRequest(repoPath string, prNumber int) error {
+	return nil
+}

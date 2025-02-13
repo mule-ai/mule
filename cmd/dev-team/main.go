@@ -97,6 +97,8 @@ func main() {
 
 	// Local provider routes
 	api.HandleFunc("/local/issues", handlers.HandleCreateLocalIssue).Methods("POST")
+	api.HandleFunc("/local/issues", handlers.HandleDeleteLocalIssue).Methods("DELETE")
+	api.HandleFunc("/local/pullrequests", handlers.HandleDeleteLocalPullRequest).Methods("DELETE")
 	api.HandleFunc("/local/comments", handlers.HandleAddLocalComment).Methods("POST")
 	api.HandleFunc("/local/reactions", handlers.HandleAddLocalReaction).Methods("POST")
 	api.HandleFunc("/local/diff", handlers.HandleGetLocalDiff).Methods("GET")

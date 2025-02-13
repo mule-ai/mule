@@ -162,6 +162,10 @@ func (p *Provider) UpdatePullRequestState(remotePath string, prNumber int, state
 	return nil
 }
 
+func (p *Provider) CreatePRComment(remotePath string, prNumber int, comment types.Comment) error {
+	return nil
+}
+
 func (p *Provider) FetchDiffs(owner, repo string, resourceID int) (string, error) {
 	diff, _, err := p.Client.PullRequests.GetRaw(p.ctx, owner, repo, resourceID, github.RawOptions{Type: github.Diff})
 	if err != nil {

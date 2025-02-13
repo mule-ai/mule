@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
 	"github.com/jbutlerdev/dev-team/pkg/remote/types"
-	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
 type LocalPageData struct {
@@ -118,6 +116,7 @@ func HandleAddLocalComment(w http.ResponseWriter, r *http.Request) {
 		ResourceID   int    `json:"resourceId"`
 		ResourceType string `json:"resourceType"`
 		Body         string `json:"body"`
+		DiffHunk     string `json:"diffHunk,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -134,30 +133,26 @@ func HandleAddLocalComment(w http.ResponseWriter, r *http.Request) {
 	repo.Mu.Lock()
 	defer repo.Mu.Unlock()
 
-	comment := &repository.Comment{
-		ID:        time.Now().UnixNano(),
+	comment := &types.Comment{
+		ID:        time.Now().Unix(),
 		Body:      req.Body,
+		DiffHunk:  req.DiffHunk,
 		Reactions: types.Reactions{},
 	}
 
 	switch req.ResourceType {
 	case "issue":
-		issue, exists := repo.Issues[req.ResourceID]
-		if !exists {
-			http.Error(w, "Issue not found", http.StatusNotFound)
+		err = repo.Remote.CreateIssueComment(req.Path, req.ResourceID, *comment)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		issue.Comments = append(issue.Comments, comment)
 	case "pr":
-		pr, exists := repo.PullRequests[req.ResourceID]
-		if !exists {
-			http.Error(w, "Pull request not found", http.StatusNotFound)
+		err = repo.Remote.CreatePRComment(req.Path, req.ResourceID, *comment)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		pr.Comments = append(pr.Comments, comment)
-	default:
-		http.Error(w, "Invalid resource type", http.StatusBadRequest)
-		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -184,74 +179,9 @@ func HandleAddLocalReaction(w http.ResponseWriter, r *http.Request) {
 	repo.Mu.Lock()
 	defer repo.Mu.Unlock()
 
-	log.Printf("req: %+v", req)
-
-	// Find the comment in issues or PRs
-	found := false
-	for _, issue := range repo.Issues {
-		for i := range issue.Comments {
-			if issue.Comments[i].ID == req.CommentID {
-				switch req.Reaction {
-				case "+1":
-					issue.Comments[i].Reactions.PlusOne++
-				case "-1":
-					issue.Comments[i].Reactions.MinusOne++
-				case "laugh":
-					issue.Comments[i].Reactions.Laugh++
-				case "confused":
-					issue.Comments[i].Reactions.Confused++
-				case "heart":
-					issue.Comments[i].Reactions.Heart++
-				case "hooray":
-					issue.Comments[i].Reactions.Hooray++
-				case "rocket":
-					issue.Comments[i].Reactions.Rocket++
-				case "eyes":
-					issue.Comments[i].Reactions.Eyes++
-				}
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	if !found {
-		for _, pr := range repo.PullRequests {
-			for i := range pr.Comments {
-				if pr.Comments[i].ID == req.CommentID {
-					switch req.Reaction {
-					case "+1":
-						pr.Comments[i].Reactions.PlusOne++
-					case "-1":
-						pr.Comments[i].Reactions.MinusOne++
-					case "laugh":
-						pr.Comments[i].Reactions.Laugh++
-					case "confused":
-						pr.Comments[i].Reactions.Confused++
-					case "heart":
-						pr.Comments[i].Reactions.Heart++
-					case "hooray":
-						pr.Comments[i].Reactions.Hooray++
-					case "rocket":
-						pr.Comments[i].Reactions.Rocket++
-					case "eyes":
-						pr.Comments[i].Reactions.Eyes++
-					}
-					found = true
-					break
-				}
-			}
-			if found {
-				break
-			}
-		}
-	}
-
-	if !found {
-		http.Error(w, "Comment not found", http.StatusNotFound)
+	err = repo.Remote.AddCommentReaction(req.Path, req.Reaction, req.CommentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -379,6 +309,64 @@ func HandleUpdateLocalPullRequestState(w http.ResponseWriter, r *http.Request) {
 	defer repo.Mu.Unlock()
 
 	err = repo.Remote.UpdatePullRequestState(req.Path, req.PRNumber, req.State)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func HandleDeleteLocalIssue(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path        string `json:"path"`
+		IssueNumber int    `json:"issueNumber"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo, err := getRepository(req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	repo.Mu.Lock()
+	defer repo.Mu.Unlock()
+
+	err = repo.Remote.DeleteIssue(req.Path, req.IssueNumber)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func HandleDeleteLocalPullRequest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path     string `json:"path"`
+		PRNumber int    `json:"prNumber"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo, err := getRepository(req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	repo.Mu.Lock()
+	defer repo.Mu.Unlock()
+
+	err = repo.Remote.DeletePullRequest(req.Path, req.PRNumber)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

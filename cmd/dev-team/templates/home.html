@@ -28,22 +28,16 @@
             <div class="repository-header">
                 <h3>{{$path}}</h3>
                 <div class="repository-actions">
-                    <button class="sync-button" onclick="syncRepository('{{$path}}')" {{if $repo.Locked}}disabled{{end}}>Sync</button>
+                    <button class="sync-button {{if $repo.Locked}}syncing{{end}}" 
+                            onclick="syncRepository('{{$path}}')" 
+                            data-repo-path="{{$path}}"
+                            {{if $repo.Locked}}disabled{{end}}>
+                        <span class="sync-icon"></span>
+                        <span class="sync-text">{{if $repo.Locked}}Syncing...{{else}}Sync{{end}}</span>
+                    </button>
                     <button class="delete-button" onclick="removeRepository('{{$path}}')">Remove</button>
                 </div>
             </div>
-            <div class="repository-status">
-                {{if $repo.Locked}}
-                    <a href="/logs" class="status syncing">
-                        <span class="spinner"></span>
-                        Syncing...
-                    </a>
-                {{else}}
-                    <span class="status idle">Ready</span>
-                {{end}}
-            </div>
-            <p>Provider: <span class="chip">{{$repo.RemoteProvider.Provider}}</span></p>
-            <p>Schedule: <span class="chip">{{$repo.Schedule}}</span></p>
             {{if $repo.State}}
                 <p>Branch: <span class="chip {{if $repo.State.HasChanges}}warning{{else}}success{{end}}">
                     {{$repo.State.CurrentBranch}}
@@ -52,10 +46,10 @@
                     <p>Changed files: {{range $repo.State.ChangedFiles}}{{.}} {{end}}</p>
                 {{end}}
             {{end}}
+            <p>Provider: <span class="chip">{{$repo.RemoteProvider.Provider}}</span></p>
+            <p>Schedule: <span class="chip">{{$repo.Schedule}}</span></p>
             <p>Last Sync: {{$repo.LastSync}}</p>
             <button onclick="handleUpdateRepo('{{$path}}')" class="button">Update</button>
-            <button onclick="handleCommit('{{$path}}')" class="button" {{if not $repo.State.HasChanges}}disabled{{end}}>Commit</button>
-            <button onclick="handlePush('{{$path}}')" class="button">Push</button>
             {{if eq $repo.RemoteProvider.Provider "local"}}
                 <button onclick="window.location.href='/local-provider?path={{$path}}'" class="button">Local Provider</button>
             {{end}}
@@ -238,6 +232,75 @@ select.input:focus {
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+.sync-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    background-color: #2196f3;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.sync-button:hover:not(:disabled) {
+    background-color: #1976d2;
+}
+
+.sync-button.syncing {
+    background-color: #1976d2;
+    cursor: not-allowed;
+}
+
+.sync-icon {
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+}
+
+.sync-button.syncing .sync-icon {
+    animation: spin 1s linear infinite;
+}
+
+.sync-button:disabled {
+    opacity: 1;
+}
+
+.repository-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.repository-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.chip {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 1rem;
+    background-color: var(--surface-color);
+    font-size: 0.875rem;
+}
+
+.chip.warning {
+    background-color: #ffc107;
+    color: #000;
+}
+
+.chip.success {
+    background-color: #28a745;
+    color: white;
+}
 </style>
 
 <script>
@@ -297,48 +360,6 @@ async function handleAddRepository(event) {
 async function handleUpdateRepo(path) {
     try {
         const response = await fetch('/api/repositories/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path })
-        });
-        if (!response.ok) throw new Error(await response.text());
-        window.location.reload();
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
-}
-
-async function handleCommit(path) {
-    try {
-        const response = await fetch('/api/repositories/commit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path })
-        });
-        if (!response.ok) throw new Error(await response.text());
-        window.location.reload();
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
-}
-
-async function handlePush(path) {
-    try {
-        const response = await fetch('/api/repositories/push', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path })
-        });
-        if (!response.ok) throw new Error(await response.text());
-        window.location.reload();
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
-}
-
-async function handleCreatePR(path) {
-    try {
-        const response = await fetch('/api/repositories/pr', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path })
@@ -433,10 +454,17 @@ async function removeRepository(path) {
 }
 
 async function syncRepository(path) {
+    const button = document.querySelector(`button.sync-button[data-repo-path="${path}"]`);
+    if (!button || button.disabled) return;
+    
+    button.disabled = true;
+    button.classList.add('syncing');
+    button.querySelector('.sync-text').textContent = 'Syncing...';
+    
     try {
-        const response = await fetch(`/api/repositories/sync?path=${path}`, {
-            method: 'POST',
-        })
+        const response = await fetch(`/api/repositories/sync?path=${encodeURIComponent(path)}`, {
+            method: 'POST'
+        });
 
         if (!response.ok) {
             throw new Error(await response.text());
@@ -447,8 +475,12 @@ async function syncRepository(path) {
     } catch (error) {
         console.error('Error syncing repository:', error);
         alert(error.message);
+        
+        // Reset button state on error
+        button.disabled = false;
+        button.classList.remove('syncing');
+        button.querySelector('.sync-text').textContent = 'Sync';
     }
-    
 }
 </script>
 {{end}}

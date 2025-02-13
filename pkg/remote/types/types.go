@@ -45,6 +45,7 @@ type PullRequest struct {
 	IssueURL        string     `json:"issue_url"`
 	CreatedAt       string     `json:"created_at"`
 	UpdatedAt       string     `json:"updated_at"`
+	Branch          string     `json:"branch"`
 	BaseBranch      string     `json:"base_branch"`
 	LinkedIssueURLs []string   `json:"linked_issue_urls"`
 	Diff            string     `json:"diff"`

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/jbutlerdev/dev-team/pkg/remote/types"
 )
@@ -16,6 +19,8 @@ const (
 	dataPath    = ".config/dev-team/local-provider.json"
 	filterLabel = "dev-team"
 )
+
+var re = regexp.MustCompile(`<!--(.*?)-->`)
 
 type Provider struct {
 	Path         string                     `json:"path"`
@@ -35,12 +40,15 @@ func NewProvider(path string) *Provider {
 
 func (p *Provider) CreateDraftPR(path string, input types.PullRequestInput) error {
 	p.IssueCounter++
+	linkedIssueURLs := getLinkedIssueURLs(input.Description)
 	p.PullRequests[p.IssueCounter] = &types.PullRequest{
-		Number:     p.IssueCounter,
-		Title:      input.Title,
-		Body:       input.Description,
-		State:      "draft",
-		BaseBranch: input.Base,
+		Number:          p.IssueCounter,
+		Title:           input.Title,
+		Body:            input.Description,
+		State:           "draft",
+		BaseBranch:      input.Base,
+		Branch:          input.Branch,
+		LinkedIssueURLs: linkedIssueURLs,
 	}
 
 	return p.Save()
@@ -53,6 +61,24 @@ func (p *Provider) CreateIssue(issue types.Issue) (int, error) {
 	p.Issues[p.IssueCounter] = &issue
 
 	return p.IssueCounter, p.Save()
+}
+
+func (p *Provider) DeleteIssue(repoPath string, issueNumber int) error {
+	_, ok := p.Issues[issueNumber]
+	if !ok {
+		return fmt.Errorf("issue %d not found", issueNumber)
+	}
+	delete(p.Issues, issueNumber)
+	return p.Save()
+}
+
+func (p *Provider) DeletePullRequest(repoPath string, prNumber int) error {
+	_, ok := p.PullRequests[prNumber]
+	if !ok {
+		return fmt.Errorf("pull request %d not found", prNumber)
+	}
+	delete(p.PullRequests, prNumber)
+	return p.Save()
 }
 
 func (p *Provider) UpdateIssueState(issueNumber int, state string) error {
@@ -113,7 +139,26 @@ func (p *Provider) UpdatePullRequestState(remotePath string, prNumber int, state
 }
 
 func (p *Provider) FetchDiffs(owner, repo string, resourceID int) (string, error) {
-	return "", nil
+	pr, ok := p.PullRequests[resourceID]
+	if !ok {
+		return "", fmt.Errorf("pull request %d not found", resourceID)
+	}
+
+	// Create a temporary directory for the diff operation
+	tmpDir, err := os.MkdirTemp("", "dev-team-diff-*")
+	if err != nil {
+		return "", fmt.Errorf("error creating temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Run git diff command
+	cmd := exec.Command("git", "-C", p.Path, "diff", pr.BaseBranch+".."+pr.Branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("error generating diff: %v: %s", err, string(output))
+	}
+
+	return string(output), nil
 }
 
 func (p *Provider) FetchComments(owner, repo string, prNumber int) ([]*types.Comment, error) {
@@ -129,15 +174,55 @@ func (p *Provider) AddCommentReaction(repoPath, reaction string, commentID int64
 		for _, comment := range pr.Comments {
 			if comment.ID == commentID {
 				comment.Reactions = addReactionToReactions(comment.Reactions, reaction)
+				return p.Save()
 			}
 		}
 	}
-
-	return p.Save()
+	for _, issue := range p.Issues {
+		for _, comment := range issue.Comments {
+			if comment.ID == commentID {
+				comment.Reactions = addReactionToReactions(comment.Reactions, reaction)
+				return p.Save()
+			}
+		}
+	}
+	return fmt.Errorf("comment %d not found", commentID)
 }
 
 func (p *Provider) FetchRepositories() ([]types.Repository, error) {
 	return nil, nil
+}
+
+func (p *Provider) CreateIssueComment(remotePath string, issueNumber int, comment types.Comment) error {
+	issue, ok := p.Issues[issueNumber]
+	if !ok {
+		return fmt.Errorf("issue %d not found", issueNumber)
+	}
+	issue.Comments = append(issue.Comments, &comment)
+	p.Issues[issueNumber] = issue
+	return p.Save()
+}
+
+func (p *Provider) CreatePRComment(remotePath string, prNumber int, comment types.Comment) error {
+	pr, ok := p.PullRequests[prNumber]
+	if !ok {
+		return fmt.Errorf("pull request %d not found", prNumber)
+	}
+
+	// If there's a diff hunk, validate it exists in the PR diff
+	if comment.DiffHunk != "" {
+		diff, err := p.FetchDiffs("", "", prNumber)
+		if err != nil {
+			return fmt.Errorf("error validating diff hunk: %v", err)
+		}
+		if !strings.Contains(diff, comment.DiffHunk) {
+			return fmt.Errorf("diff hunk not found in PR diff")
+		}
+	}
+
+	pr.Comments = append(pr.Comments, &comment)
+	p.PullRequests[prNumber] = pr
+	return p.Save()
 }
 
 func addReactionToReactions(reactions types.Reactions, reaction string) types.Reactions {
@@ -241,4 +326,16 @@ func validatePath(path string) (string, error) {
 		}
 	}
 	return absPath, nil
+}
+
+func getLinkedIssueURLs(body string) []string {
+	// URLs are in HTML comments
+	matches := re.FindAllString(body, -1)
+	urls := make([]string, len(matches))
+	for i, match := range matches {
+		match = strings.TrimPrefix(match, "<!--")
+		match = strings.TrimSuffix(match, "-->")
+		urls[i] = match
+	}
+	return urls
 }

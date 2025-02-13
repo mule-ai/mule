@@ -241,10 +241,14 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		r.State.CurrentBranch = branchName
 
 		r.Logger.Info("Starting generation")
-		err = r.generateFromIssue(aiService, issue)
+		commentResolved, err := r.generateFromIssue(aiService, issue)
 		if err != nil {
 			r.Logger.Error(err, "Error generating changes")
 			return err
+		}
+		if commentResolved {
+			r.Logger.Info("PR comment resolved, skipping PR creation")
+			continue
 		}
 
 		// validate that generation resulted in changes
@@ -331,12 +335,12 @@ func (r *Repository) getChanges() (*Changes, error) {
 	}, nil
 }
 
-func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) error {
+func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) (bool, error) {
 	// generate changes for issue
 	toolsToUse, err := genaitools.GetTools([]string{"writeFile", "tree", "readFile"})
 	if err != nil {
 		r.Logger.Error(err, "Error getting tools")
-		return err
+		return false, err
 	}
 	for _, tool := range toolsToUse {
 		tool.Options["basePath"] = r.Path
@@ -360,7 +364,7 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 			unresolvedCommentId = unresolvedComment.ID
 			chat.Send <- PRCommentPrompt(issue.ToString(), pr.Diff, unresolvedComment.Body, unresolvedComment.DiffHunk)
 		} else {
-			return fmt.Errorf("expected PR with unresolved comments, but none found")
+			return false, fmt.Errorf("expected PR with unresolved comments, but none found")
 		}
 	}
 
@@ -378,14 +382,50 @@ func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) 
 	})
 	if err != nil {
 		r.Logger.Error(err, "Error validating output")
+		return false, err
+	}
+
+	// If we're handling a PR comment, commit and push to the existing branch
+	if unresolvedCommentId != 0 {
+		return true, r.updatePR(aiService, unresolvedCommentId)
+	}
+	return false, nil
+}
+
+func (r *Repository) updatePR(aiService *genai.Provider, commentId int64) error {
+	if commentId == 0 {
+		return fmt.Errorf("expected PR comment ID, but none found")
+	}
+	summary, err := r.ChangeSummary()
+	if err != nil {
+		r.Logger.Error(err, "Error getting change summary")
 		return err
 	}
-	if unresolvedCommentId != 0 {
-		err = r.Remote.AddCommentReaction(r.Path, "+1", unresolvedCommentId)
-		if err != nil {
-			r.Logger.Error(err, "Error acknowledging PR comment")
-			return err
-		}
+	commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	if err != nil {
+		r.Logger.Error(err, "Error generating commit message")
+		return err
+	}
+
+	// Commit changes
+	err = r.Commit(commitMessage)
+	if err != nil {
+		r.Logger.Error(err, "Error committing changes")
+		return err
+	}
+
+	// Push changes
+	err = r.Push()
+	if err != nil {
+		r.Logger.Error(err, "Error pushing changes")
+		return err
+	}
+
+	// Add reaction to mark comment as addressed
+	err = r.Remote.AddCommentReaction(r.Path, "+1", commentId)
+	if err != nil {
+		r.Logger.Error(err, "Error acknowledging PR comment")
+		return err
 	}
 	return nil
 }
