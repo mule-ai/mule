@@ -9,6 +9,7 @@ import (
 	"github.com/jbutlerdev/dev-team/internal/scheduler"
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/remote"
 	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
@@ -50,11 +51,18 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 
 	// Set up repositories and their schedules
 	for path, repo := range config.Repositories {
-		r := repository.NewRepository(repo.Path)
+		rProviderOpts, err := remote.SettingsToOptions(repo.RemoteProvider)
+		if err != nil {
+			l.Error(err, "Error setting up remote provider", "path", path)
+			continue
+		}
+		rProvider := remote.New(rProviderOpts)
+		r := repository.NewRepositoryWithRemote(repo.Path, rProvider)
 		r.Logger = l.WithName("repository").WithValues("path", repo.Path)
 		r.Schedule = repo.Schedule
 		r.RemotePath = repo.RemotePath
-		err := r.UpdateStatus()
+		r.RemoteProvider = repo.RemoteProvider
+		err = r.UpdateStatus()
 		if err != nil {
 			l.Error(err, "Error getting repo status")
 		}

@@ -13,7 +13,6 @@ import (
 
 	"github.com/jbutlerdev/dev-team/internal/config"
 	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/github"
 	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
@@ -195,66 +194,6 @@ func HandlePush(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func HandleCreatePR(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	repo, err := getRepository(req.Path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	state.State.Mu.RLock()
-	settings := &state.State.Settings
-	state.State.Mu.RUnlock()
-
-	summary, err := repo.ChangeSummary()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting change summary: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	prTitle, err := state.State.GenAI.Generate(
-		settings.Model,
-		repository.CommitPrompt(summary),
-	)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error generating PR title: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	prDescription, err := state.State.GenAI.Generate(
-		settings.Model,
-		repository.PRPrompt(summary),
-	)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error generating PR description: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	err = github.CreateDraftPR(repo.Path, settings.GitHubToken, github.GitHubPRInput{
-		Title:               prTitle,
-		Branch:              repo.State.CurrentBranch,
-		Base:                "main",
-		Description:         prDescription,
-		Draft:               true,
-		MaintainerCanModify: true,
-	})
-	if err != nil {
-		log.Printf("Error creating PR: %v", err)
-		http.Error(w, fmt.Sprintf("Error creating PR: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
 func HandleCloneRepository(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RepoURL  string `json:"repoUrl"`
@@ -346,6 +285,7 @@ func HandleSyncRepository(w http.ResponseWriter, r *http.Request) {
 func getRepository(path string) (*repository.Repository, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
+		log.Printf("error getting absolute path: %v", err)
 		return nil, err
 	}
 
@@ -354,6 +294,7 @@ func getRepository(path string) (*repository.Repository, error) {
 	state.State.Mu.RUnlock()
 
 	if !exists {
+		log.Printf("repository does not exist: %s", absPath)
 		return nil, fmt.Errorf("repository does not exist")
 	}
 	return repo, nil

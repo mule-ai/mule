@@ -42,6 +42,7 @@
                     <span class="status idle">Ready</span>
                 {{end}}
             </div>
+            <p>Provider: <span class="chip">{{$repo.RemoteProvider.Provider}}</span></p>
             <p>Schedule: <span class="chip">{{$repo.Schedule}}</span></p>
             {{if $repo.State}}
                 <p>Branch: <span class="chip {{if $repo.State.HasChanges}}warning{{else}}success{{end}}">
@@ -55,7 +56,9 @@
             <button onclick="handleUpdateRepo('{{$path}}')" class="button">Update</button>
             <button onclick="handleCommit('{{$path}}')" class="button" {{if not $repo.State.HasChanges}}disabled{{end}}>Commit</button>
             <button onclick="handlePush('{{$path}}')" class="button">Push</button>
-            <button onclick="handleCreatePR('{{$path}}')" class="button">Create PR</button>
+            {{if eq $repo.RemoteProvider.Provider "local"}}
+                <button onclick="window.location.href='/local-provider?path={{$path}}'" class="button">Local Provider</button>
+            {{end}}
             <button onclick="handleShowIssues('{{$path}}')" class="button">Show Issues</button>
         </div>
         {{end}}

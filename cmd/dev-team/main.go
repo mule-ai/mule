@@ -12,6 +12,7 @@ import (
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
 	"github.com/jbutlerdev/dev-team/pkg/log"
+	"github.com/jbutlerdev/dev-team/pkg/remote"
 	"github.com/jbutlerdev/dev-team/pkg/repository"
 
 	"github.com/jbutlerdev/genai"
@@ -55,6 +56,13 @@ func main() {
 		l.Error(err, "Error loading config")
 	}
 
+	// Create a global remote GitHub provider
+	globalGH := remote.New(remote.ProviderOptions{
+		Type:        remote.GITHUB,
+		GitHubToken: appState.Settings.GitHubToken,
+	})
+	appState.Remote = globalGH
+
 	// Initialize GenAI provider
 	genaiProvider, err := genai.NewProviderWithLog(
 		appState.Settings.Provider,
@@ -77,30 +85,43 @@ func main() {
 	api.HandleFunc("/repositories", handlers.HandleListRepositories).Methods("GET")
 	api.HandleFunc("/repositories", handlers.HandleAddRepository).Methods("POST")
 	api.HandleFunc("/repositories", handlers.HandleDeleteRepository).Methods("DELETE")
-	api.HandleFunc("/repositories/update", handlers.HandleUpdateRepository).Methods("POST")
 	api.HandleFunc("/repositories/clone", handlers.HandleCloneRepository).Methods("POST")
+	api.HandleFunc("/repositories/update", handlers.HandleUpdateRepository).Methods("POST")
 	api.HandleFunc("/repositories/commit", handlers.HandleCommit).Methods("POST")
 	api.HandleFunc("/repositories/push", handlers.HandlePush).Methods("POST")
-	api.HandleFunc("/repositories/pr", handlers.HandleCreatePR).Methods("POST")
 	api.HandleFunc("/repositories/sync", handlers.HandleSyncRepository).Methods("POST")
-	api.HandleFunc("/settings", handlers.HandleGetSettings).Methods("GET")
-	api.HandleFunc("/settings", handlers.HandleUpdateSettings).Methods("POST")
-	api.HandleFunc("/gemini/models", handlers.HandleGeminiModels).Methods("GET")
+
+	// GitHub API routes
 	api.HandleFunc("/github/repositories", handlers.HandleGitHubRepositories).Methods("GET")
 	api.HandleFunc("/github/issues", handlers.HandleGitHubIssues).Methods("GET")
 
-	// Web routes
-	r.HandleFunc("/", handleHome).Methods("GET")
-	r.HandleFunc("/logs", handlers.HandleLogs).Methods("GET")
-	r.HandleFunc("/settings", handleSettingsPage).Methods("GET")
+	// Local provider routes
+	api.HandleFunc("/local/issues", handlers.HandleCreateLocalIssue).Methods("POST")
+	api.HandleFunc("/local/comments", handlers.HandleAddLocalComment).Methods("POST")
+	api.HandleFunc("/local/reactions", handlers.HandleAddLocalReaction).Methods("POST")
+	api.HandleFunc("/local/diff", handlers.HandleGetLocalDiff).Methods("GET")
+	api.HandleFunc("/local/labels", handlers.HandleAddLocalLabel).Methods("POST")
+	api.HandleFunc("/local/issues/state", handlers.HandleUpdateLocalIssueState).Methods("POST")
+	api.HandleFunc("/local/pullrequests/state", handlers.HandleUpdateLocalPullRequestState).Methods("POST")
 
-	// Configure CORS for API routes
+	// Settings routes
+	api.HandleFunc("/settings", handlers.HandleUpdateSettings).Methods("POST")
+
+	// Web routes
+	r.HandleFunc("/", handleHome)
+	r.HandleFunc("/settings", handleSettingsPage)
+	r.HandleFunc("/local-provider", handlers.HandleLocalProviderPage)
+	r.HandleFunc("/logs", handlers.HandleLogs)
+
+	// Static files
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
+	// CORS
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"*"},
+		AllowedHeaders: []string{"Accept", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization"},
 	})
-
 	// Start the scheduler
 	state.State.Scheduler.Start()
 	defer state.State.Scheduler.Stop()
@@ -114,8 +135,11 @@ func main() {
 			}
 		}
 	}()
-	l.Info("Server starting on http://0.0.0.0:8083")
-	l.Error(http.ListenAndServe("0.0.0.0:8083", handler), "Error starting server")
+	// Start server
+	l.Info("Starting server on :8083")
+	if err := http.ListenAndServe(":8083", handler); err != nil {
+		l.Error(err, "Error starting server")
+	}
 }
 
 type PageData struct {

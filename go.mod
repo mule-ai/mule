@@ -1,6 +1,6 @@
 module github.com/jbutlerdev/dev-team
 
-go 1.22.4
+go 1.23.6
 
 require (
 	github.com/go-git/go-git/v5 v5.13.2
@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/zapr v1.3.0
 	github.com/google/go-github/v60 v60.0.0
 	github.com/gorilla/mux v1.8.1
-	github.com/jbutlerdev/genai v0.0.0-20250203230504-b181adf3cd9a
+	github.com/jbutlerdev/genai v0.0.0-20250208002113-f8954e40ab20
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
 	go.uber.org/zap v1.27.0
@@ -41,6 +41,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
+	github.com/ollama/ollama v0.5.7 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.0 // indirect

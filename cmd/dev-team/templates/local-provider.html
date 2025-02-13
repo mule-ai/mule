@@ -1,0 +1,745 @@
+{{define "local-provider"}}
+<div class="card">
+    <h2>Local Provider - {{.Repository.Path}}</h2>
+    
+    <!-- Issues Section -->
+    <div class="section">
+        <h3>Issues</h3>
+        <button onclick="showNewIssueModal()" class="button">Create New Issue</button>
+        <div id="issuesList">
+            {{range .Issues}}
+            <div class="issue-item">
+                <div class="issue-header">
+                    <div class="issue-title">#{{.Number}} - {{.Title}}</div>
+                    <div class="issue-labels">
+                        {{range .Labels}}
+                        <span class="label">{{.}}</span>
+                        {{end}}
+                        <button onclick="showLabelModal('{{.Number}}')" class="button small">Add Label</button>
+                    </div>
+                </div>
+                <div class="issue-body">{{.Body}}</div>
+                <div class="issue-meta">
+                    State: {{.State}} | Created: <span class="created-at" data-time="{{.CreatedAt}}"></span>
+                    {{if eq .State "open"}}
+                    <button onclick="updateIssueState('{{.Number}}', 'closed')" class="button small">Close Issue</button>
+                    {{else}}
+                    <button onclick="updateIssueState('{{.Number}}', 'open')" class="button small">Reopen Issue</button>
+                    {{end}}
+                </div>
+                <button onclick="showCommentModal('{{.Number}}', 'issue')" class="button">Add Comment</button>
+                
+                <!-- Issue Comments -->
+                <div class="comments-section">
+                    {{range .Comments}}
+                    <div class="comment-item">
+                        <div class="comment-body">{{.Body}}</div>
+                        <div class="reactions">
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', '+1')" class="reaction-btn">
+                                <span class="reaction-emoji">👍</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.PlusOne}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', '-1')" class="reaction-btn">
+                                <span class="reaction-emoji">👎</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.MinusOne}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'laugh')" class="reaction-btn">
+                                <span class="reaction-emoji">😄</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Laugh}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'confused')" class="reaction-btn">
+                                <span class="reaction-emoji">😕</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Confused}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'heart')" class="reaction-btn">
+                                <span class="reaction-emoji">❤️</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Heart}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'hooray')" class="reaction-btn">
+                                <span class="reaction-emoji">🎉</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Hooray}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'rocket')" class="reaction-btn">
+                                <span class="reaction-emoji">🚀</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Rocket}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'eyes')" class="reaction-btn">
+                                <span class="reaction-emoji">👀</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Eyes}}{{else}}0{{end}}</span>
+                            </button>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Pull Requests Section -->
+    <div class="section">
+        <h3>Pull Requests</h3>
+        <div id="prList">
+            {{range .PullRequests}}
+            <div class="pr-item">
+                <div class="pr-header" onclick="togglePrBody(this)">
+                    <div class="pr-title">#{{.Number}} - {{.Title}}</div>
+                    <div class="pr-meta">
+                        State: {{.State}} | Created: <span class="created-at" data-time="{{.CreatedAt}}"></span>
+                        <span class="expand-icon">▼</span>
+                    </div>
+                </div>
+                <div class="pr-content collapsed">
+                    <div class="pr-body markdown-body">{{.Body}}</div>
+                    <div class="pr-actions">
+                        <button onclick="showDiffModal('{{.Number}}')" class="button">View Diff</button>
+                        <button onclick="showCommentModal('{{.Number}}', 'pr')" class="button">Add Comment</button>
+                        {{if or (eq .State "open") (eq .State "draft")}}
+                        <button onclick="updatePullRequestState('{{.Number}}', 'closed')" class="button">Close PR</button>
+                        {{else}}
+                        <button onclick="updatePullRequestState('{{.Number}}', 'open')" class="button">Reopen PR</button>
+                        {{end}}
+                    </div>
+                    {{range .Comments}}
+                    <div class="comment-item">
+                        <div class="comment-body markdown-body">{{.Body}}</div>
+                        <div class="reactions">
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', '+1')" class="reaction-btn">
+                                <span class="reaction-emoji">👍</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.PlusOne}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', '-1')" class="reaction-btn">
+                                <span class="reaction-emoji">👎</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.MinusOne}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'laugh')" class="reaction-btn">
+                                <span class="reaction-emoji">😄</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Laugh}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'confused')" class="reaction-btn">
+                                <span class="reaction-emoji">😕</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Confused}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'heart')" class="reaction-btn">
+                                <span class="reaction-emoji">❤️</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Heart}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'hooray')" class="reaction-btn">
+                                <span class="reaction-emoji">🎉</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Hooray}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'rocket')" class="reaction-btn">
+                                <span class="reaction-emoji">🚀</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Rocket}}{{else}}0{{end}}</span>
+                            </button>
+                            <button onclick="addReaction('{{$.Repository.Path}}', '{{.ID}}', 'eyes')" class="reaction-btn">
+                                <span class="reaction-emoji">👀</span>
+                                <span class="reaction-count">{{if .Reactions}}{{.Reactions.Eyes}}{{else}}0{{end}}</span>
+                            </button>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<!-- New Issue Modal -->
+<div id="newIssueModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('newIssueModal')">&times;</span>
+        <h3>Create New Issue</h3>
+        <form id="newIssueForm" onsubmit="return handleNewIssue(event)">
+            <div class="form-group">
+                <label for="issueTitle">Title</label>
+                <input type="text" id="issueTitle" name="title" required class="input">
+            </div>
+            <div class="form-group">
+                <label for="issueBody">Description</label>
+                <textarea id="issueBody" name="body" required class="input"></textarea>
+            </div>
+            <button type="submit" class="button">Create Issue</button>
+        </form>
+    </div>
+</div>
+
+<!-- Comment Modal -->
+<div id="commentModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('commentModal')">&times;</span>
+        <h3>Add Comment</h3>
+        <form id="commentForm" onsubmit="return handleNewComment(event)">
+            <input type="hidden" id="commentResourceId" name="resourceId">
+            <input type="hidden" id="commentResourceType" name="resourceType">
+            <div class="form-group">
+                <label for="commentBody">Comment</label>
+                <textarea id="commentBody" name="body" required class="input" placeholder="Enter your comment"></textarea>
+            </div>
+            <button type="submit" class="button">Add Comment</button>
+        </form>
+    </div>
+</div>
+
+<!-- Diff Modal -->
+<div id="diffModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('diffModal')">&times;</span>
+        <h3>Pull Request Diff</h3>
+        <pre id="diffContent" class="diff"></pre>
+    </div>
+</div>
+
+<!-- Label Modal -->
+<div id="labelModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('labelModal')">&times;</span>
+        <h3>Add Label</h3>
+        <form id="labelForm" onsubmit="return handleAddLabel(event)">
+            <input type="hidden" id="labelIssueNumber" name="issueNumber">
+            <div class="form-group">
+                <label for="labelName">Label</label>
+                <input type="text" id="labelName" name="label" required class="input" placeholder="Enter label text">
+            </div>
+            <button type="submit" class="button">Add Label</button>
+        </form>
+    </div>
+</div>
+
+<style>
+.section {
+    margin-bottom: 2rem;
+}
+
+/* Modal styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85);
+    overflow: auto;
+}
+
+.modal-content {
+    background-color: var(--background-color);
+    margin: 10% auto;
+    padding: 2rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    width: 80%;
+    max-width: 600px;
+    position: relative;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(8px);
+}
+
+.close {
+    position: absolute;
+    right: 1rem;
+    top: 0.5rem;
+    color: var(--text-secondary-color);
+    font-size: 1.5rem;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover {
+    color: var(--text-color);
+}
+
+.issue-item, .pr-item {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin: 0.75rem 0;
+    padding: 0.75rem;
+}
+
+.issue-title, .pr-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.issue-body, .pr-body {
+    margin: 0.5rem 0;
+    white-space: pre-wrap;
+    font-size: 0.9375rem;
+}
+
+.issue-meta, .pr-meta {
+    color: var(--text-secondary-color);
+    font-size: 0.8125rem;
+    margin: 0.25rem 0;
+}
+
+.comment-item {
+    margin: 0.75rem 0 0.75rem 1.5rem;
+    padding: 0.5rem;
+    border-left: 2px solid var(--border-color);
+    font-size: 0.9375rem;
+}
+
+.reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.reaction-btn {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.reaction-btn:hover {
+    background-color: var(--surface-color);
+}
+
+.reaction-count {
+    color: var(--text-color);
+    font-weight: 500;
+    min-width: 1rem;
+    text-align: center;
+}
+
+.diff {
+    background-color: var(--surface-color);
+    padding: 1rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    font-family: monospace;
+}
+
+.issue-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.issue-labels {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.label {
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+}
+
+.button.small {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+.comments-section {
+    margin-top: 1rem;
+    margin-left: 1rem;
+    border-left: 2px solid var(--border-color);
+    padding-left: 1rem;
+}
+
+.comment-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary-color);
+    margin: 0.25rem 0;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--background-color);
+    color: var(--text-color);
+}
+
+textarea.input {
+    min-height: 100px;
+    resize: vertical;
+}
+
+.pr-header {
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.pr-header:hover {
+    background-color: var(--surface-color);
+}
+
+.pr-content {
+    padding: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.pr-content.collapsed {
+    display: none;
+}
+
+.pr-actions {
+    margin: 0.75rem 0;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.expand-icon {
+    transition: transform 0.2s ease;
+}
+
+.pr-header.expanded .expand-icon {
+    transform: rotate(180deg);
+}
+
+/* GitHub-like markdown styling */
+.markdown-body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 0.9375rem;
+    line-height: 1.4;
+    word-wrap: break-word;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+    margin-top: 1.25rem;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.markdown-body h1 { font-size: 1.5rem; }
+.markdown-body h2 { font-size: 1.25rem; }
+.markdown-body h3 { font-size: 1.1rem; }
+.markdown-body h4 { font-size: 1rem; }
+.markdown-body h5 { font-size: 0.9375rem; }
+.markdown-body h6 { font-size: 0.9375rem; }
+
+.markdown-body code {
+    padding: 0.15em 0.3em;
+    margin: 0;
+    font-size: 0.8125rem;
+    background-color: var(--surface-color);
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+}
+
+.markdown-body pre {
+    padding: 0.75rem;
+    margin: 0.75rem 0;
+    overflow: auto;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    background-color: var(--surface-color);
+    border-radius: 4px;
+}
+
+.markdown-body blockquote {
+    padding: 0 0.75em;
+    color: var(--text-secondary-color);
+    border-left: 0.25em solid var(--border-color);
+    margin: 0.75rem 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+    padding-left: 1.5em;
+    margin: 0.25rem 0;
+}
+
+.markdown-body ul li,
+.markdown-body ol li {
+    margin: 0.125rem 0;
+}
+
+.markdown-body ul ul,
+.markdown-body ul ol,
+.markdown-body ol ul,
+.markdown-body ol ol {
+    margin: 0.125rem 0;
+}
+
+.markdown-body img {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.markdown-body table {
+    display: block;
+    width: 100%;
+    overflow: auto;
+    border-spacing: 0;
+    border-collapse: collapse;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+    padding: 6px 13px;
+    border: 1px solid var(--border-color);
+}
+
+.markdown-body table tr {
+    background-color: var(--background-color);
+    border-top: 1px solid var(--border-color);
+}
+
+.markdown-body table tr:nth-child(2n) {
+    background-color: var(--surface-color);
+}
+</style>
+
+<script>
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+        return dateStr; // Return original string if parsing fails
+    }
+    return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function showNewIssueModal() {
+    document.getElementById('newIssueModal').style.display = 'block';
+}
+
+function showCommentModal(resourceId, resourceType) {
+    const modal = document.getElementById('commentModal');
+    document.getElementById('commentResourceId').value = resourceId;
+    document.getElementById('commentResourceType').value = resourceType;
+    modal.style.display = 'block';
+}
+
+function showDiffModal(prNumber) {
+    const modal = document.getElementById('diffModal');
+    modal.style.display = 'block';
+    
+    fetch(`/api/local/diff?path={{.Repository.Path}}&pr=${prNumber}`)
+        .then(response => response.text())
+        .then(diff => {
+            document.getElementById('diffContent').textContent = diff;
+        })
+        .catch(error => alert('Error loading diff: ' + error));
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).style.display = 'none';
+}
+
+async function handleNewIssue(event) {
+    event.preventDefault();
+    const form = event.target;
+    
+    try {
+        const response = await fetch('/api/local/issues', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: '{{.Repository.Path}}',
+                title: form.title.value,
+                body: form.body.value
+            })
+        });
+        
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error creating issue: ' + error);
+    }
+    return false;
+}
+
+async function handleNewComment(event) {
+    event.preventDefault();
+    const form = event.target;
+    
+    try {
+        const response = await fetch('/api/local/comments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: '{{.Repository.Path}}',
+                resourceId: parseInt(form.resourceId.value),
+                resourceType: form.resourceType.value,
+                body: form.body.value
+            })
+        });
+        
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error adding comment: ' + error);
+    }
+    return false;
+}
+
+async function addReaction(path, commentId, reaction) {
+    try {
+        console.log('Adding reaction:', { path, commentId, reaction }); // Add logging
+        const response = await fetch('/api/local/reactions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: path,
+                commentId: parseInt(commentId, 10), // Parse as base 10 integer
+                reaction: reaction
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error response:', errorText); // Add error logging
+            throw new Error(errorText);
+        }
+        window.location.reload();
+    } catch (error) {
+        console.error('Error details:', error); // Add detailed error logging
+        alert('Error adding reaction: ' + error);
+    }
+}
+
+function showLabelModal(issueNumber) {
+    const modal = document.getElementById('labelModal');
+    document.getElementById('labelIssueNumber').value = issueNumber;
+    modal.style.display = 'block';
+}
+
+async function handleAddLabel(event) {
+    event.preventDefault();
+    const form = event.target;
+    
+    try {
+        const response = await fetch('/api/local/labels', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: '{{.Repository.Path}}',
+                issueNumber: parseInt(form.issueNumber.value),
+                label: form.label.value
+            })
+        });
+        
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error adding label: ' + error);
+    }
+    return false;
+}
+
+async function updateIssueState(issueNumber, state) {
+    try {
+        const response = await fetch('/api/local/issues/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: '{{.Repository.Path}}',
+                issueNumber: parseInt(issueNumber),
+                state: state
+            })
+        });
+        
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error updating issue state: ' + error);
+    }
+}
+
+async function updatePullRequestState(prNumber, state) {
+    try {
+        const response = await fetch('/api/local/pullrequests/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: '{{.Repository.Path}}',
+                prNumber: parseInt(prNumber),
+                state: state
+            })
+        });
+        
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error updating pull request state: ' + error);
+    }
+}
+
+// Close modals when clicking outside
+window.onclick = function(event) {
+    if (event.target.classList.contains('modal')) {
+        event.target.style.display = 'none';
+    }
+}
+
+// Format all dates when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.created-at').forEach(function(el) {
+        el.textContent = formatDate(el.dataset.time);
+    });
+});
+
+// Add marked.js for markdown rendering
+document.addEventListener('DOMContentLoaded', function() {
+    // Load marked.js from CDN
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+    script.onload = function() {
+        // Configure marked options
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            headerIds: false
+        });
+        
+        // Convert all markdown content
+        document.querySelectorAll('.markdown-body').forEach(function(el) {
+            el.innerHTML = marked.parse(el.textContent);
+        });
+    };
+    document.head.appendChild(script);
+});
+
+function togglePrBody(header) {
+    const prItem = header.closest('.pr-item');
+    const content = prItem.querySelector('.pr-content');
+    const isExpanded = !content.classList.contains('collapsed');
+    
+    content.classList.toggle('collapsed');
+    header.classList.toggle('expanded');
+}
+</script>
+{{end}} 

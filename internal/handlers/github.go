@@ -7,16 +7,15 @@ import (
 	"path/filepath"
 
 	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/github"
 	"github.com/jbutlerdev/dev-team/pkg/repository"
 )
 
 func HandleGitHubRepositories(w http.ResponseWriter, r *http.Request) {
 	state.State.Mu.RLock()
-	token := state.State.Settings.GitHubToken
+	remote := state.State.Remote
 	state.State.Mu.RUnlock()
 
-	repos, err := github.FetchRepositories(token)
+	repos, err := remote.FetchRepositories()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error fetching repositories: %v", err), http.StatusInternalServerError)
 		return

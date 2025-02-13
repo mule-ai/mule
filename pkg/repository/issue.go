@@ -4,20 +4,22 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/jbutlerdev/dev-team/pkg/github"
+	"github.com/jbutlerdev/dev-team/pkg/remote/types"
 )
 
 type Issue struct {
 	ID           int            `json:"id"`
+	Number       int            `json:"number"`
 	Title        string         `json:"title"`
 	Body         string         `json:"body"`
-	Labels       []string       `json:"labels"`
-	CreatedAt    string         `json:"created_at"`
-	UpdatedAt    string         `json:"updated_at"`
+	State        string         `json:"state"`
 	HTMLURL      string         `json:"html_url"`
 	SourceURL    string         `json:"source_url"`
-	State        string         `json:"state"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+	Comments     []*Comment     `json:"comments"`
 	PullRequests []*PullRequest `json:"pull_requests"`
+	Labels       []string       `json:"labels"`
 }
 
 func (i *Issue) addPullRequests(pullRequests map[int]*PullRequest) {
@@ -66,7 +68,10 @@ func (r *Repository) UpdateIssues(token string) error {
 	if r.RemotePath == "" {
 		return fmt.Errorf("repository remote path is not set")
 	}
-	issues, err := github.FetchIssues(r.RemotePath, "dev-team", token)
+	issues, err := r.Remote.FetchIssues(r.RemotePath, types.IssueFilterOptions{
+		State: "open",
+		Label: "dev-team",
+	})
 	if err != nil {
 		log.Printf("Error fetching issues: %v, request: %v", err, r.RemotePath)
 		return err
@@ -80,12 +85,10 @@ func (r *Repository) UpdateIssues(token string) error {
 }
 
 func (i *Issue) ToString() string {
-	return fmt.Sprintf("Issue: %d\n\n"+
-		"Title: %s\n\n"+
-		"Body: %s\n\n", i.ID, i.Title, i.Body)
+	return fmt.Sprintf("Issue #%d: %s\n%s", i.Number, i.Title, i.Body)
 }
 
-func ghIssueToIssue(issue github.Issue) *Issue {
+func ghIssueToIssue(issue types.Issue) *Issue {
 	return &Issue{
 		ID:        issue.Number,
 		Title:     issue.Title,

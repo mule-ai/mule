@@ -6,6 +6,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/dev-team/internal/scheduler"
 	"github.com/jbutlerdev/dev-team/internal/settings"
+	"github.com/jbutlerdev/dev-team/pkg/remote"
 	"github.com/jbutlerdev/dev-team/pkg/repository"
 	"github.com/jbutlerdev/genai"
 )
@@ -19,4 +20,5 @@ type AppState struct {
 	Mu           sync.RWMutex
 	GenAI        *genai.Provider
 	Logger       logr.Logger
+	Remote       remote.Provider
 }

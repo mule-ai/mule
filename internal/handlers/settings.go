@@ -44,15 +44,13 @@ func handleSettingsChange(newSettings settings.Settings) error {
 	oldSettings := state.State.Settings
 	state.State.Mu.RUnlock()
 
-	refreshAiProvider := false
-	if oldSettings.Provider != newSettings.Provider ||
+	refreshAiProvider := oldSettings.Provider != newSettings.Provider ||
 		oldSettings.APIKey != newSettings.APIKey ||
-		oldSettings.Server != newSettings.Server {
-		refreshAiProvider = true
-	}
+		oldSettings.Server != newSettings.Server
 
 	state.State.Mu.Lock()
 	if refreshAiProvider {
+		// TODO: provide the logger
 		genaiProvider, err := genai.NewProvider(newSettings.Provider, genai.ProviderOptions{
 			APIKey:  newSettings.APIKey,
 			BaseURL: newSettings.Server,
