@@ -64,7 +64,7 @@ func (r *Repository) GetIssues() ([]*Issue, error) {
 	return issues, nil
 }
 
-func (r *Repository) UpdateIssues(token string) error {
+func (r *Repository) UpdateIssues() error {
 	if r.RemotePath == "" {
 		return fmt.Errorf("repository remote path is not set")
 	}

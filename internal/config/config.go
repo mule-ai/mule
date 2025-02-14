@@ -27,10 +27,8 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 			// Create default state if config doesn't exist
 			appState := &state.AppState{
 				Repositories: make(map[string]*repository.Repository),
-				Settings: settings.Settings{
-					Provider: "gemini",
-				},
-				Scheduler: scheduler.NewScheduler(l),
+				Settings:     settings.Settings{},
+				Scheduler:    scheduler.NewScheduler(l),
 			}
 			state.State = appState
 			return appState, SaveConfig(path)
@@ -43,11 +41,7 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 		return nil, err
 	}
 	// Create state from config
-	appState := &state.AppState{
-		Repositories: make(map[string]*repository.Repository),
-		Settings:     config.Settings,
-		Scheduler:    scheduler.NewScheduler(l),
-	}
+	appState := state.NewState(l, config.Settings)
 
 	// Set up repositories and their schedules
 	for path, repo := range config.Repositories {
@@ -68,13 +62,10 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 		}
 		appState.Repositories[path] = r
 		err = appState.Scheduler.AddTask(path, repo.Schedule, func() {
-			err := r.Sync(state.State.GenAI, appState.Settings.GitHubToken)
+			err := r.Sync(appState.Agents)
 			if err != nil {
 				l.Error(err, "Error syncing repo")
 			}
-			appState.Mu.Lock()
-			appState.Repositories[path] = r
-			appState.Mu.Unlock()
 		})
 		if err != nil {
 			l.Error(err, "Error setting up schedule for %s", path)

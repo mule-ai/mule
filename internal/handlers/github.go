@@ -15,7 +15,7 @@ func HandleGitHubRepositories(w http.ResponseWriter, r *http.Request) {
 	remote := state.State.Remote
 	state.State.Mu.RUnlock()
 
-	repos, err := remote.FetchRepositories()
+	repos, err := remote.GitHub.FetchRepositories()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error fetching repositories: %v", err), http.StatusInternalServerError)
 		return
@@ -57,7 +57,7 @@ func HandleGitHubIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = repo.UpdateIssues(token)
+	err = repo.UpdateIssues()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error fetching issues: %v", err), http.StatusInternalServerError)
 		return

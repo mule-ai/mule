@@ -3,50 +3,107 @@
     <h2>Settings</h2>
     <form id="settingsForm" onsubmit="return handleUpdateSettings(event)">
         <div class="form-group">
-            <label class="label" for="provider">AI Provider</label>
-            <select id="provider" name="provider" class="input" onchange="handleProviderChange()" required>
-                <option value="ollama" {{if eq .Settings.Provider "ollama"}}selected{{end}}>Ollama</option>
-                <option value="gemini" {{if eq .Settings.Provider "gemini"}}selected{{end}}>Gemini</option>
-            </select>
-        </div>
-
-        <div id="ollamaSettings" {{if eq .Settings.Provider "gemini"}}class="hidden"{{end}}>
-            <div class="form-group">
-                <label class="label" for="server">Ollama Server</label>
-                <input type="text" id="server" name="server" class="input" value="{{.Settings.Server}}">
-            </div>
-            <div class="form-group">
-                <label class="label" for="ollamaModel">Ollama Model</label>
-                <input type="text" id="ollamaModel" name="model" class="input" value="{{.Settings.Model}}">
-            </div>
-        </div>
-
-        <div id="geminiSettings" {{if ne .Settings.Provider "gemini"}}class="hidden"{{end}}>
-            <div class="form-group">
-                <label class="label" for="apiKey">Gemini API Key</label>
-                <input type="password" id="apiKey" name="apiKey" class="input" value="{{.Settings.APIKey}}" placeholder="Enter your Gemini API key">
-            </div>
-            <div class="form-group">
-                <label class="label" for="geminiModel">Gemini Model</label>
-                <select id="geminiModel" name="model" class="input">
-                    <option value="">Loading models...</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label class="label" for="githubToken">GitHub Token</label>
+            <label class="label">GitHub Token</label>
             <input type="password" id="githubToken" name="githubToken" class="input" value="{{.Settings.GitHubToken}}" placeholder="Enter your GitHub token">
             <small class="help-text">Required for creating pull requests. Token should have 'repo' scope.</small>
         </div>
 
-        <button type="submit" class="button">Save Settings</button>
+        <div class="section-header" data-section="aiProviders">
+            <h3>AI Providers</h3>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div id="aiProvidersSection" class="section-content">
+            <div id="aiProviders">
+                {{range $index, $provider := .Settings.AIProviders}}
+                <div class="ai-provider" data-index="{{$index}}">
+                    <div class="form-group">
+                        <label class="label">Provider Type</label>
+                        <select name="aiProviders[{{$index}}].provider" class="input provider-select" onchange="handleProviderTypeChange(this)">
+                            <option value="ollama" {{if eq $provider.Provider "ollama"}}selected{{end}}>Ollama</option>
+                            <option value="gemini" {{if eq $provider.Provider "gemini"}}selected{{end}}>Gemini</option>
+                        </select>
+                    </div>
+
+                    <div class="provider-settings">
+                        <div class="form-group">
+                            <label class="label">API Key</label>
+                            <input type="password" name="aiProviders[{{$index}}].apiKey" class="input" value="{{$provider.APIKey}}" placeholder="Enter API key">
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Server</label>
+                            <input type="text" name="aiProviders[{{$index}}].server" class="input" value="{{$provider.Server}}" placeholder="Enter server URL">
+                        </div>
+                    </div>
+                    <button type="button" class="button secondary remove-provider" onclick="removeProvider(this)">Remove Provider</button>
+                </div>
+                {{end}}
+            </div>
+            <button type="button" class="button secondary" onclick="addProvider()">Add AI Provider</button>
+        </div>
+
+        <div class="section-header" data-section="agents">
+            <h3>Agents</h3>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div id="agentsSection" class="section-content">
+            <div id="agents">
+                {{range $index, $agent := .Settings.Agents}}
+                <div class="agent" data-index="{{$index}}">
+                    <div class="form-group">
+                        <label class="label">Provider</label>
+                        <select name="agents[{{$index}}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
+                            <option value="">Select a provider</option>
+                            <option value="ollama" {{if eq $agent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
+                            <option value="gemini" {{if eq $agent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Model</label>
+                        <select name="agents[{{$index}}].model" class="input model-select" data-provider="{{$agent.ProviderName}}" data-model="{{$agent.Model}}">
+                            <option value="{{$agent.Model}}" selected>{{$agent.Model}}</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Prompt Template</label>
+                        <textarea name="agents[{{$index}}].promptTemplate" class="input" rows="4" placeholder="Enter the agent's prompt template">{{$agent.PromptTemplate}}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Tools</label>
+                        <div class="checkbox-group tools-select" data-tools="{{range $index, $tool := $agent.Tools}}{{if $index}},{{end}}{{$tool}}{{end}}">
+                            <div class="loading">Loading tools...</div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Validation Functions</label>
+                        <div class="checkbox-group validation-functions-select" data-validation-functions="{{range $index, $func := $agent.ValidationFunctions}}{{if $index}},{{end}}{{$func}}{{end}}">
+                            <div class="loading">Loading validation functions...</div>
+                        </div>
+                    </div>
+                    <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
+                </div>
+                {{end}}
+            </div>
+            <button type="button" class="button secondary" onclick="addAgent()">Add Agent</button>
+        </div>
+
+        <button type="submit" class="button primary">Save Settings</button>
     </form>
 </div>
 
 <style>
 .hidden {
     display: none;
+}
+
+.ai-provider, .agent {
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 4px;
+}
+
+.provider-settings {
+    margin: 1rem 0;
 }
 
 select.input {
@@ -76,76 +133,457 @@ select.input:focus {
     border-color: var(--primary-color);
 }
 
+.button {
+    margin-top: 1rem;
+}
+
 .button.secondary {
     background-color: transparent;
     border: 1px solid var(--primary-color);
     color: var(--primary-color);
-    margin-top: 0.5rem;
 }
 
 .button.secondary:hover {
     background-color: rgba(var(--primary-color-rgb), 0.1);
 }
+
+.button.primary {
+    margin-top: 2rem;
+    width: 100%;
+}
+
+h3 {
+    margin: 2rem 0 1rem;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    padding: 0.5rem;
+    margin: 1rem -0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.section-header:hover {
+    background-color: rgba(255,255,255,0.05);
+}
+
+.section-header h3 {
+    margin: 0;
+}
+
+.toggle-icon {
+    transition: transform 0.3s;
+}
+
+.section-header.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.section-content {
+    transition: height 0.3s ease-out;
+    overflow: hidden;
+}
+
+.section-content.collapsed {
+    height: 0 !important;
+    margin: 0;
+    padding: 0;
+}
+
+.section-content.collapsing {
+    height: 0;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 4px;
+    min-height: 2.5rem;
+}
+
+.checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(255,255,255,0.1);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.checkbox-item:hover {
+    background: rgba(255,255,255,0.15);
+}
+
+.checkbox-item input[type="checkbox"] {
+    margin: 0;
+}
+
+textarea.input {
+    resize: vertical;
+    min-height: 100px;
+    font-family: inherit;
+}
+
+.loading {
+    color: rgba(255,255,255,0.5);
+    font-style: italic;
+}
 </style>
 
 <script>
-async function loadGeminiModels() {
+// Section management
+function toggleSection(sectionId) {
+    const header = document.querySelector(`[data-section="${sectionId}"]`);
+    const content = document.getElementById(`${sectionId}Section`);
+    
+    if (!header || !content) {
+        console.error('Section elements not found:', sectionId);
+        return;
+    }
+
+    // Remove any transition classes first
+    content.classList.remove('collapsing');
+    
+    // Toggle the collapsed state
+    const isCollapsed = header.classList.toggle('collapsed');
+    
+    if (isCollapsed) {
+        // Collapse the section
+        content.style.height = content.scrollHeight + 'px';
+        // Force a reflow
+        content.offsetHeight;
+        content.classList.add('collapsing');
+        content.style.height = '0';
+        content.classList.add('collapsed');
+    } else {
+        // Expand the section
+        content.classList.add('collapsing');
+        content.classList.remove('collapsed');
+        content.style.height = content.scrollHeight + 'px';
+    }
+
+    // Clean up after transition
+    content.addEventListener('transitionend', function handler() {
+        content.classList.remove('collapsing');
+        if (!isCollapsed) {
+            content.style.height = 'auto';
+        }
+        content.removeEventListener('transitionend', handler);
+    });
+}
+
+// Provider management
+function createProviderHTML(index) {
+    return `
+        <div class="ai-provider" data-index="${index}">
+            <div class="form-group">
+                <label class="label">Provider Type</label>
+                <select name="aiProviders[${index}].provider" class="input provider-select" onchange="handleProviderTypeChange(this)">
+                    <option value="ollama">Ollama</option>
+                    <option value="gemini">Gemini</option>
+                </select>
+            </div>
+            <div class="provider-settings">
+                <div class="form-group">
+                    <label class="label">API Key</label>
+                    <input type="password" name="aiProviders[${index}].apiKey" class="input" placeholder="Enter API key">
+                </div>
+                <div class="form-group">
+                    <label class="label">Server</label>
+                    <input type="text" name="aiProviders[${index}].server" class="input" placeholder="Enter server URL">
+                </div>
+            </div>
+            <button type="button" class="button secondary remove-provider" onclick="removeProvider(this)">Remove Provider</button>
+        </div>
+    `;
+}
+
+function addProvider() {
+    const providers = document.getElementById('aiProviders');
+    const index = providers.children.length;
+    providers.insertAdjacentHTML('beforeend', createProviderHTML(index));
+}
+
+function removeProvider(button) {
+    button.closest('.ai-provider').remove();
+    reindexProviders();
+}
+
+function reindexProviders() {
+    const providers = document.querySelectorAll('.ai-provider');
+    providers.forEach((provider, index) => {
+        provider.dataset.index = index;
+        provider.querySelectorAll('[name^="aiProviders["]').forEach(input => {
+            const name = input.name.replace(/aiProviders\[\d+\]/, `aiProviders[${index}]`);
+            input.name = name;
+        });
+    });
+}
+
+// Agent management
+function createAgentHTML(index) {
+    return `
+        <div class="agent" data-index="${index}">
+            <div class="form-group">
+                <label class="label">Provider</label>
+                <select name="agents[${index}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
+                    <option value="">Select a provider</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="gemini">Gemini</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="label">Model</label>
+                <select name="agents[${index}].model" class="input model-select" data-provider="">
+                    <option value="">Select a provider first</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="label">Prompt Template</label>
+                <textarea name="agents[${index}].promptTemplate" class="input" rows="4" placeholder="Enter the agent's prompt template"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="label">Tools</label>
+                <div class="checkbox-group tools-select">
+                    <div class="loading">Loading tools...</div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="label">Validation Functions</label>
+                <div class="checkbox-group validation-functions-select">
+                    <div class="loading">Loading validation functions...</div>
+                </div>
+            </div>
+            <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
+        </div>
+    `;
+}
+
+function addAgent() {
+    const agents = document.getElementById('agents');
+    const index = agents.children.length;
+    agents.insertAdjacentHTML('beforeend', createAgentHTML(index));
+    const newAgent = agents.lastElementChild;
+    loadAgentExtras(newAgent);
+}
+
+function removeAgent(button) {
+    button.closest('.agent').remove();
+    reindexAgents();
+}
+
+function reindexAgents() {
+    const agents = document.querySelectorAll('.agent');
+    agents.forEach((agent, index) => {
+        agent.dataset.index = index;
+        agent.querySelectorAll('[name^="agents["]').forEach(input => {
+            const name = input.name.replace(/agents\[\d+\]/, `agents[${index}]`);
+            input.name = name;
+        });
+    });
+}
+
+// API interactions
+async function loadModels(provider, modelSelect) {
+    const currentModel = modelSelect.dataset.model;
     try {
-        const response = await fetch('/api/gemini/models');
+        const response = await fetch(`/api/models?provider=${provider}`);
         if (!response.ok) {
             throw new Error(await response.text());
         }
         const models = await response.json();
-        const select = document.getElementById('geminiModel');
-        select.innerHTML = models.map(model => 
-            `<option value="${model}" ${model === "{{.Settings.Model}}" ? 'selected' : ''}>${model}</option>`
+        modelSelect.innerHTML = models.map(model => 
+            `<option value="${model}" ${model === currentModel ? 'selected' : ''}>${model}</option>`
         ).join('');
     } catch (error) {
-        console.error('Error loading Gemini models:', error);
-        const select = document.getElementById('geminiModel');
-        select.innerHTML = '<option value="">Error loading models</option>';
+        console.error('Error loading models:', error);
+        if (currentModel) {
+            modelSelect.innerHTML = `<option value="${currentModel}" selected>${currentModel}</option>`;
+        } else {
+            modelSelect.innerHTML = '<option value="">Error loading models</option>';
+        }
     }
 }
 
-function handleProviderChange() {
-    const provider = document.getElementById('provider').value;
-    document.getElementById('ollamaSettings').classList.toggle('hidden', provider !== 'ollama');
-    document.getElementById('geminiSettings').classList.toggle('hidden', provider !== 'gemini');
-    if (provider === 'gemini') {
-        loadGeminiModels();
+async function loadTools(container, selectedTools = []) {
+    try {
+        const response = await fetch('/api/tools');
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        const tools = await response.json();
+        container.innerHTML = tools.map(tool => `
+            <label class="checkbox-item">
+                <input type="checkbox" value="${tool}" ${selectedTools.includes(tool) ? 'checked' : ''}>
+                ${tool}
+            </label>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading tools:', error);
+        container.innerHTML = '<div class="error">Error loading tools</div>';
+    }
+}
+
+async function loadValidationFunctions(container, selectedFunctions = []) {
+    try {
+        const response = await fetch('/api/validation-functions');
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        const functions = await response.json();
+        container.innerHTML = functions.map(func => `
+            <label class="checkbox-item">
+                <input type="checkbox" value="${func}" ${selectedFunctions.includes(func) ? 'checked' : ''}>
+                ${func}
+            </label>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading validation functions:', error);
+        container.innerHTML = '<div class="error">Error loading validation functions</div>';
+    }
+}
+
+// Event handlers
+function handleProviderTypeChange(select) {
+    // Currently no special handling needed for provider type changes
+    // But keeping the function for future extensibility
+}
+
+async function handleAgentProviderChange(select) {
+    const agent = select.closest('.agent');
+    const modelSelect = agent.querySelector('.model-select');
+    const provider = select.value;
+    
+    modelSelect.dataset.provider = provider;
+    modelSelect.dataset.model = ''; // Clear the model when provider changes
+    modelSelect.innerHTML = '<option value="">Loading models...</option>';
+    
+    if (provider) {
+        await loadModels(provider, modelSelect);
+    } else {
+        modelSelect.innerHTML = '<option value="">Select a provider first</option>';
     }
 }
 
 async function handleUpdateSettings(event) {
     event.preventDefault();
     const form = event.target;
-    const provider = form.provider.value;
-    const data = {
-        provider: provider,
-        model: provider === 'gemini' ? form.geminiModel.value : form.ollamaModel.value,
-        apiKey: form.apiKey.value,
-        server: form.server.value,
-        githubToken: form.githubToken.value,
+    const formData = new FormData(form);
+
+    const settings = {
+        githubToken: formData.get('githubToken'),
+        aiProviders: [],
+        agents: []
     };
+
+    // Collect AI providers
+    const providers = document.querySelectorAll('.ai-provider');
+    providers.forEach((provider, index) => {
+        settings.aiProviders.push({
+            provider: formData.get(`aiProviders[${index}].provider`),
+            apiKey: formData.get(`aiProviders[${index}].apiKey`),
+            server: formData.get(`aiProviders[${index}].server`)
+        });
+    });
+
+    // Collect agents using FormData
+    const agents = document.querySelectorAll('.agent');
+    agents.forEach((agent, index) => {
+        // Get values directly from FormData
+        const agentData = {
+            providerName: formData.get(`agents[${index}].providerName`),
+            model: formData.get(`agents[${index}].model`),
+            promptTemplate: formData.get(`agents[${index}].promptTemplate`),
+            tools: [],
+            validationFunctions: []
+        };
+
+        // Get checkbox values
+        const toolsChecked = agent.querySelectorAll('.tools-select input:checked');
+        const validationFuncsChecked = agent.querySelectorAll('.validation-functions-select input:checked');
+
+        agentData.tools = Array.from(toolsChecked).map(cb => cb.value);
+        agentData.validationFunctions = Array.from(validationFuncsChecked).map(cb => cb.value);
+
+        // Only add if we have a provider name
+        if (agentData.providerName) {
+            settings.agents.push(agentData);
+        }
+    });
 
     try {
         const response = await fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            body: JSON.stringify(settings)
         });
 
-        if (!response.ok) throw new Error(await response.text());
+        if (!response.ok) {
+            throw new Error(responseText);
+        }
         alert('Settings saved successfully');
     } catch (error) {
+        console.error('Error saving settings:', error);
         alert('Error: ' + error.message);
     }
     return false;
 }
 
-// Load Gemini models on page load if Gemini is selected
-if (document.getElementById('provider').value === 'gemini') {
-    loadGeminiModels();
+// Helper functions
+function loadAgentExtras(agent) {
+    const toolsContainer = agent.querySelector('.tools-select');
+    const validationContainer = agent.querySelector('.validation-functions-select');
+    
+    // Parse existing tools and validation functions from data attributes
+    const toolsData = toolsContainer.dataset.tools || '';
+    const validationData = validationContainer.dataset.validationFunctions || '';
+    
+    // Split by comma and filter out empty strings
+    const selectedTools = toolsData ? toolsData.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const selectedFunctions = validationData ? validationData.split(',').map(f => f.trim()).filter(Boolean) : [];
+    
+    // Load the checkboxes with the selected values
+    loadTools(toolsContainer, selectedTools);
+    loadValidationFunctions(validationContainer, selectedFunctions);
 }
+
+// Initialization
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize collapsible sections
+    document.querySelectorAll('.section-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const sectionId = header.dataset.section;
+            toggleSection(sectionId);
+        });
+    });
+
+    // Initialize all agents
+    document.querySelectorAll('.agent').forEach(agent => {
+        // Load models for the provider
+        const modelSelect = agent.querySelector('.model-select');
+        const provider = modelSelect.dataset.provider;
+        if (provider) {
+            loadModels(provider, modelSelect);
+        }
+
+        // Load tools and validation functions
+        loadAgentExtras(agent);
+    });
+
+    // Also initialize new agents when they're added
+    document.getElementById('agents').addEventListener('DOMNodeInserted', (event) => {
+        if (event.target.classList && event.target.classList.contains('agent')) {
+            loadAgentExtras(event.target);
+        }
+    });
+});
 </script>
 {{end}}

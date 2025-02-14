@@ -21,13 +21,14 @@ type Agent struct {
 }
 
 type AgentOptions struct {
-	Provider            *genai.Provider
-	Model               string
-	PromptTemplate      string
-	Logger              logr.Logger
-	Tools               []string
-	ValidationFunctions []string
-	Path                string
+	Provider            *genai.Provider `json:"-"`
+	ProviderName        string          `json:"providerName"`
+	Model               string          `json:"model"`
+	PromptTemplate      string          `json:"promptTemplate"`
+	Logger              logr.Logger     `json:"-"`
+	Tools               []string        `json:"tools"`
+	ValidationFunctions []string        `json:"validationFunctions"`
+	Path                string          `json:"-"`
 }
 
 func NewAgent(opts AgentOptions) *Agent {
@@ -40,7 +41,7 @@ func NewAgent(opts AgentOptions) *Agent {
 			opts.Logger.Error(fmt.Errorf("validation function %s not found", fn), "Validation function not found")
 		}
 	}
-	return &Agent{
+	agent := &Agent{
 		provider:       opts.Provider,
 		model:          opts.Model,
 		promptTemplate: opts.PromptTemplate,
@@ -49,6 +50,11 @@ func NewAgent(opts AgentOptions) *Agent {
 		// I don't like this, but it's a hack to get the path to the repository
 		path: opts.Path,
 	}
+	err := agent.SetTools(opts.Tools)
+	if err != nil {
+		opts.Logger.Error(err, "Error setting tools")
+	}
+	return agent
 }
 
 func (a *Agent) SetModel(model string) error {
@@ -76,6 +82,9 @@ func (a *Agent) SetPromptTemplate(promptTemplate string) {
 }
 
 func (a *Agent) Run() error {
+	if a.provider == nil {
+		return fmt.Errorf("provider not set")
+	}
 	chat := a.provider.Chat(a.model, a.tools)
 
 	go func() {
@@ -107,4 +116,13 @@ func (a *Agent) Run() error {
 		return err
 	}
 	return nil
+}
+
+func (a *Agent) RunInPath(path string) error {
+	a.path = path
+	return a.Run()
+}
+
+func (a *Agent) Generate(prompt string) (string, error) {
+	return a.provider.Generate(a.model, prompt)
 }

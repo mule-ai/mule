@@ -68,7 +68,7 @@ func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
 
 	// Set up scheduler for the repository
 	err = state.State.Scheduler.AddTask(repo.Path, repo.Schedule, func() {
-		err := repo.Sync(state.State.GenAI, state.State.Settings.GitHubToken)
+		err := repo.Sync(state.State.Agents)
 		if err != nil {
 			log.Printf("Error syncing repo: %v", err)
 		}
@@ -122,78 +122,6 @@ func HandleUpdateRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
-
-func HandleCommit(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	repo, err := getRepository(req.Path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	summary, err := repo.ChangeSummary()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting change summary: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	commitMessage, err := state.State.GenAI.Generate(
-		state.State.Settings.Model,
-		repository.CommitPrompt(summary),
-	)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error generating commit message: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	err = repo.Commit(commitMessage)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error committing changes: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	updateRepo(repo)
-
-	err = json.NewEncoder(w).Encode(repo.State)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-}
-
-func HandlePush(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	repo, err := getRepository(req.Path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	err = repo.Push()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error pushing changes: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	updateRepo(repo)
-
-	w.WriteHeader(http.StatusOK)
-}
-
 func HandleCloneRepository(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RepoURL  string `json:"repoUrl"`
@@ -271,9 +199,7 @@ func HandleSyncRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := state.State.Settings.GitHubToken
-
-	err = repo.Sync(state.State.GenAI, token)
+	err = repo.Sync(state.State.Agents)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

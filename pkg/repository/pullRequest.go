@@ -57,7 +57,7 @@ func (r *Repository) GetPullRequests() []*PullRequest {
 	return pullRequests
 }
 
-func (r *Repository) UpdatePullRequests(token string) error {
+func (r *Repository) UpdatePullRequests() error {
 	if r.RemotePath == "" {
 		return fmt.Errorf("repository remote path is not set")
 	}
