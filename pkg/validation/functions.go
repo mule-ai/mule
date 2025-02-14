@@ -1,45 +1,22 @@
-package repository
+package validation
 
-import (
-	"fmt"
-	"os/exec"
+import "os/exec"
 
-	"github.com/go-logr/logr"
-)
+type ValidationFunc func(string) (string, error)
 
-var discard = logr.Discard()
-
-type ValidationInput struct {
-	attempts    int
-	validations []func(string) (string, error)
-	send        chan<- string
-	done        <-chan bool
+var functions = map[string]ValidationFunc{
+	"getDeps":      getDeps,
+	"goFmt":        goFmt,
+	"goModTidy":    goModTidy,
+	"golangciLint": golangciLint,
+	"goTest":       goTest,
 }
 
-func (r *Repository) validateOutput(in *ValidationInput) error {
-	// run validation attempts
-	validated := false
-	for i := 0; i < in.attempts; i++ {
-		// run validations
-		for _, validation := range in.validations {
-			out, err := validation(r.Path)
-			if err != nil {
-				validated = false
-				discard.Info("validation failed", "error", err, "output", out)
-				in.send <- out
-				<-in.done
-				break
-			}
-			validated = true
-		}
-		if validated {
-			break
-		}
+func Get(name string) (ValidationFunc, bool) {
+	if fn, ok := functions[name]; ok {
+		return fn, true
 	}
-	if !validated {
-		return fmt.Errorf("validation failed")
-	}
-	return nil
+	return nil, false
 }
 
 func goFmt(path string) (string, error) {

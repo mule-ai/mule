@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/jbutlerdev/dev-team/pkg/agent"
 	"github.com/jbutlerdev/dev-team/pkg/auth"
 	"github.com/jbutlerdev/dev-team/pkg/remote"
 	"github.com/jbutlerdev/dev-team/pkg/remote/types"
@@ -16,8 +17,14 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/jbutlerdev/genai"
-	genaitools "github.com/jbutlerdev/genai/tools"
 )
+
+/*
+TODO:
+This package needs a refactor.
+Ever since implementing the remote provider interface, this package has
+some duplicate types. The types from `remote/types` should be used instead.
+*/
 
 // set static model const until agent is implemented
 const MODEL = "models/gemini-2.0-flash"
@@ -336,52 +343,35 @@ func (r *Repository) getChanges() (*Changes, error) {
 }
 
 func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) (bool, error) {
-	// generate changes for issue
-	toolsToUse, err := genaitools.GetTools([]string{"writeFile", "tree", "readFile"})
-	if err != nil {
-		r.Logger.Error(err, "Error getting tools")
-		return false, err
-	}
-	for _, tool := range toolsToUse {
-		tool.Options["basePath"] = r.Path
-	}
-	chat := aiService.Chat(MODEL, toolsToUse)
-
-	go func() {
-		for response := range chat.Recv {
-			r.Logger.Info("Response", "response", response)
-		}
-	}()
+	prompt := ""
 	var unresolvedCommentId int64
 	// if issue has not PR, send issue prompt
 	if !issue.PrExists() {
-		chat.Send <- IssuePrompt(issue.ToString())
+		prompt = IssuePrompt(issue.ToString())
 	} else {
 		// if issue has PR, send PR comment prompt
 		pr, hasUnresolvedComments := issue.PRHasUnresolvedComments()
 		unresolvedComment := pr.FirstUnresolvedComment()
 		if hasUnresolvedComments {
 			unresolvedCommentId = unresolvedComment.ID
-			chat.Send <- PRCommentPrompt(issue.ToString(), pr.Diff, unresolvedComment.Body, unresolvedComment.DiffHunk)
+			prompt = PRCommentPrompt(issue.ToString(), pr.Diff, unresolvedComment.Body, unresolvedComment.DiffHunk)
 		} else {
 			return false, fmt.Errorf("expected PR with unresolved comments, but none found")
 		}
 	}
 
-	defer func() {
-		chat.Done <- true
-	}()
-	// block until generation is complete
-	<-chat.GenerationComplete
-	// validate output
-	err = r.validateOutput(&ValidationInput{
-		attempts:    10,
-		validations: []func(string) (string, error){getDeps, goFmt, goModTidy, golangciLint, goTest},
-		send:        chat.Send,
-		done:        chat.GenerationComplete,
+	agent := agent.NewAgent(agent.AgentOptions{
+		Provider:            aiService,
+		Model:               MODEL,
+		Tools:               []string{"writeFile", "tree", "readFile"},
+		ValidationFunctions: []string{"getDeps", "goFmt", "goModTidy", "golangciLint", "goTest"},
+		Logger:              r.Logger,
+		Path:                r.Path,
+		PromptTemplate:      prompt,
 	})
+	err := agent.Run()
 	if err != nil {
-		r.Logger.Error(err, "Error validating output")
+		r.Logger.Error(err, "Error running agent")
 		return false, err
 	}
 

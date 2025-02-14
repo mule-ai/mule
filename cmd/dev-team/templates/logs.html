@@ -298,6 +298,9 @@ function refreshLogs() {
 
 function setupAutoRefresh() {
     const autoRefreshCheckbox = document.getElementById('auto-refresh');
+    // do an initial fetch to fix the weird behavior that causes
+    // all the logs to collapse on the first fetch
+    fetchLogs();
     
     autoRefreshCheckbox.addEventListener('change', function() {
         if (this.checked) {
