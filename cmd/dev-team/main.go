@@ -12,10 +12,7 @@ import (
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
 	"github.com/jbutlerdev/dev-team/pkg/log"
-	"github.com/jbutlerdev/dev-team/pkg/remote"
 	"github.com/jbutlerdev/dev-team/pkg/repository"
-
-	"github.com/jbutlerdev/genai"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -56,26 +53,6 @@ func main() {
 		l.Error(err, "Error loading config")
 	}
 
-	// Create a global remote GitHub provider
-	globalGH := remote.New(remote.ProviderOptions{
-		Type:        remote.GITHUB,
-		GitHubToken: appState.Settings.GitHubToken,
-	})
-	appState.Remote = globalGH
-
-	// Initialize GenAI provider
-	genaiProvider, err := genai.NewProviderWithLog(
-		appState.Settings.Provider,
-		genai.ProviderOptions{
-			APIKey:  appState.Settings.APIKey,
-			BaseURL: appState.Settings.Server,
-			Log:     l.WithName("genai-provider"),
-		},
-	)
-	if err != nil {
-		l.Error(err, "Error initializing GenAI provider")
-	}
-	appState.GenAI = genaiProvider
 	state.State = appState
 
 	r := mux.NewRouter()
@@ -87,9 +64,11 @@ func main() {
 	api.HandleFunc("/repositories", handlers.HandleDeleteRepository).Methods("DELETE")
 	api.HandleFunc("/repositories/clone", handlers.HandleCloneRepository).Methods("POST")
 	api.HandleFunc("/repositories/update", handlers.HandleUpdateRepository).Methods("POST")
-	api.HandleFunc("/repositories/commit", handlers.HandleCommit).Methods("POST")
-	api.HandleFunc("/repositories/push", handlers.HandlePush).Methods("POST")
 	api.HandleFunc("/repositories/sync", handlers.HandleSyncRepository).Methods("POST")
+	api.HandleFunc("/models", handlers.HandleModels).Methods("GET")
+	api.HandleFunc("/tools", handlers.HandleTools).Methods("GET")
+	api.HandleFunc("/validation-functions", handlers.HandleValidationFunctions).Methods("GET")
+	api.HandleFunc("/template-values", handlers.HandleTemplateValues).Methods("GET")
 
 	// GitHub API routes
 	api.HandleFunc("/github/repositories", handlers.HandleGitHubRepositories).Methods("GET")
@@ -131,7 +110,7 @@ func main() {
 	handler := c.Handler(r)
 	go func() {
 		for _, repo := range state.State.Repositories {
-			err := repo.Sync(state.State.GenAI, appState.Settings.GitHubToken)
+			err := repo.Sync(state.State.Agents)
 			if err != nil {
 				l.Error(err, "Error syncing repo")
 			}

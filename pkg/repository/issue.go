@@ -64,7 +64,7 @@ func (r *Repository) GetIssues() ([]*Issue, error) {
 	return issues, nil
 }
 
-func (r *Repository) UpdateIssues(token string) error {
+func (r *Repository) UpdateIssues() error {
 	if r.RemotePath == "" {
 		return fmt.Errorf("repository remote path is not set")
 	}
@@ -91,6 +91,7 @@ func (i *Issue) ToString() string {
 func ghIssueToIssue(issue types.Issue) *Issue {
 	return &Issue{
 		ID:        issue.Number,
+		Number:    issue.Number,
 		Title:     issue.Title,
 		Body:      issue.Body,
 		CreatedAt: issue.CreatedAt,

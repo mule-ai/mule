@@ -10,7 +10,7 @@ import (
 	"github.com/jbutlerdev/dev-team/internal/config"
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/genai"
+	"github.com/jbutlerdev/dev-team/pkg/agent"
 )
 
 func HandleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -40,26 +40,33 @@ func HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSettingsChange(newSettings settings.Settings) error {
-	state.State.Mu.RLock()
-	oldSettings := state.State.Settings
-	state.State.Mu.RUnlock()
+	// TODO:
+	// This needs to get updated to properly recreate the appstate
+	// if the AI providers get recreated, the agents will need to be recreated
+	// therefor the agents referenced by the repositories will need to be recreated
+	/*
+		state.State.Mu.RLock()
+		oldSettings := state.State.Settings
+		state.State.Mu.RUnlock()
 
-	refreshAiProvider := oldSettings.Provider != newSettings.Provider ||
-		oldSettings.APIKey != newSettings.APIKey ||
-		oldSettings.Server != newSettings.Server
+		refreshAiProvider := oldSettings.Provider != newSettings.Provider ||
+			oldSettings.APIKey != newSettings.APIKey ||
+			oldSettings.Server != newSettings.Server
 
-	state.State.Mu.Lock()
-	if refreshAiProvider {
-		// TODO: provide the logger
-		genaiProvider, err := genai.NewProvider(newSettings.Provider, genai.ProviderOptions{
-			APIKey:  newSettings.APIKey,
-			BaseURL: newSettings.Server,
-		})
-		if err != nil {
-			return fmt.Errorf("error initializing GenAI provider: %v", err)
+		state.State.Mu.Lock()
+		if refreshAiProvider {
+			// TODO: provide the logger
+			genaiProvider, err := genai.NewProvider(newSettings.Provider, genai.ProviderOptions{
+				APIKey:  newSettings.APIKey,
+				BaseURL: newSettings.Server,
+			})
+			if err != nil {
+				return fmt.Errorf("error initializing GenAI provider: %v", err)
+			}
+			state.State.GenAI = genaiProvider
 		}
-		state.State.GenAI = genaiProvider
-	}
+	*/
+	state.State.Mu.Lock()
 	state.State.Settings = newSettings
 	state.State.Mu.Unlock()
 	configPath, err := os.UserHomeDir()
@@ -71,4 +78,13 @@ func handleSettingsChange(newSettings settings.Settings) error {
 		return fmt.Errorf("error saving config: %v", err)
 	}
 	return nil
+}
+
+func HandleTemplateValues(w http.ResponseWriter, r *http.Request) {
+	values := agent.GetPromptTemplateValues()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(values); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

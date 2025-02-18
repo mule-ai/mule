@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/jbutlerdev/dev-team/pkg/agent"
 	"github.com/jbutlerdev/dev-team/pkg/auth"
 	"github.com/jbutlerdev/dev-team/pkg/remote"
 	"github.com/jbutlerdev/dev-team/pkg/remote/types"
@@ -14,15 +15,14 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
-
-	"github.com/jbutlerdev/genai"
-	genaitools "github.com/jbutlerdev/genai/tools"
 )
 
-// set static model const until agent is implemented
-const MODEL = "models/gemini-2.0-flash"
-
-// const MODEL = "qwen2.5:7b-instruct-q6_K"
+/*
+TODO:
+This package needs a refactor.
+Ever since implementing the remote provider interface, this package has
+some duplicate types. The types from `remote/types` should be used instead.
+*/
 
 type Repository struct {
 	Path           string                  `json:"path"`
@@ -184,7 +184,11 @@ func (r *Repository) Fetch() error {
 	return nil
 }
 
-func (r *Repository) Sync(aiService *genai.Provider, token string) error {
+func (r *Repository) Sync(agents []*agent.Agent) error {
+	if len(agents) == 0 {
+		return fmt.Errorf("no agents provided")
+	}
+	agent := agents[0]
 	err := r.lock()
 	if err != nil {
 		r.Logger.Error(err, "Error locking repository")
@@ -199,14 +203,14 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 	}
 
 	// get latest pull requests
-	err = r.UpdatePullRequests(token)
+	err = r.UpdatePullRequests()
 	if err != nil {
 		r.Logger.Error(err, "Error updating pull requests")
 		return err
 	}
 
 	// get latest issues
-	err = r.UpdateIssues(token)
+	err = r.UpdateIssues()
 	if err != nil {
 		r.Logger.Error(err, "Error updating issues")
 		return err
@@ -241,7 +245,7 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 		r.State.CurrentBranch = branchName
 
 		r.Logger.Info("Starting generation")
-		commentResolved, err := r.generateFromIssue(aiService, issue)
+		commentResolved, err := r.generateFromIssue(agent, issue)
 		if err != nil {
 			r.Logger.Error(err, "Error generating changes")
 			return err
@@ -262,7 +266,7 @@ func (r *Repository) Sync(aiService *genai.Provider, token string) error {
 			r.Logger.Info("No changes found, expected changes from AI")
 			return fmt.Errorf("no changes found, expected changes from AI")
 		}
-		err = r.createPR(aiService, issue)
+		err = r.createPR(agent, issue)
 		if err != nil {
 			r.Logger.Error(err, "Error creating PR")
 			return err
@@ -335,64 +339,54 @@ func (r *Repository) getChanges() (*Changes, error) {
 	}, nil
 }
 
-func (r *Repository) generateFromIssue(aiService *genai.Provider, issue *Issue) (bool, error) {
-	// generate changes for issue
-	toolsToUse, err := genaitools.GetTools([]string{"writeFile", "tree", "readFile"})
-	if err != nil {
-		r.Logger.Error(err, "Error getting tools")
-		return false, err
-	}
-	for _, tool := range toolsToUse {
-		tool.Options["basePath"] = r.Path
-	}
-	chat := aiService.Chat(MODEL, toolsToUse)
-
-	go func() {
-		for response := range chat.Recv {
-			r.Logger.Info("Response", "response", response)
-		}
-	}()
+func (r *Repository) generateFromIssue(a *agent.Agent, issue *Issue) (bool, error) {
+	prompt := ""
 	var unresolvedCommentId int64
+	var promptInput agent.PromptInput
 	// if issue has not PR, send issue prompt
 	if !issue.PrExists() {
-		chat.Send <- IssuePrompt(issue.ToString())
+		promptInput = agent.PromptInput{
+			IssueTitle:  issue.Title,
+			IssueBody:   issue.Body,
+			Commits:     "",
+			Diff:        "",
+			PRComment:   prompt,
+			IsPRComment: false,
+		}
 	} else {
 		// if issue has PR, send PR comment prompt
 		pr, hasUnresolvedComments := issue.PRHasUnresolvedComments()
 		unresolvedComment := pr.FirstUnresolvedComment()
 		if hasUnresolvedComments {
 			unresolvedCommentId = unresolvedComment.ID
-			chat.Send <- PRCommentPrompt(issue.ToString(), pr.Diff, unresolvedComment.Body, unresolvedComment.DiffHunk)
+			promptInput = agent.PromptInput{
+				IssueTitle:        issue.Title,
+				IssueBody:         issue.Body,
+				Commits:           "",
+				Diff:              pr.Diff,
+				PRComment:         unresolvedComment.Body,
+				PRCommentDiffHunk: unresolvedComment.DiffHunk,
+				IsPRComment:       true,
+			}
 		} else {
 			return false, fmt.Errorf("expected PR with unresolved comments, but none found")
 		}
 	}
 
-	defer func() {
-		chat.Done <- true
-	}()
-	// block until generation is complete
-	<-chat.GenerationComplete
-	// validate output
-	err = r.validateOutput(&ValidationInput{
-		attempts:    10,
-		validations: []func(string) (string, error){getDeps, goFmt, goModTidy, golangciLint, goTest},
-		send:        chat.Send,
-		done:        chat.GenerationComplete,
-	})
+	err := a.RunInPath(r.Path, promptInput)
 	if err != nil {
-		r.Logger.Error(err, "Error validating output")
+		r.Logger.Error(err, "Error running agent")
 		return false, err
 	}
 
 	// If we're handling a PR comment, commit and push to the existing branch
 	if unresolvedCommentId != 0 {
-		return true, r.updatePR(aiService, unresolvedCommentId)
+		return true, r.updatePR(a, unresolvedCommentId)
 	}
 	return false, nil
 }
 
-func (r *Repository) updatePR(aiService *genai.Provider, commentId int64) error {
+func (r *Repository) updatePR(agent *agent.Agent, commentId int64) error {
 	if commentId == 0 {
 		return fmt.Errorf("expected PR comment ID, but none found")
 	}
@@ -401,7 +395,7 @@ func (r *Repository) updatePR(aiService *genai.Provider, commentId int64) error 
 		r.Logger.Error(err, "Error getting change summary")
 		return err
 	}
-	commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	commitMessage, err := agent.Generate(CommitPrompt(summary))
 	if err != nil {
 		r.Logger.Error(err, "Error generating commit message")
 		return err
@@ -431,14 +425,14 @@ func (r *Repository) updatePR(aiService *genai.Provider, commentId int64) error 
 }
 
 // ignore unused code error
-func (r *Repository) createPR(aiService *genai.Provider, issue *Issue) error {
+func (r *Repository) createPR(agent *agent.Agent, issue *Issue) error {
 	summary, err := r.ChangeSummary()
 	if err != nil {
 		r.Logger.Error(err, "Error getting change summary")
 		return err
 	}
 
-	commitMessage, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	commitMessage, err := agent.Generate(CommitPrompt(summary))
 	if err != nil {
 		r.Logger.Error(err, "Error generating commit message")
 		return err
@@ -457,13 +451,13 @@ func (r *Repository) createPR(aiService *genai.Provider, issue *Issue) error {
 		return err
 	}
 
-	prTitle, err := aiService.Generate(MODEL, CommitPrompt(summary))
+	prTitle, err := agent.Generate(CommitPrompt(summary))
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR title")
 		return err
 	}
 
-	prDescription, err := aiService.Generate(MODEL, PRPrompt(summary))
+	prDescription, err := agent.Generate(PRPrompt(summary))
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR description")
 		return err
