@@ -91,6 +91,7 @@ func (i *Issue) ToString() string {
 func ghIssueToIssue(issue types.Issue) *Issue {
 	return &Issue{
 		ID:        issue.Number,
+		Number:    issue.Number,
 		Title:     issue.Title,
 		Body:      issue.Body,
 		CreatedAt: issue.CreatedAt,

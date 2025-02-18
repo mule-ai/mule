@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
+	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/dev-team/pkg/validation"
@@ -17,18 +21,30 @@ type Agent struct {
 	tools          []*tools.Tool
 	logger         logr.Logger
 	validations    []validation.ValidationFunc
+	name           string
 	path           string
 }
 
 type AgentOptions struct {
 	Provider            *genai.Provider `json:"-"`
 	ProviderName        string          `json:"providerName"`
+	Name                string          `json:"name"`
 	Model               string          `json:"model"`
 	PromptTemplate      string          `json:"promptTemplate"`
 	Logger              logr.Logger     `json:"-"`
 	Tools               []string        `json:"tools"`
 	ValidationFunctions []string        `json:"validationFunctions"`
 	Path                string          `json:"-"`
+}
+
+type PromptInput struct {
+	IssueTitle        string `json:"issueTitle"`
+	IssueBody         string `json:"issueBody"`
+	Commits           string `json:"commits"`
+	Diff              string `json:"diff"`
+	IsPRComment       bool   `json:"isPRComment"`
+	PRComment         string `json:"prComment"`
+	PRCommentDiffHunk string `json:"prCommentDiffHunk"`
 }
 
 func NewAgent(opts AgentOptions) *Agent {
@@ -47,6 +63,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		promptTemplate: opts.PromptTemplate,
 		logger:         opts.Logger,
 		validations:    validations,
+		name:           opts.Name,
 		// I don't like this, but it's a hack to get the path to the repository
 		path: opts.Path,
 	}
@@ -81,7 +98,7 @@ func (a *Agent) SetPromptTemplate(promptTemplate string) {
 	a.promptTemplate = promptTemplate
 }
 
-func (a *Agent) Run() error {
+func (a *Agent) Run(input PromptInput) error {
 	if a.provider == nil {
 		return fmt.Errorf("provider not set")
 	}
@@ -93,9 +110,11 @@ func (a *Agent) Run() error {
 		}
 	}()
 
-	// TODO:
-	// Render prompt template with data
-	chat.Send <- a.promptTemplate
+	prompt, err := a.renderPromptTemplate(input)
+	if err != nil {
+		return err
+	}
+	chat.Send <- prompt
 
 	defer func() {
 		chat.Done <- true
@@ -103,7 +122,7 @@ func (a *Agent) Run() error {
 	// block until generation is complete
 	<-chat.GenerationComplete
 	// validate output
-	err := validation.Run(&validation.ValidationInput{
+	err = validation.Run(&validation.ValidationInput{
 		Attempts:    10,
 		Validations: a.validations,
 		Send:        chat.Send,
@@ -118,11 +137,38 @@ func (a *Agent) Run() error {
 	return nil
 }
 
-func (a *Agent) RunInPath(path string) error {
+func (a *Agent) RunInPath(path string, input PromptInput) error {
 	a.path = path
-	return a.Run()
+	for _, tool := range a.tools {
+		tool.Options["basePath"] = path
+	}
+	return a.Run(input)
 }
 
 func (a *Agent) Generate(prompt string) (string, error) {
 	return a.provider.Generate(a.model, prompt)
+}
+
+func (a *Agent) renderPromptTemplate(input PromptInput) (string, error) {
+	// use golang template to render prompt template
+	tmpl, err := template.New("prompt").Parse(a.promptTemplate)
+	if err != nil {
+		return "", err
+	}
+	var rendered bytes.Buffer
+	err = tmpl.Execute(&rendered, input)
+	if err != nil {
+		return "", err
+	}
+	return rendered.String(), nil
+}
+
+func GetPromptTemplateValues() string {
+	templates := []string{}
+	s := &PromptInput{}
+	val := reflect.ValueOf(s).Elem()
+	for i := 0; i < val.NumField(); i++ {
+		templates = append(templates, fmt.Sprintf("{{ .%s }}", val.Type().Field(i).Name))
+	}
+	return strings.Join(templates, ", ")
 }

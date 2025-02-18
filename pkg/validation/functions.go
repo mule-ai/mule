@@ -40,7 +40,8 @@ func goModTidy(path string) (string, error) {
 }
 
 func golangciLint(path string) (string, error) {
-	cmd := exec.Command("./bin/golangci-lint", "run")
+	// cmd := exec.Command("./bin/golangci-lint", "run")
+	cmd := exec.Command("make", "lint")
 	cmd.Dir = path
 	out, err := cmd.CombinedOutput()
 	// convert byte array to string

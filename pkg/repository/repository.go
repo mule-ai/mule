@@ -339,25 +339,41 @@ func (r *Repository) getChanges() (*Changes, error) {
 	}, nil
 }
 
-func (r *Repository) generateFromIssue(agent *agent.Agent, issue *Issue) (bool, error) {
+func (r *Repository) generateFromIssue(a *agent.Agent, issue *Issue) (bool, error) {
 	prompt := ""
 	var unresolvedCommentId int64
+	var promptInput agent.PromptInput
 	// if issue has not PR, send issue prompt
 	if !issue.PrExists() {
-		prompt = IssuePrompt(issue.ToString())
+		promptInput = agent.PromptInput{
+			IssueTitle:  issue.Title,
+			IssueBody:   issue.Body,
+			Commits:     "",
+			Diff:        "",
+			PRComment:   prompt,
+			IsPRComment: false,
+		}
 	} else {
 		// if issue has PR, send PR comment prompt
 		pr, hasUnresolvedComments := issue.PRHasUnresolvedComments()
 		unresolvedComment := pr.FirstUnresolvedComment()
 		if hasUnresolvedComments {
 			unresolvedCommentId = unresolvedComment.ID
-			prompt = PRCommentPrompt(issue.ToString(), pr.Diff, unresolvedComment.Body, unresolvedComment.DiffHunk)
+			promptInput = agent.PromptInput{
+				IssueTitle:        issue.Title,
+				IssueBody:         issue.Body,
+				Commits:           "",
+				Diff:              pr.Diff,
+				PRComment:         unresolvedComment.Body,
+				PRCommentDiffHunk: unresolvedComment.DiffHunk,
+				IsPRComment:       true,
+			}
 		} else {
 			return false, fmt.Errorf("expected PR with unresolved comments, but none found")
 		}
 	}
-	agent.SetPromptTemplate(prompt)
-	err := agent.Run()
+
+	err := a.RunInPath(r.Path, promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error running agent")
 		return false, err
@@ -365,7 +381,7 @@ func (r *Repository) generateFromIssue(agent *agent.Agent, issue *Issue) (bool, 
 
 	// If we're handling a PR comment, commit and push to the existing branch
 	if unresolvedCommentId != 0 {
-		return true, r.updatePR(agent, unresolvedCommentId)
+		return true, r.updatePR(a, unresolvedCommentId)
 	}
 	return false, nil
 }

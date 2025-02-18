@@ -120,6 +120,11 @@ func (p *Provider) AddLabelToIssue(issueNumber int, label string) error {
 func (p *Provider) FetchPullRequests(remotePath, label string) ([]types.PullRequest, error) {
 	pullRequests := make([]types.PullRequest, 0, len(p.PullRequests))
 	for _, pullRequest := range p.PullRequests {
+		diff, err := p.FetchDiffs("", "", pullRequest.Number)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching diffs: %v", err)
+		}
+		pullRequest.Diff = diff
 		pullRequests = append(pullRequests, *pullRequest)
 	}
 	sort.Slice(pullRequests, func(i, j int) bool {
@@ -138,7 +143,7 @@ func (p *Provider) UpdatePullRequestState(remotePath string, prNumber int, state
 	return p.Save()
 }
 
-func (p *Provider) FetchDiffs(owner, repo string, resourceID int) (string, error) {
+func (p *Provider) FetchDiffs(_, _ string, resourceID int) (string, error) {
 	pr, ok := p.PullRequests[resourceID]
 	if !ok {
 		return "", fmt.Errorf("pull request %d not found", resourceID)

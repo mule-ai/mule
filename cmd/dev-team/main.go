@@ -68,6 +68,7 @@ func main() {
 	api.HandleFunc("/models", handlers.HandleModels).Methods("GET")
 	api.HandleFunc("/tools", handlers.HandleTools).Methods("GET")
 	api.HandleFunc("/validation-functions", handlers.HandleValidationFunctions).Methods("GET")
+	api.HandleFunc("/template-values", handlers.HandleTemplateValues).Methods("GET")
 
 	// GitHub API routes
 	api.HandleFunc("/github/repositories", handlers.HandleGitHubRepositories).Methods("GET")

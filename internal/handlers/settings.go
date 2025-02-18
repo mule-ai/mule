@@ -10,6 +10,7 @@ import (
 	"github.com/jbutlerdev/dev-team/internal/config"
 	"github.com/jbutlerdev/dev-team/internal/settings"
 	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/jbutlerdev/dev-team/pkg/agent"
 )
 
 func HandleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -77,4 +78,13 @@ func handleSettingsChange(newSettings settings.Settings) error {
 		return fmt.Errorf("error saving config: %v", err)
 	}
 	return nil
+}
+
+func HandleTemplateValues(w http.ResponseWriter, r *http.Request) {
+	values := agent.GetPromptTemplateValues()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(values); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

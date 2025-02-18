@@ -26,7 +26,7 @@ func Run(in *ValidationInput) error {
 			out, err := validation(in.Path)
 			if err != nil {
 				validated = false
-				discard.Info("validation failed", "error", err, "output", out)
+				in.Logger.Error(err, "validation failed", "output", out)
 				in.Send <- out
 				<-in.Done
 				break

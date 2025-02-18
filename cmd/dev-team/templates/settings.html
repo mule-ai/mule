@@ -1,18 +1,22 @@
 {{define "settings"}}
 <div class="card">
     <h2>Settings</h2>
+    <div class="tabs">
+        <button class="tab-button active" data-tab="general">General</button>
+        <button class="tab-button" data-tab="providers">AI Providers</button>
+        <button class="tab-button" data-tab="agents">Agents</button>
+    </div>
+
     <form id="settingsForm" onsubmit="return handleUpdateSettings(event)">
-        <div class="form-group">
-            <label class="label">GitHub Token</label>
-            <input type="password" id="githubToken" name="githubToken" class="input" value="{{.Settings.GitHubToken}}" placeholder="Enter your GitHub token">
-            <small class="help-text">Required for creating pull requests. Token should have 'repo' scope.</small>
+        <div id="general" class="tab-content active">
+            <div class="form-group">
+                <label class="label">GitHub Token</label>
+                <input type="password" id="githubToken" name="githubToken" class="input" value="{{.Settings.GitHubToken}}" placeholder="Enter your GitHub token">
+                <small class="help-text">Required for creating pull requests. Token should have 'repo' scope.</small>
+            </div>
         </div>
 
-        <div class="section-header" data-section="aiProviders">
-            <h3>AI Providers</h3>
-            <span class="toggle-icon">▼</span>
-        </div>
-        <div id="aiProvidersSection" class="section-content">
+        <div id="providers" class="tab-content">
             <div id="aiProviders">
                 {{range $index, $provider := .Settings.AIProviders}}
                 <div class="ai-provider" data-index="{{$index}}">
@@ -41,45 +45,54 @@
             <button type="button" class="button secondary" onclick="addProvider()">Add AI Provider</button>
         </div>
 
-        <div class="section-header" data-section="agents">
-            <h3>Agents</h3>
-            <span class="toggle-icon">▼</span>
-        </div>
-        <div id="agentsSection" class="section-content">
+        <div id="agents" class="tab-content">
             <div id="agents">
                 {{range $index, $agent := .Settings.Agents}}
                 <div class="agent" data-index="{{$index}}">
-                    <div class="form-group">
-                        <label class="label">Provider</label>
-                        <select name="agents[{{$index}}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
-                            <option value="">Select a provider</option>
-                            <option value="ollama" {{if eq $agent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
-                            <option value="gemini" {{if eq $agent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
-                        </select>
+                    <div class="agent-header" onclick="toggleAgent(this)">
+                        <div class="agent-name-display"></div>
+                        <button type="button" class="button secondary toggle-agent">
+                            <span class="toggle-icon">▼</span>
+                        </button>
                     </div>
-                    <div class="form-group">
-                        <label class="label">Model</label>
-                        <select name="agents[{{$index}}].model" class="input model-select" data-provider="{{$agent.ProviderName}}" data-model="{{$agent.Model}}">
-                            <option value="{{$agent.Model}}" selected>{{$agent.Model}}</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="label">Prompt Template</label>
-                        <textarea name="agents[{{$index}}].promptTemplate" class="input" rows="4" placeholder="Enter the agent's prompt template">{{$agent.PromptTemplate}}</textarea>
-                    </div>
-                    <div class="form-group">
-                        <label class="label">Tools</label>
-                        <div class="checkbox-group tools-select" data-tools="{{range $index, $tool := $agent.Tools}}{{if $index}},{{end}}{{$tool}}{{end}}">
-                            <div class="loading">Loading tools...</div>
+                    <div class="agent-content">
+                        <div class="form-group">
+                            <label class="label">Name</label>
+                            <input type="text" name="agents[{{$index}}].name" class="input agent-name-input" value="{{$agent.Name}}" placeholder="Enter agent name" onchange="updateAgentNameDisplay(this)">
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="label">Validation Functions</label>
-                        <div class="checkbox-group validation-functions-select" data-validation-functions="{{range $index, $func := $agent.ValidationFunctions}}{{if $index}},{{end}}{{$func}}{{end}}">
-                            <div class="loading">Loading validation functions...</div>
+                        <div class="form-group">
+                            <label class="label">Provider</label>
+                            <select name="agents[{{$index}}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
+                                <option value="">Select a provider</option>
+                                <option value="ollama" {{if eq $agent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
+                                <option value="gemini" {{if eq $agent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
+                            </select>
                         </div>
+                        <div class="form-group">
+                            <label class="label">Model</label>
+                            <select name="agents[{{$index}}].model" class="input model-select" data-provider="{{$agent.ProviderName}}" data-model="{{$agent.Model}}">
+                                <option value="{{$agent.Model}}" selected>{{$agent.Model}}</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Prompt Template</label>
+                            <textarea name="agents[{{$index}}].promptTemplate" class="input" rows="8" placeholder="Enter the agent's prompt template">{{$agent.PromptTemplate}}</textarea>
+                            <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Tools</label>
+                            <div class="checkbox-group tools-select" data-tools="{{range $index, $tool := $agent.Tools}}{{if $index}},{{end}}{{$tool}}{{end}}">
+                                <div class="loading">Loading tools...</div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Validation Functions</label>
+                            <div class="checkbox-group validation-functions-select" data-validation-functions="{{range $index, $func := $agent.ValidationFunctions}}{{if $index}},{{end}}{{$func}}{{end}}">
+                                <div class="loading">Loading validation functions...</div>
+                            </div>
+                        </div>
+                        <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
                     </div>
-                    <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
                 </div>
                 {{end}}
             </div>
@@ -115,6 +128,11 @@ select.input {
     font-size: 1rem;
     width: 100%;
     box-sizing: border-box;
+    font-family: "Courier New", "DejaVu Serif Mono", "Liberation Serif Mono", "Nimbus Mono", "Lucida Console", Courier, monospace;
+}
+
+input.input, textarea.input {
+    font-family: "Courier New", "DejaVu Serif Mono", "Liberation Serif Mono", "Nimbus Mono", "Lucida Console", Courier, monospace;
 }
 
 select.input option {
@@ -216,6 +234,7 @@ h3 {
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
     cursor: pointer;
+    font-family: "Courier New", "DejaVu Serif Mono", "Liberation Serif Mono", "Nimbus Mono", "Lucida Console", Courier, monospace;
 }
 
 .checkbox-item:hover {
@@ -228,17 +247,159 @@ h3 {
 
 textarea.input {
     resize: vertical;
-    min-height: 100px;
-    font-family: inherit;
+    min-height: 200px;
 }
 
 .loading {
     color: rgba(255,255,255,0.5);
     font-style: italic;
 }
+
+.help-text {
+    display: block;
+    color: rgba(255,255,255,0.6);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+.template-values {
+    font-family: monospace;
+    background: rgba(255,255,255,0.1);
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+}
+
+.tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 0.5rem;
+}
+
+.tab-button {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: 4px;
+    opacity: 0.7;
+    transition: all 0.2s;
+}
+
+.tab-button:hover {
+    background: rgba(255,255,255,0.1);
+    opacity: 0.9;
+}
+
+.tab-button.active {
+    background: var(--primary-color);
+    opacity: 1;
+}
+
+.tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.agent {
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 0;
+    margin-bottom: 1rem;
+    border-radius: 4px;
+}
+
+.agent-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.agent-header:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.agent-name-display {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.toggle-agent {
+    background: none !important;
+    border: none !important;
+    padding: 0.25rem 0.5rem;
+    margin: 0 !important;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    color: var(--text-color) !important;
+    pointer-events: none;
+}
+
+.toggle-agent:hover {
+    opacity: 1;
+    background: none !important;
+}
+
+.toggle-icon {
+    display: inline-block;
+    transition: transform 0.2s;
+}
+
+.agent-content {
+    padding: 1rem;
+    transition: all 0.3s ease-out;
+    max-height: 2000px;
+    opacity: 1;
+}
+
+.agent-content.collapsed {
+    padding: 0;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+}
 </style>
 
 <script>
+// Add tab switching functionality
+function initTabs() {
+    const tabs = document.querySelectorAll('.tab-button');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            // Remove active class from all tabs and content
+            document.querySelectorAll('.tab-button').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            // Add active class to clicked tab and its content
+            tab.classList.add('active');
+            const contentId = tab.dataset.tab;
+            document.getElementById(contentId).classList.add('active');
+        });
+    });
+}
+
 // Section management
 function toggleSection(sectionId) {
     const header = document.querySelector(`[data-section="${sectionId}"]`);
@@ -332,47 +493,72 @@ function reindexProviders() {
 function createAgentHTML(index) {
     return `
         <div class="agent" data-index="${index}">
-            <div class="form-group">
-                <label class="label">Provider</label>
-                <select name="agents[${index}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
-                    <option value="">Select a provider</option>
-                    <option value="ollama">Ollama</option>
-                    <option value="gemini">Gemini</option>
-                </select>
+            <div class="agent-header" onclick="toggleAgent(this)">
+                <div class="agent-name-display">Unnamed Agent</div>
+                <button type="button" class="button secondary toggle-agent">
+                    <span class="toggle-icon">▼</span>
+                </button>
             </div>
-            <div class="form-group">
-                <label class="label">Model</label>
-                <select name="agents[${index}].model" class="input model-select" data-provider="">
-                    <option value="">Select a provider first</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label class="label">Prompt Template</label>
-                <textarea name="agents[${index}].promptTemplate" class="input" rows="4" placeholder="Enter the agent's prompt template"></textarea>
-            </div>
-            <div class="form-group">
-                <label class="label">Tools</label>
-                <div class="checkbox-group tools-select">
-                    <div class="loading">Loading tools...</div>
+            <div class="agent-content">
+                <div class="form-group">
+                    <label class="label">Name</label>
+                    <input type="text" name="agents[${index}].name" class="input agent-name-input" placeholder="Enter agent name" onchange="updateAgentNameDisplay(this)">
                 </div>
-            </div>
-            <div class="form-group">
-                <label class="label">Validation Functions</label>
-                <div class="checkbox-group validation-functions-select">
-                    <div class="loading">Loading validation functions...</div>
+                <div class="form-group">
+                    <label class="label">Provider</label>
+                    <select name="agents[${index}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
+                        <option value="">Select a provider</option>
+                        <option value="ollama">Ollama</option>
+                        <option value="gemini">Gemini</option>
+                    </select>
                 </div>
+                <div class="form-group">
+                    <label class="label">Model</label>
+                    <select name="agents[${index}].model" class="input model-select" data-provider="">
+                        <option value="">Select a provider first</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="label">Prompt Template</label>
+                    <textarea name="agents[${index}].promptTemplate" class="input" rows="8" placeholder="Enter the agent's prompt template"></textarea>
+                    <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
+                </div>
+                <div class="form-group">
+                    <label class="label">Tools</label>
+                    <div class="checkbox-group tools-select" data-tools="">
+                        <div class="loading">Loading tools...</div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="label">Validation Functions</label>
+                    <div class="checkbox-group validation-functions-select" data-validation-functions="">
+                        <div class="loading">Loading validation functions...</div>
+                    </div>
+                </div>
+                <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
             </div>
-            <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
         </div>
     `;
 }
 
-function addAgent() {
+async function addAgent() {
     const agents = document.getElementById('agents');
     const index = agents.children.length;
+    
+    // Create the new agent element
     agents.insertAdjacentHTML('beforeend', createAgentHTML(index));
     const newAgent = agents.lastElementChild;
-    loadAgentExtras(newAgent);
+    
+    // Initialize the agent's extras (tools, validation functions, template values)
+    await loadAgentExtras(newAgent);
+    
+    // Initialize the name display
+    const nameInput = newAgent.querySelector('.agent-name-input');
+    updateAgentNameDisplay(nameInput);
+    
+    // Ensure the new agent is expanded by default
+    const content = newAgent.querySelector('.agent-content');
+    content.classList.remove('collapsed');
 }
 
 function removeAgent(button) {
@@ -499,9 +685,10 @@ async function handleUpdateSettings(event) {
     agents.forEach((agent, index) => {
         // Get values directly from FormData
         const agentData = {
-            providerName: formData.get(`agents[${index}].providerName`),
-            model: formData.get(`agents[${index}].model`),
-            promptTemplate: formData.get(`agents[${index}].promptTemplate`),
+            name: formData.get(`agents[${index}].name`),
+            providerName: formData.get(`agents[${index}].providerName`) || "",
+            model: formData.get(`agents[${index}].model`) || "",
+            promptTemplate: formData.get(`agents[${index}].promptTemplate`) || "",
             tools: [],
             validationFunctions: []
         };
@@ -513,10 +700,8 @@ async function handleUpdateSettings(event) {
         agentData.tools = Array.from(toolsChecked).map(cb => cb.value);
         agentData.validationFunctions = Array.from(validationFuncsChecked).map(cb => cb.value);
 
-        // Only add if we have a provider name
-        if (agentData.providerName) {
-            settings.agents.push(agentData);
-        }
+        // Add all agents to the settings
+        settings.agents.push(agentData);
     });
 
     try {
@@ -538,9 +723,10 @@ async function handleUpdateSettings(event) {
 }
 
 // Helper functions
-function loadAgentExtras(agent) {
+async function loadAgentExtras(agent) {
     const toolsContainer = agent.querySelector('.tools-select');
     const validationContainer = agent.querySelector('.validation-functions-select');
+    const templateValuesSpan = agent.querySelector('.template-values');
     
     // Parse existing tools and validation functions from data attributes
     const toolsData = toolsContainer.dataset.tools || '';
@@ -553,10 +739,45 @@ function loadAgentExtras(agent) {
     // Load the checkboxes with the selected values
     loadTools(toolsContainer, selectedTools);
     loadValidationFunctions(validationContainer, selectedFunctions);
+
+    // Load template values
+    try {
+        const response = await fetch('/api/template-values');
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        const values = await response.json();
+        templateValuesSpan.textContent = values;
+    } catch (error) {
+        console.error('Error loading template values:', error);
+        templateValuesSpan.textContent = 'Error loading template values';
+    }
+}
+
+// Add these new functions after createAgentHTML
+function toggleAgent(header) {
+    const agent = header.closest('.agent');
+    const content = agent.querySelector('.agent-content');
+    const icon = header.querySelector('.toggle-icon');
+    
+    content.classList.toggle('collapsed');
+    if (content.classList.contains('collapsed')) {
+        icon.textContent = '▶';
+    } else {
+        icon.textContent = '▼';
+    }
+}
+
+function updateAgentNameDisplay(input) {
+    const agent = input.closest('.agent');
+    const nameDisplay = agent.querySelector('.agent-name-display');
+    nameDisplay.textContent = input.value || 'Unnamed Agent';
 }
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
+    initTabs();
+    
     // Initialize collapsible sections
     document.querySelectorAll('.section-header').forEach(header => {
         header.addEventListener('click', () => {
@@ -576,6 +797,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Load tools and validation functions
         loadAgentExtras(agent);
+
+        // Initialize name display
+        const nameInput = agent.querySelector('.agent-name-input');
+        if (nameInput) {
+            updateAgentNameDisplay(nameInput);
+        }
     });
 
     // Also initialize new agents when they're added
