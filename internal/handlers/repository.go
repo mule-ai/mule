@@ -189,6 +189,12 @@ func HandleDeleteRepository(w http.ResponseWriter, r *http.Request) {
 	}
 	err = config.SaveConfig(configPath)
 	if err != nil {
+		log.Printf("Error getting user home directory: %v", err)
+	}
+	configPath := filepath.Join(homeDir, config.ConfigPath)
+	err = config.SaveConfig(configPath)
+	if err != nil {
+		log.Printf("Error saving config: %v", err)
 		http.Error(w, fmt.Sprintf("Error saving config: %v", err), http.StatusInternalServerError)
 		return
 	}
