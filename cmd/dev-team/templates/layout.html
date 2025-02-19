@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dev Team</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <title>Mule</title>
     <style>
         :root {
             --bg-color: #121212;
@@ -23,9 +24,35 @@
             min-height: 100vh;
         }
 
+        .header {
+            background-color: var(--surface-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .header-brand {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .header-brand img {
+            height: 128px;
+            width: auto;
+        }
+
+        .header-brand-text {
+            color: var(--primary-color);
+            font-size: 2rem;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
         .navbar {
             background-color: var(--surface-color);
-            padding: 1rem;
+            padding: 0 1rem;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
 
@@ -42,6 +69,14 @@
             font-size: 1.5rem;
             text-decoration: none;
             font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .navbar-brand img {
+            height: 64px;
+            width: auto;
         }
 
         .navbar-links a {
@@ -129,7 +164,10 @@
 <body>
     <nav class="navbar">
         <div class="navbar-content">
-            <a href="/" class="navbar-brand">Dev Team</a>
+            <a href="/" class="navbar-brand">
+                <img src="/static/logo.png" alt="Mule Logo">
+                Mule
+            </a>
             <div class="navbar-links">
                 <a href="/" class="{{if eq .Page "home"}}active{{end}}">Repositories</a>
                 <a href="/logs" class="{{if eq .Page "logs"}}active{{end}}">Logs</a>

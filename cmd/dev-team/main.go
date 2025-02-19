@@ -21,6 +21,9 @@ import (
 //go:embed templates
 var templatesFS embed.FS
 
+//go:embed templates/static
+var staticFS embed.FS
+
 var templates *template.Template
 
 func init() {
@@ -95,7 +98,11 @@ func main() {
 	r.HandleFunc("/logs", handlers.HandleLogs)
 
 	// Static files
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	staticHandler := http.FileServer(http.FS(staticFS))
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "templates/static/" + r.URL.Path
+		staticHandler.ServeHTTP(w, r)
+	})))
 
 	// CORS
 	c := cors.New(cors.Options{
