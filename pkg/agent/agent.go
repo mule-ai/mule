@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/jbutlerdev/dev-team/pkg/validation"
 	"github.com/jbutlerdev/genai"
 	"github.com/jbutlerdev/genai/tools"
+	"github.com/mule-ai/mule/pkg/validation"
 )
 
 type Agent struct {

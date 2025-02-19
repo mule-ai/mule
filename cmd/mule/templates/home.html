@@ -46,7 +46,12 @@
                     <p>Changed files: {{range $repo.State.ChangedFiles}}{{.}} {{end}}</p>
                 {{end}}
             {{end}}
-            <p>Provider: <span class="chip">{{$repo.RemoteProvider.Provider}}</span></p>
+            <p>Provider: 
+                <select class="provider-select" data-repo-path="{{$path}}" onchange="handleProviderChange(this)">
+                    <option value="github" {{if eq $repo.RemoteProvider.Provider "github"}}selected{{end}}>GitHub</option>
+                    <option value="local" {{if eq $repo.RemoteProvider.Provider "local"}}selected{{end}}>Local</option>
+                </select>
+            </p>
             <p>Schedule: <span class="chip">{{$repo.Schedule}}</span></p>
             <p>Last Sync: {{$repo.LastSync}}</p>
             <button onclick="handleUpdateRepo('{{$path}}')" class="button">Update</button>
@@ -124,12 +129,13 @@ select.input:focus {
 
 .modal-content {
     background-color: var(--surface-color);
-    margin: 15% auto;
-    padding: 20px;
+    margin: 5% auto;
+    padding: 1.5rem;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    width: 80%;
-    max-width: 800px;
+    width: 90%;
+    max-width: 600px;
+    position: relative;
 }
 
 .close {
@@ -168,7 +174,9 @@ select.input:focus {
 
 .repository-actions {
     display: flex;
-    gap: 8px;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
 }
 
 .delete-button {
@@ -274,14 +282,10 @@ select.input:focus {
 .repository-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 1rem;
-}
-
-.repository-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
 }
 
 .chip {
@@ -300,6 +304,85 @@ select.input:focus {
 .chip.success {
     background-color: #28a745;
     color: white;
+}
+
+.provider-select {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.provider-select:hover {
+    border-color: var(--primary-color);
+}
+
+.provider-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb), 0.2);
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .repository-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .repository-actions {
+        justify-content: stretch;
+    }
+
+    .repository-actions button {
+        flex: 1;
+    }
+
+    .sync-button, .delete-button {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .modal-content {
+        margin: 2% auto;
+        padding: 1rem;
+        width: 95%;
+    }
+
+    .issue-item {
+        padding: 0.75rem;
+    }
+
+    .provider-select {
+        width: 100%;
+        max-width: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .repository-actions {
+        flex-direction: column;
+    }
+
+    .sync-button, .delete-button {
+        margin: 0.25rem 0;
+    }
+
+    .issue-title {
+        font-size: 0.9rem;
+    }
+
+    .issue-meta {
+        font-size: 0.8rem;
+    }
+
+    .issue-body {
+        font-size: 0.85rem;
+    }
 }
 </style>
 
@@ -480,6 +563,34 @@ async function syncRepository(path) {
         button.disabled = false;
         button.classList.remove('syncing');
         button.querySelector('.sync-text').textContent = 'Sync';
+    }
+}
+
+async function handleProviderChange(select) {
+    const path = select.dataset.repoPath;
+    const provider = select.value;
+    
+    try {
+        const response = await fetch('/api/repositories/provider', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: path,
+                provider: provider
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        
+        // Refresh the page to show updated provider
+        window.location.reload();
+    } catch (error) {
+        console.error('Error changing provider:', error);
+        alert(error.message);
+        // Reset the select to its previous value
+        select.value = select.querySelector('option[selected]').value;
     }
 }
 </script>

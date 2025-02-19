@@ -12,15 +12,19 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/pkg/remote/types"
 )
 
 const (
-	dataPath    = ".config/dev-team/local-provider.json"
-	filterLabel = "dev-team"
+	dataPath    = ".config/mule/local-provider.json"
+	filterLabel = "mule"
 )
 
 var re = regexp.MustCompile(`<!--(.*?)-->`)
+
+type ProviderConfig struct {
+	Providers map[string]Provider `json:"providers"`
+}
 
 type Provider struct {
 	Path         string                     `json:"path"`
@@ -254,28 +258,46 @@ func addReactionToReactions(reactions types.Reactions, reaction string) types.Re
 }
 
 func (p *Provider) Save() error {
-	// validate data path
-	path, err := validatePath(dataPath)
+	// get current provider config
+	providerConfig, err := loadProviderConfig()
 	if err != nil {
-		return fmt.Errorf("error validating data path: %v", err)
+		return fmt.Errorf("error loading provider config: %v", err)
 	}
 
-	file, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("error creating file: %v", err)
-	}
-	defer file.Close()
+	// add provider to config
+	providerConfig.Providers[p.Path] = *p
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	err = encoder.Encode(p)
+	// save config
+	err = providerConfig.Save()
 	if err != nil {
-		return fmt.Errorf("error encoding data: %v", err)
+		return fmt.Errorf("error saving provider config: %v", err)
 	}
 	return nil
 }
 
 func loadProvider(path string) (*Provider, error) {
+	// get current provider config
+	providerConfig, err := loadProviderConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error loading provider config: %v", err)
+	}
+
+	// get provider from config
+	provider, ok := providerConfig.Providers[path]
+	if !ok {
+		p := &Provider{
+			Path:         path,
+			Issues:       make(map[int]*types.Issue),
+			PullRequests: make(map[int]*types.PullRequest),
+			IssueCounter: 0,
+		}
+		return p, fmt.Errorf("provider %s not found, creating blank provider", path)
+	}
+
+	return &provider, nil
+}
+
+func loadProviderConfig() (*ProviderConfig, error) {
 	// validate data path
 	configPath, err := validatePath(dataPath)
 	if err != nil {
@@ -289,19 +311,38 @@ func loadProvider(path string) (*Provider, error) {
 	}
 
 	// unmarshal data
-	var provider Provider
-	err = json.Unmarshal(data, &provider)
+	var providerConfig ProviderConfig
+	err = json.Unmarshal(data, &providerConfig)
 	if err != nil {
-		p := &Provider{
-			Path:         path,
-			Issues:       make(map[int]*types.Issue),
-			PullRequests: make(map[int]*types.PullRequest),
-			IssueCounter: 0,
-		}
-		return p, fmt.Errorf("error unmarshalling data, creating blank provider: %v", err)
+		return nil, fmt.Errorf("error unmarshalling data: %v", err)
 	}
 
-	return &provider, nil
+	if providerConfig.Providers == nil {
+		providerConfig.Providers = make(map[string]Provider)
+	}
+
+	return &providerConfig, nil
+}
+
+func (p *ProviderConfig) Save() error {
+	// validate data path
+	configPath, err := validatePath(dataPath)
+	if err != nil {
+		return fmt.Errorf("error validating data path: %v", err)
+	}
+
+	// marshal data
+	data, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("error marshalling data: %v", err)
+	}
+
+	// write data
+	err = os.WriteFile(configPath, data, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing data: %v", err)
+	}
+	return nil
 }
 
 func validatePath(path string) (string, error) {
@@ -328,6 +369,25 @@ func validatePath(path string) (string, error) {
 		_, err = os.Create(absPath)
 		if err != nil {
 			return "", fmt.Errorf("error creating file: %v", err)
+		}
+		// create default provider
+		defaultProviderConfig := ProviderConfig{
+			Providers: map[string]Provider{
+				"/": {
+					Path:         "/",
+					Issues:       make(map[int]*types.Issue),
+					PullRequests: make(map[int]*types.PullRequest),
+					IssueCounter: 0,
+				},
+			},
+		}
+		data, err := json.Marshal(defaultProviderConfig)
+		if err != nil {
+			return "", fmt.Errorf("error marshalling default provider config: %v", err)
+		}
+		err = os.WriteFile(absPath, data, 0644)
+		if err != nil {
+			return "", fmt.Errorf("error saving default provider config: %v", err)
 		}
 	}
 	return absPath, nil

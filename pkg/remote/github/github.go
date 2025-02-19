@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/google/go-github/v60/github"
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/pkg/remote/types"
 	"golang.org/x/oauth2"
 )
 

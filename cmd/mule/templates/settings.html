@@ -110,9 +110,10 @@
 
 .ai-provider, .agent {
     border: 1px solid rgba(255,255,255,0.1);
-    padding: 1rem;
+    padding: 0.75rem;
     margin-bottom: 1rem;
     border-radius: 4px;
+    overflow-x: auto;
 }
 
 .provider-settings {
@@ -224,6 +225,7 @@ h3 {
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 4px;
     min-height: 2.5rem;
+    overflow-x: auto;
 }
 
 .checkbox-item {
@@ -275,6 +277,7 @@ textarea.input {
     margin-bottom: 1.5rem;
     border-bottom: 1px solid rgba(255,255,255,0.1);
     padding-bottom: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .tab-button {
@@ -286,6 +289,7 @@ textarea.input {
     border-radius: 4px;
     opacity: 0.7;
     transition: all 0.2s;
+    white-space: nowrap;
 }
 
 .tab-button:hover {
@@ -329,16 +333,9 @@ textarea.input {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.75rem 1rem;
-    background: rgba(255,255,255,0.05);
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-    cursor: pointer;
-    user-select: none;
-    transition: background-color 0.2s;
-}
-
-.agent-header:hover {
-    background: rgba(255,255,255,0.1);
+    padding: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .agent-name-display {
@@ -379,6 +376,73 @@ textarea.input {
     max-height: 0;
     opacity: 0;
     overflow: hidden;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .tabs {
+        justify-content: stretch;
+    }
+
+    .tab-button {
+        flex: 1;
+        text-align: center;
+        padding: 0.5rem;
+    }
+
+    .agent-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .toggle-agent {
+        width: 100%;
+        text-align: center;
+    }
+
+    .checkbox-group {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .checkbox-item {
+        padding: 0.5rem;
+    }
+
+    textarea.input {
+        min-height: 120px;
+    }
+}
+
+@media (max-width: 480px) {
+    .tabs {
+        flex-direction: column;
+    }
+
+    .tab-button {
+        width: 100%;
+        margin: 0.25rem 0;
+    }
+
+    .ai-provider, .agent {
+        padding: 0.5rem;
+    }
+
+    .agent-header {
+        padding: 0.5rem;
+    }
+
+    .agent-content {
+        padding: 0.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+
+    .help-text {
+        font-size: 0.8rem;
+    }
 }
 </style>
 

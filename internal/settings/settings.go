@@ -1,6 +1,6 @@
 package settings
 
-import "github.com/jbutlerdev/dev-team/pkg/agent"
+import "github.com/mule-ai/mule/pkg/agent"
 
 type Settings struct {
 	GitHubToken string               `json:"githubToken"`

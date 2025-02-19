@@ -11,9 +11,10 @@ import (
 
 	"github.com/go-git/go-git/v5"
 
-	"github.com/jbutlerdev/dev-team/internal/config"
-	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/repository"
+	"github.com/mule-ai/mule/internal/config"
+	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/remote"
+	"github.com/mule-ai/mule/pkg/repository"
 )
 
 type RepoAddRequest struct {
@@ -127,6 +128,7 @@ func HandleUpdateRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
 func HandleCloneRepository(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RepoURL  string `json:"repoUrl"`
@@ -153,7 +155,7 @@ func HandleCloneRepository(w http.ResponseWriter, r *http.Request) {
 	repoName = strings.TrimSuffix(repoName, ".git")
 	repoPath := filepath.Join(req.BasePath, repoName)
 	repo := repository.NewRepository(repoPath)
-	if err := repo.Clone(req.RepoURL); err != nil {
+	if err := repo.Upsert(req.RepoURL); err != nil {
 		http.Error(w, fmt.Sprintf("Error cloning repository: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -212,6 +214,57 @@ func HandleSyncRepository(w http.ResponseWriter, r *http.Request) {
 	err = repo.Sync(state.State.Agents)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func HandleSwitchProvider(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path     string `json:"path"`
+		Provider string `json:"provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo, err := getRepository(req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Update the provider
+	repo.RemoteProvider.Provider = req.Provider
+	repo.RemoteProvider.Path = req.Path
+	repo.RemoteProvider.Token = state.State.Settings.GitHubToken
+
+	// Create new remote provider
+	options, err := remote.SettingsToOptions(repo.RemoteProvider)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error converting settings: %v", err), http.StatusInternalServerError)
+		return
+	}
+	repo.Remote = remote.New(options)
+
+	// Update state
+	state.State.Mu.Lock()
+	state.State.Repositories[repo.Path] = repo
+	state.State.Mu.Unlock()
+
+	// Save config
+	configPath, err := config.GetHomeConfigPath()
+	if err != nil {
+		log.Printf("Error getting config path: %v", err)
+		http.Error(w, fmt.Sprintf("Error getting config path: %v", err), http.StatusInternalServerError)
+		return
+	}
+	err = config.SaveConfig(configPath)
+	if err != nil {
+		log.Printf("Error saving config: %v", err)
+		http.Error(w, fmt.Sprintf("Error saving config: %v", err), http.StatusInternalServerError)
 		return
 	}
 

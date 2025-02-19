@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jbutlerdev/dev-team/internal/state"
+	"github.com/mule-ai/mule/internal/state"
 )
 
 func HandleModels(w http.ResponseWriter, r *http.Request) {

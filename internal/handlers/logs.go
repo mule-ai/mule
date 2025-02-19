@@ -3,13 +3,13 @@ package handlers
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mule-ai/mule/pkg/log"
 )
 
 type LogEntry struct {
@@ -44,7 +44,7 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 	isAjax := r.Header.Get("X-Requested-With") == "XMLHttpRequest"
 
 	// Read and parse log file
-	file, err := os.Open("dev-team.log")
+	file, err := os.Open(log.LogFile)
 	if err != nil {
 		if isAjax {
 			http.Error(w, `{"error": "Error reading log file"}`, http.StatusInternalServerError)
@@ -64,19 +64,19 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 	for scanner.Scan() {
 		var entry LogEntry
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			log.Printf("Error unmarshalling log entry: %v", err)
-			log.Printf("Log entry: %v", fmt.Sprintf("%v", string(scanner.Bytes())))
+			// log.Printf("Error unmarshalling log entry: %v", err)
+			// log.Printf("Log entry: %v", fmt.Sprintf("%v", string(scanner.Bytes())))
 			continue // Skip invalid JSON entries
 		}
 		entry.Time = time.Unix(int64(entry.TimeStamp), 0)
 
 		// Apply filters
 		if level != "" && !strings.EqualFold(entry.Level, level) {
-			log.Printf("Skipping log entry due to level: %v", entry)
+			// log.Printf("Skipping log entry due to level: %v", entry)
 			continue
 		}
 		if search != "" && !strings.Contains(strings.ToLower(entry.Message), strings.ToLower(search)) {
-			log.Printf("Skipping log entry due to search: %v", entry)
+			// log.Printf("Skipping log entry due to search: %v", entry)
 			continue
 		}
 
@@ -97,7 +97,9 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	err = scanner.Err()
 	if err != nil {
-		log.Printf("Error scanning log file: %v", err)
+		// log.Printf("Error scanning log file: %v", err)
+		http.Error(w, "Error scanning log file", http.StatusInternalServerError)
+		return
 	}
 
 	// Convert map to slice and sort by start time

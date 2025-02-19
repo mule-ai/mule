@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/log"
+	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/log"
 )
 
 func TestLoadConfig(t *testing.T) {
