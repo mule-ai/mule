@@ -34,6 +34,12 @@ func NewProvider(path string) *Provider {
 	provider, err := loadProvider(path)
 	if err != nil {
 		log.Printf("error loading provider: %v", err)
+		provider = &Provider{
+			Path:         path,
+			Issues:       make(map[int]*types.Issue),
+			PullRequests: make(map[int]*types.PullRequest),
+			IssueCounter: 0,
+		}
 	}
 	return provider
 }
