@@ -1,8 +1,8 @@
-# Dev Team
+# Mule
 
 ### Your AI development team
 
-dev-team is an AI Agent that monitors your git repositories and completes issues assigned to it.
+mule is an AI Agent that monitors your git repositories and completes issues assigned to it.
 
 Issues are assigned by giving them the `dev-team` label.
 
