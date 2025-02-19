@@ -4,8 +4,6 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/jbutlerdev/dev-team/internal/config"
 	"github.com/jbutlerdev/dev-team/internal/handlers"
@@ -40,15 +38,10 @@ func main() {
 	l := log.New("dev-team.log")
 
 	// Create config path
-	homeDir, err := os.UserHomeDir()
+	configPath, err := config.GetHomeConfigPath()
 	if err != nil {
-		l.Error(err, "Error getting user home directory")
+		l.Error(err, "Error getting config path")
 	}
-	configDir := filepath.Join(homeDir, ".config", "dev-team")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		l.Error(err, "Error creating config directory")
-	}
-	configPath := filepath.Join(configDir, "config.json")
 
 	// Load config
 	appState, err := config.LoadConfig(configPath, l)

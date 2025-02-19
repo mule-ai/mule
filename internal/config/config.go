@@ -20,6 +20,14 @@ type Config struct {
 	Settings     settings.Settings                 `json:"settings"`
 }
 
+func GetHomeConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ConfigPath), nil
+}
+
 func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

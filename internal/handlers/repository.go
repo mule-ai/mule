@@ -82,7 +82,12 @@ func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Saving config")
-	err = config.SaveConfig(config.ConfigPath)
+	// Create config path
+	configPath, err := config.GetHomeConfigPath()
+	if err != nil {
+		log.Printf("Error getting config path: %v", err)
+	}
+	err = config.SaveConfig(configPath)
 	if err != nil {
 		log.Printf("Error saving config: %v", err)
 		http.Error(w, fmt.Sprintf("Error saving config: %v", err), http.StatusInternalServerError)
@@ -175,7 +180,12 @@ func HandleDeleteRepository(w http.ResponseWriter, r *http.Request) {
 	state.State.Scheduler.RemoveTask(repo.Path)
 	state.State.Mu.Unlock()
 
-	err = config.SaveConfig(config.ConfigPath)
+	// Create config path
+	configPath, err := config.GetHomeConfigPath()
+	if err != nil {
+		log.Printf("Error getting config path: %v", err)
+	}
+	err = config.SaveConfig(configPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error saving config: %v", err), http.StatusInternalServerError)
 		return

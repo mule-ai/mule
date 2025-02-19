@@ -18,6 +18,11 @@ var stringToIntMap = map[string]int{
 	"github": GITHUB,
 }
 
+var intToStringMap = map[int]string{
+	LOCAL:  "local",
+	GITHUB: "github",
+}
+
 type Provider interface {
 	CreateDraftPR(path string, input types.PullRequestInput) error
 	CreateIssue(issue types.Issue) (int, error)
@@ -68,4 +73,8 @@ func SettingsToOptions(settings ProviderSettings) (ProviderOptions, error) {
 		GitHubToken: settings.Token,
 		Path:        settings.Path,
 	}, nil
+}
+
+func ProviderTypeToString(providerType int) string {
+	return intToStringMap[providerType]
 }

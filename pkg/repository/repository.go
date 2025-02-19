@@ -31,8 +31,8 @@ type Repository struct {
 	LastSync       time.Time               `json:"lastSync"`
 	State          *Status                 `json:"status,omitempty"`
 	RemotePath     string                  `json:"remotePath,omitempty"`
-	Issues         map[int]*Issue          `json:"issues,omitempty"`
-	PullRequests   map[int]*PullRequest    `json:"pullRequests,omitempty"`
+	Issues         map[int]*Issue          `json:"-"`
+	PullRequests   map[int]*PullRequest    `json:"-"`
 	Mu             sync.RWMutex            `json:"-"`
 	Locked         bool                    `json:"locked"`
 	Logger         logr.Logger             `json:"-"`
@@ -56,6 +56,10 @@ func NewRepository(path string) *Repository {
 			Type: remote.LOCAL,
 			Path: path,
 		}),
+		RemoteProvider: remote.ProviderSettings{
+			Provider: remote.ProviderTypeToString(remote.LOCAL),
+			Path:     path,
+		},
 	}
 }
 
