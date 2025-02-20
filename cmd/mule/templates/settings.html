@@ -5,6 +5,7 @@
         <button class="tab-button active" data-tab="general">General</button>
         <button class="tab-button" data-tab="providers">AI Providers</button>
         <button class="tab-button" data-tab="agents">Agents</button>
+        <button class="tab-button" data-tab="system">System Agents</button>
     </div>
 
     <form id="settingsForm" onsubmit="return handleUpdateSettings(event)">
@@ -97,6 +98,38 @@
                 {{end}}
             </div>
             <button type="button" class="button secondary" onclick="addAgent()">Add Agent</button>
+        </div>
+
+        <div id="system" class="tab-content">
+            <div class="form-group">
+                <label class="label">Provider</label>
+                <select name="systemAgent.providerName" class="input provider-select" onchange="handleSystemAgentProviderChange(this)">
+                    <option value="">Select a provider</option>
+                    <option value="ollama" {{if eq .Settings.SystemAgent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
+                    <option value="gemini" {{if eq .Settings.SystemAgent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="label">Model</label>
+                <select name="systemAgent.model" class="input model-select" data-provider="{{.Settings.SystemAgent.ProviderName}}" data-model="{{.Settings.SystemAgent.Model}}">
+                    <option value="{{.Settings.SystemAgent.Model}}" selected>{{.Settings.SystemAgent.Model}}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="label">Commit Message Template</label>
+                <textarea name="systemAgent.commitTemplate" class="input" rows="8" placeholder="Enter the commit message template">{{.Settings.SystemAgent.CommitTemplate}}</textarea>
+                <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
+            </div>
+            <div class="form-group">
+                <label class="label">Pull Request Title Template</label>
+                <textarea name="systemAgent.prTitleTemplate" class="input" rows="8" placeholder="Enter the PR title template">{{.Settings.SystemAgent.PRTitleTemplate}}</textarea>
+                <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
+            </div>
+            <div class="form-group">
+                <label class="label">Pull Request Body Template</label>
+                <textarea name="systemAgent.prBodyTemplate" class="input" rows="8" placeholder="Enter the PR body template">{{.Settings.SystemAgent.PRBodyTemplate}}</textarea>
+                <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
+            </div>
         </div>
 
         <button type="submit" class="button primary">Save Settings</button>
@@ -731,7 +764,14 @@ async function handleUpdateSettings(event) {
     const settings = {
         githubToken: formData.get('githubToken'),
         aiProviders: [],
-        agents: []
+        agents: [],
+        systemAgent: {
+            providerName: formData.get('systemAgent.providerName') || "",
+            model: formData.get('systemAgent.model') || "",
+            commitTemplate: formData.get('systemAgent.commitTemplate') || "",
+            prTitleTemplate: formData.get('systemAgent.prTitleTemplate') || "",
+            prBodyTemplate: formData.get('systemAgent.prBodyTemplate') || ""
+        }
     };
 
     // Collect AI providers
@@ -838,6 +878,22 @@ function updateAgentNameDisplay(input) {
     nameDisplay.textContent = input.value || 'Unnamed Agent';
 }
 
+async function handleSystemAgentProviderChange(select) {
+    const systemSection = document.getElementById('system');
+    const modelSelect = systemSection.querySelector('.model-select');
+    const provider = select.value;
+    
+    modelSelect.dataset.provider = provider;
+    modelSelect.dataset.model = ''; // Clear the model when provider changes
+    modelSelect.innerHTML = '<option value="">Loading models...</option>';
+    
+    if (provider) {
+        await loadModels(provider, modelSelect);
+    } else {
+        modelSelect.innerHTML = '<option value="">Select a provider first</option>';
+    }
+}
+
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
     initTabs();
@@ -848,6 +904,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const sectionId = header.dataset.section;
             toggleSection(sectionId);
         });
+    });
+
+    // Initialize system agent
+    const systemSection = document.getElementById('system');
+    const systemModelSelect = systemSection.querySelector('.model-select');
+    const systemProvider = systemModelSelect.dataset.provider;
+    if (systemProvider) {
+        loadModels(systemProvider, systemModelSelect);
+    }
+
+    // Load template values for system agent templates
+    systemSection.querySelectorAll('.template-values').forEach(async (span) => {
+        try {
+            const response = await fetch('/api/template-values');
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+            const values = await response.json();
+            span.textContent = values;
+        } catch (error) {
+            console.error('Error loading template values:', error);
+            span.textContent = 'Error loading template values';
+        }
     });
 
     // Initialize all agents

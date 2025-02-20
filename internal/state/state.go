@@ -23,7 +23,7 @@ type AppState struct {
 	Logger       logr.Logger
 	GenAI        *GenAIProviders
 	Remote       *RemoteProviders
-	Agents       []*agent.Agent
+	Agents       map[int]*agent.Agent
 }
 
 type GenAIProviders struct {
@@ -38,7 +38,9 @@ type RemoteProviders struct {
 
 func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	genaiProviders := initializeGenAIProviders(logger, settings)
+	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders)
+	agents = mergeAgents(agents, systemAgents)
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
 		Settings:     settings,
@@ -81,9 +83,9 @@ func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) *G
 	return providers
 }
 
-func initializeAgents(logger logr.Logger, settings settings.Settings, genaiProviders *GenAIProviders) []*agent.Agent {
-	agents := []*agent.Agent{}
-	for _, agentOpts := range settings.Agents {
+func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders) map[int]*agent.Agent {
+	agents := make(map[int]*agent.Agent)
+	for i, agentOpts := range settingsInput.Agents {
 		switch agentOpts.ProviderName {
 		case genai.OLLAMA:
 			if genaiProviders.Ollama == nil {
@@ -102,7 +104,36 @@ func initializeAgents(logger logr.Logger, settings settings.Settings, genaiProvi
 			continue
 		}
 		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
-		agents = append(agents, agent.NewAgent(agentOpts))
+		agents[settings.StartingAgent+i] = agent.NewAgent(agentOpts)
+	}
+	return agents
+}
+
+func initializeSystemAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders) map[int]*agent.Agent {
+	agents := make(map[int]*agent.Agent)
+	systemAgentOpts := agent.AgentOptions{
+		ProviderName: settingsInput.SystemAgent.ProviderName,
+		Model:        settingsInput.SystemAgent.Model,
+		Logger:       logger.WithName("system-agent"),
+	}
+	switch settingsInput.SystemAgent.ProviderName {
+	case genai.OLLAMA:
+		systemAgentOpts.Provider = genaiProviders.Ollama
+	case genai.GEMINI:
+		systemAgentOpts.Provider = genaiProviders.Gemini
+	}
+	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.CommitTemplate
+	agents[settings.CommitAgent] = agent.NewAgent(systemAgentOpts)
+	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRTitleTemplate
+	agents[settings.PRTitleAgent] = agent.NewAgent(systemAgentOpts)
+	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRBodyTemplate
+	agents[settings.PRBodyAgent] = agent.NewAgent(systemAgentOpts)
+	return agents
+}
+
+func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent) map[int]*agent.Agent {
+	for id, agent := range systemAgents {
+		agents[id] = agent
 	}
 	return agents
 }

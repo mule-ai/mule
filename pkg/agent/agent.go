@@ -145,7 +145,11 @@ func (a *Agent) RunInPath(path string, input PromptInput) error {
 	return a.Run(input)
 }
 
-func (a *Agent) Generate(prompt string) (string, error) {
+func (a *Agent) Generate(input PromptInput) (string, error) {
+	prompt, err := a.renderPromptTemplate(input)
+	if err != nil {
+		return "", err
+	}
 	return a.provider.Generate(a.model, prompt)
 }
 
