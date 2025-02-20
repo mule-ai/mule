@@ -4,7 +4,7 @@
 
 mule is an AI Agent that monitors your git repositories and completes issues assigned to it.
 
-Issues are assigned by giving them the `dev-team` label.
+Issues are assigned by giving them the `mule` label.
 
 After the work is completed, the agent will create a pull request. Additional refinement can be requested by commenting on the pull request.
 
@@ -23,6 +23,5 @@ https://storage.googleapis.com/tradestax.io/devteam/devteam-local-demo.webm
 
 * Perform RAG for better results
 * Create multi-agent workflows
-* Imrpove repository clone handling
 * Add the ability to create a new repository
 * Implement manager mode to allow spawning multiple agents that track their own repository 
