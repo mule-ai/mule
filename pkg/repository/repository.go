@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -354,10 +355,27 @@ func (r *Repository) getChanges() (*Changes, error) {
 		}
 	}
 
+	// Get the diff between working directory and main branch
+	cmd := exec.Command("git", "-C", r.Path, "diff", "main")
+	diffOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		// If main doesn't exist or other error, just show all changes
+		cmd = exec.Command("git", "-C", r.Path, "diff")
+		diffOutput, err = cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("error generating diff: %v: %s", err, string(diffOutput))
+		}
+	}
+
+	summary := fmt.Sprintf("Changed files:\n%v\n\nDiff:\n%s\n\nCommits:\n%v",
+		strings.Join(files, "\n"),
+		string(diffOutput),
+		strings.Join(commits, "\n"))
+
 	return &Changes{
 		Files:   files,
 		Commits: commits,
-		Summary: fmt.Sprintf("Changed files:\n%v\n\nCommits:\n%v", files, commits),
+		Summary: summary,
 	}, nil
 }
 
@@ -461,14 +479,16 @@ func (r *Repository) createPR(agents map[int]*agent.Agent, issue *Issue) error {
 		return err
 	}
 
-	commitMessage, err := agents[settings.CommitAgent].Generate(agent.PromptInput{
-		IssueTitle:  "",
-		IssueBody:   "",
+	promptInput := agent.PromptInput{
+		IssueTitle:  issue.Title,
+		IssueBody:   issue.Body,
 		Commits:     "",
 		Diff:        summary,
 		PRComment:   "",
 		IsPRComment: false,
-	})
+	}
+
+	commitMessage, err := agents[settings.CommitAgent].Generate(promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating commit message")
 		return err
@@ -487,27 +507,13 @@ func (r *Repository) createPR(agents map[int]*agent.Agent, issue *Issue) error {
 		return err
 	}
 
-	prTitle, err := agents[settings.PRTitleAgent].Generate(agent.PromptInput{
-		IssueTitle:  "",
-		IssueBody:   "",
-		Commits:     "",
-		Diff:        summary,
-		PRComment:   "",
-		IsPRComment: false,
-	})
+	prTitle, err := agents[settings.PRTitleAgent].Generate(promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR title")
 		return err
 	}
 
-	prDescription, err := agents[settings.PRBodyAgent].Generate(agent.PromptInput{
-		IssueTitle:  "",
-		IssueBody:   "",
-		Commits:     "",
-		Diff:        summary,
-		PRComment:   "",
-		IsPRComment: false,
-	})
+	prDescription, err := agents[settings.PRBodyAgent].Generate(promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR description")
 		return err

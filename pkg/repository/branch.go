@@ -48,9 +48,28 @@ func (r *Repository) CheckoutBranch(branchName string) error {
 }
 
 func (r *Repository) createIssueBranch(issueTitle string) (string, error) {
-	branchName := strings.ToLower(strings.ReplaceAll(issueTitle, " ", "-"))
+	// Convert to lowercase and replace special characters with hyphens
+	branchName := strings.ToLower(issueTitle)
+	// Replace any character that isn't alphanumeric or hyphen with a hyphen
+	branchName = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, branchName)
+
+	// Replace multiple consecutive hyphens with a single hyphen
+	for strings.Contains(branchName, "--") {
+		branchName = strings.ReplaceAll(branchName, "--", "-")
+	}
+
+	// Trim hyphens from start and end
+	branchName = strings.Trim(branchName, "-")
+
 	if len(branchName) > 100 {
 		branchName = branchName[:100]
+		// Ensure we don't end with a hyphen after truncating
+		branchName = strings.TrimRight(branchName, "-")
 	}
 
 	err := r.Fetch()
