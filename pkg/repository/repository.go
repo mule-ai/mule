@@ -2,11 +2,13 @@ package repository
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/pkg/agent"
 	"github.com/mule-ai/mule/pkg/auth"
 	"github.com/mule-ai/mule/pkg/remote"
@@ -205,12 +207,11 @@ func (r *Repository) Fetch() error {
 	return nil
 }
 
-func (r *Repository) Sync(agents []*agent.Agent) error {
+func (r *Repository) Sync(agents map[int]*agent.Agent) error {
 	r.Logger.Info("Syncing repository")
 	if len(agents) == 0 {
 		return fmt.Errorf("no agents provided")
 	}
-	agent := agents[0]
 	err := r.lock()
 	if err != nil {
 		r.Logger.Error(err, "Error locking repository")
@@ -267,7 +268,7 @@ func (r *Repository) Sync(agents []*agent.Agent) error {
 		r.State.CurrentBranch = branchName
 
 		r.Logger.Info("Starting generation")
-		commentResolved, err := r.generateFromIssue(agent, issue)
+		commentResolved, err := r.generateFromIssue(agents, issue)
 		if err != nil {
 			r.Logger.Error(err, "Error generating changes")
 			return err
@@ -288,7 +289,7 @@ func (r *Repository) Sync(agents []*agent.Agent) error {
 			r.Logger.Info("No changes found, expected changes from AI")
 			return fmt.Errorf("no changes found, expected changes from AI")
 		}
-		err = r.createPR(agent, issue)
+		err = r.createPR(agents, issue)
 		if err != nil {
 			r.Logger.Error(err, "Error creating PR")
 			return err
@@ -354,14 +355,31 @@ func (r *Repository) getChanges() (*Changes, error) {
 		}
 	}
 
+	// Get the diff between working directory and main branch
+	cmd := exec.Command("git", "-C", r.Path, "diff", "main")
+	diffOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		// If main doesn't exist or other error, just show all changes
+		cmd = exec.Command("git", "-C", r.Path, "diff")
+		diffOutput, err = cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("error generating diff: %v: %s", err, string(diffOutput))
+		}
+	}
+
+	summary := fmt.Sprintf("Changed files:\n%v\n\nDiff:\n%s\n\nCommits:\n%v",
+		strings.Join(files, "\n"),
+		string(diffOutput),
+		strings.Join(commits, "\n"))
+
 	return &Changes{
 		Files:   files,
 		Commits: commits,
-		Summary: fmt.Sprintf("Changed files:\n%v\n\nCommits:\n%v", files, commits),
+		Summary: summary,
 	}, nil
 }
 
-func (r *Repository) generateFromIssue(a *agent.Agent, issue *Issue) (bool, error) {
+func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, issue *Issue) (bool, error) {
 	prompt := ""
 	var unresolvedCommentId int64
 	var promptInput agent.PromptInput
@@ -395,7 +413,7 @@ func (r *Repository) generateFromIssue(a *agent.Agent, issue *Issue) (bool, erro
 		}
 	}
 
-	err := a.RunInPath(r.Path, promptInput)
+	err := agents[settings.StartingAgent].RunInPath(r.Path, promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error running agent")
 		return false, err
@@ -403,12 +421,12 @@ func (r *Repository) generateFromIssue(a *agent.Agent, issue *Issue) (bool, erro
 
 	// If we're handling a PR comment, commit and push to the existing branch
 	if unresolvedCommentId != 0 {
-		return true, r.updatePR(a, unresolvedCommentId)
+		return true, r.updatePR(agents, unresolvedCommentId)
 	}
 	return false, nil
 }
 
-func (r *Repository) updatePR(agent *agent.Agent, commentId int64) error {
+func (r *Repository) updatePR(agents map[int]*agent.Agent, commentId int64) error {
 	if commentId == 0 {
 		return fmt.Errorf("expected PR comment ID, but none found")
 	}
@@ -417,7 +435,14 @@ func (r *Repository) updatePR(agent *agent.Agent, commentId int64) error {
 		r.Logger.Error(err, "Error getting change summary")
 		return err
 	}
-	commitMessage, err := agent.Generate(CommitPrompt(summary))
+	commitMessage, err := agents[settings.CommitAgent].Generate(agent.PromptInput{
+		IssueTitle:  "",
+		IssueBody:   "",
+		Commits:     "",
+		Diff:        summary,
+		PRComment:   "",
+		IsPRComment: false,
+	})
 	if err != nil {
 		r.Logger.Error(err, "Error generating commit message")
 		return err
@@ -447,14 +472,23 @@ func (r *Repository) updatePR(agent *agent.Agent, commentId int64) error {
 }
 
 // ignore unused code error
-func (r *Repository) createPR(agent *agent.Agent, issue *Issue) error {
+func (r *Repository) createPR(agents map[int]*agent.Agent, issue *Issue) error {
 	summary, err := r.ChangeSummary()
 	if err != nil {
 		r.Logger.Error(err, "Error getting change summary")
 		return err
 	}
 
-	commitMessage, err := agent.Generate(CommitPrompt(summary))
+	promptInput := agent.PromptInput{
+		IssueTitle:  issue.Title,
+		IssueBody:   issue.Body,
+		Commits:     "",
+		Diff:        summary,
+		PRComment:   "",
+		IsPRComment: false,
+	}
+
+	commitMessage, err := agents[settings.CommitAgent].Generate(promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating commit message")
 		return err
@@ -473,13 +507,13 @@ func (r *Repository) createPR(agent *agent.Agent, issue *Issue) error {
 		return err
 	}
 
-	prTitle, err := agent.Generate(CommitPrompt(summary))
+	prTitle, err := agents[settings.PRTitleAgent].Generate(promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR title")
 		return err
 	}
 
-	prDescription, err := agent.Generate(PRPrompt(summary))
+	prDescription, err := agents[settings.PRBodyAgent].Generate(promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR description")
 		return err
