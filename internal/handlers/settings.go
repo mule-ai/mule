@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jbutlerdev/dev-team/internal/config"
-	"github.com/jbutlerdev/dev-team/internal/settings"
-	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/agent"
+	"github.com/mule-ai/mule/internal/config"
+	"github.com/mule-ai/mule/internal/settings"
+	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/agent"
 )
 
 func HandleGetSettings(w http.ResponseWriter, r *http.Request) {

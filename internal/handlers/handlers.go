@@ -5,8 +5,8 @@ import (
 	"html/template"
 	"net/http"
 
-	"github.com/jbutlerdev/dev-team/pkg/validation"
 	"github.com/jbutlerdev/genai/tools"
+	"github.com/mule-ai/mule/pkg/validation"
 )
 
 var templates *template.Template

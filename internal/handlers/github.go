@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/repository"
+	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/repository"
 )
 
 func HandleGitHubRepositories(w http.ResponseWriter, r *http.Request) {

@@ -1,4 +1,4 @@
-module github.com/jbutlerdev/dev-team
+module github.com/mule-ai/mule
 
 go 1.23.6
 

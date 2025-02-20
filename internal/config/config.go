@@ -6,18 +6,26 @@ import (
 	"path/filepath"
 
 	"github.com/go-logr/logr"
-	"github.com/jbutlerdev/dev-team/internal/scheduler"
-	"github.com/jbutlerdev/dev-team/internal/settings"
-	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/remote"
-	"github.com/jbutlerdev/dev-team/pkg/repository"
+	"github.com/mule-ai/mule/internal/scheduler"
+	"github.com/mule-ai/mule/internal/settings"
+	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/remote"
+	"github.com/mule-ai/mule/pkg/repository"
 )
 
-const ConfigPath = ".config/dev-team/config.json"
+const ConfigPath = ".config/mule/config.json"
 
 type Config struct {
 	Repositories map[string]*repository.Repository `json:"repositories"`
 	Settings     settings.Settings                 `json:"settings"`
+}
+
+func GetHomeConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ConfigPath), nil
 }
 
 func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {

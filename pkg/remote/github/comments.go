@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v60/github"
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/pkg/remote/types"
 )
 
 func (p *Provider) FetchComments(owner, repo string, prNumber int) ([]*types.Comment, error) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/pkg/remote/types"
 )
 
 type PullRequest struct {

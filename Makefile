@@ -44,12 +44,12 @@ all: clean fmt test build
 
 # Clean build artifacts
 clean:
-	rm -f ./cmd/dev-team/bin/dev-team
+	rm -f ./cmd/mule/bin/mule
 
 # Build backend
 build:
-	cd cmd/dev-team && CGO_ENABLED=0 GOOS=linux go build -o bin/dev-team
+	cd cmd/mule && CGO_ENABLED=0 GOOS=linux go build -o bin/mule
 
 # Run the application
 run: all
-	./cmd/dev-team/bin/dev-team
+	./cmd/mule/bin/mule

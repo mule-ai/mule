@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jbutlerdev/dev-team/internal/settings"
-	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/internal/settings"
+	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/remote/types"
 )
 
 type LocalPageData struct {

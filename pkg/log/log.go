@@ -6,7 +6,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const logFile = "dev-team.log"
+const LogFile = "mule.log"
 
 func New(file string) logr.Logger {
 	zc := zap.NewProductionConfig()
@@ -15,7 +15,7 @@ func New(file string) logr.Logger {
 	// if you want logs on stdout us this line instead of the one below it
 	// zc.OutputPaths = []string{"stdout", "tradestax.log"}
 	if file == "" {
-		file = logFile
+		file = LogFile
 	}
 	zc.OutputPaths = []string{file}
 	z, err := zc.Build()

@@ -4,15 +4,13 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
-	"os"
-	"path/filepath"
 
-	"github.com/jbutlerdev/dev-team/internal/config"
-	"github.com/jbutlerdev/dev-team/internal/handlers"
-	"github.com/jbutlerdev/dev-team/internal/settings"
-	"github.com/jbutlerdev/dev-team/internal/state"
-	"github.com/jbutlerdev/dev-team/pkg/log"
-	"github.com/jbutlerdev/dev-team/pkg/repository"
+	"github.com/mule-ai/mule/internal/config"
+	"github.com/mule-ai/mule/internal/handlers"
+	"github.com/mule-ai/mule/internal/settings"
+	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/log"
+	"github.com/mule-ai/mule/pkg/repository"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -37,18 +35,13 @@ func init() {
 
 func main() {
 	// Initialize log
-	l := log.New("dev-team.log")
+	l := log.New("")
 
 	// Create config path
-	homeDir, err := os.UserHomeDir()
+	configPath, err := config.GetHomeConfigPath()
 	if err != nil {
-		l.Error(err, "Error getting user home directory")
+		l.Error(err, "Error getting config path")
 	}
-	configDir := filepath.Join(homeDir, ".config", "dev-team")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		l.Error(err, "Error creating config directory")
-	}
-	configPath := filepath.Join(configDir, "config.json")
 
 	// Load config
 	appState, err := config.LoadConfig(configPath, l)
@@ -68,6 +61,7 @@ func main() {
 	api.HandleFunc("/repositories/clone", handlers.HandleCloneRepository).Methods("POST")
 	api.HandleFunc("/repositories/update", handlers.HandleUpdateRepository).Methods("POST")
 	api.HandleFunc("/repositories/sync", handlers.HandleSyncRepository).Methods("POST")
+	api.HandleFunc("/repositories/provider", handlers.HandleSwitchProvider).Methods("POST")
 	api.HandleFunc("/models", handlers.HandleModels).Methods("GET")
 	api.HandleFunc("/tools", handlers.HandleTools).Methods("GET")
 	api.HandleFunc("/validation-functions", handlers.HandleValidationFunctions).Methods("GET")

@@ -55,10 +55,12 @@
     display: flex;
     gap: 1rem;
     margin-bottom: 1rem;
+    flex-wrap: wrap;
 }
 
 .filters .input {
     max-width: 200px;
+    flex: 1;
 }
 
 .conversation-group {
@@ -86,6 +88,7 @@
     display: flex;
     align-items: center;
     gap: 1rem;
+    flex-wrap: wrap;
 }
 
 .conversation-header h3 {
@@ -115,6 +118,7 @@
     margin-bottom: 0.5rem;
     font-size: 0.9rem;
     color: var(--text-secondary);
+    flex-wrap: wrap;
 }
 
 .level {
@@ -207,6 +211,71 @@ select.input option:focus {
 
 .auto-refresh input[type="checkbox"] {
     margin: 0;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .filters {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .filters .input {
+        max-width: none;
+        width: 100%;
+    }
+
+    .conversation-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .conversation-header h3 {
+        margin: 0;
+        width: 100%;
+    }
+
+    .log-entry {
+        padding: 0.75rem;
+    }
+
+    .log-header {
+        gap: 0.5rem;
+    }
+
+    .log-message {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .conversation-messages {
+        margin-left: 0;
+    }
+
+    .log-entry {
+        padding: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .log-header {
+        font-size: 0.8rem;
+    }
+
+    .level {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+    }
+
+    .timestamp {
+        font-size: 0.8rem;
+    }
+
+    .message-count {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+    }
 }
 </style>
 

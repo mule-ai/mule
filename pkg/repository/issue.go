@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/pkg/remote/types"
 )
 
 type Issue struct {
@@ -70,7 +70,7 @@ func (r *Repository) UpdateIssues() error {
 	}
 	issues, err := r.Remote.FetchIssues(r.RemotePath, types.IssueFilterOptions{
 		State: "open",
-		Label: "dev-team",
+		Label: "mule",
 	})
 	if err != nil {
 		log.Printf("Error fetching issues: %v, request: %v", err, r.RemotePath)

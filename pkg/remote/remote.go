@@ -3,9 +3,9 @@ package remote
 import (
 	"fmt"
 
-	"github.com/jbutlerdev/dev-team/pkg/remote/github"
-	"github.com/jbutlerdev/dev-team/pkg/remote/local"
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/pkg/remote/github"
+	"github.com/mule-ai/mule/pkg/remote/local"
+	"github.com/mule-ai/mule/pkg/remote/types"
 )
 
 const (
@@ -16,6 +16,11 @@ const (
 var stringToIntMap = map[string]int{
 	"local":  LOCAL,
 	"github": GITHUB,
+}
+
+var intToStringMap = map[int]string{
+	LOCAL:  "local",
+	GITHUB: "github",
 }
 
 type Provider interface {
@@ -68,4 +73,8 @@ func SettingsToOptions(settings ProviderSettings) (ProviderOptions, error) {
 		GitHubToken: settings.Token,
 		Path:        settings.Path,
 	}, nil
+}
+
+func ProviderTypeToString(providerType int) string {
+	return intToStringMap[providerType]
 }

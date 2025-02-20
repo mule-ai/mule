@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/jbutlerdev/dev-team/pkg/agent"
-	"github.com/jbutlerdev/dev-team/pkg/auth"
-	"github.com/jbutlerdev/dev-team/pkg/remote"
-	"github.com/jbutlerdev/dev-team/pkg/remote/types"
+	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/auth"
+	"github.com/mule-ai/mule/pkg/remote"
+	"github.com/mule-ai/mule/pkg/remote/types"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -31,8 +31,8 @@ type Repository struct {
 	LastSync       time.Time               `json:"lastSync"`
 	State          *Status                 `json:"status,omitempty"`
 	RemotePath     string                  `json:"remotePath,omitempty"`
-	Issues         map[int]*Issue          `json:"issues,omitempty"`
-	PullRequests   map[int]*PullRequest    `json:"pullRequests,omitempty"`
+	Issues         map[int]*Issue          `json:"-"`
+	PullRequests   map[int]*PullRequest    `json:"-"`
 	Mu             sync.RWMutex            `json:"-"`
 	Locked         bool                    `json:"locked"`
 	Logger         logr.Logger             `json:"-"`
@@ -56,6 +56,10 @@ func NewRepository(path string) *Repository {
 			Type: remote.LOCAL,
 			Path: path,
 		}),
+		RemoteProvider: remote.ProviderSettings{
+			Provider: remote.ProviderTypeToString(remote.LOCAL),
+			Path:     path,
+		},
 	}
 }
 
@@ -93,6 +97,23 @@ func (r *Repository) Clone(repoURL string) error {
 		return fmt.Errorf("error cloning repository: %v", err)
 	}
 	return nil
+}
+
+func (r *Repository) Upsert(repoURL string) error {
+	_, err := git.PlainOpen(r.Path)
+	if err == git.ErrRepositoryNotExists {
+		return r.Clone(repoURL)
+	}
+	if err != nil {
+		return err
+	}
+
+	err = r.Fetch()
+	if err != nil {
+		return err
+	}
+
+	return r.CheckoutBranch("main")
 }
 
 func (r *Repository) Commit(message string) error {
@@ -185,6 +206,7 @@ func (r *Repository) Fetch() error {
 }
 
 func (r *Repository) Sync(agents []*agent.Agent) error {
+	r.Logger.Info("Syncing repository")
 	if len(agents) == 0 {
 		return fmt.Errorf("no agents provided")
 	}

@@ -5,12 +5,12 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	"github.com/jbutlerdev/dev-team/internal/scheduler"
-	"github.com/jbutlerdev/dev-team/internal/settings"
-	"github.com/jbutlerdev/dev-team/pkg/agent"
-	"github.com/jbutlerdev/dev-team/pkg/remote"
-	"github.com/jbutlerdev/dev-team/pkg/repository"
 	"github.com/jbutlerdev/genai"
+	"github.com/mule-ai/mule/internal/scheduler"
+	"github.com/mule-ai/mule/internal/settings"
+	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/remote"
+	"github.com/mule-ai/mule/pkg/repository"
 )
 
 var State *AppState
@@ -52,6 +52,7 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 			}),
 			Local: remote.New(remote.ProviderOptions{
 				Type: remote.LOCAL,
+				Path: "/",
 			}),
 		},
 		Agents: agents,
