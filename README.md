@@ -16,7 +16,7 @@ It is intended that the agent will be able to work on multiple issues at once th
 
 Below is a quick demo of the agent interaction workflow using the local provider. This same workflow can be done using a GitHub provider and performing these steps in the GitHub UI.
 
-<video controls src="https://storage.googleapis.com/mule-storage/devteam-local-demo.webm" width="400" height="400" type="video/webm"></video>
+https://storage.googleapis.com/mule-storage/devteam-local-demo.webm
 
 ## Docs
 
