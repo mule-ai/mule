@@ -1,0 +1,70 @@
+name: Github Action to Lint, test, deploy and release
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64
+          args: --fast # Enable only fast linters
+          # Can be replace by '--enable-all' to enable all linters
+          # Or enable presets of linters by '--presets <string>' see https://golangci-lint.run/usage/configuration/#linters-configuration
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Download dependencies
+        run: go mod tidy
+      - name: Run tests
+        run: go test ./... -v
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - name: Build binary
+        run: |
+          cd cmd/mule
+          CGO_ENABLED=0 GOOS=linux go build -o bin/mule
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: mule-binary
+          path: mule
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: mule-binary
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: mule
