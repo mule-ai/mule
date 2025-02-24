@@ -52,7 +52,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mule-binary
-          path: mule
+          path: cmd/mule/bin/mule
 
   release:
     name: Create GitHub Release
