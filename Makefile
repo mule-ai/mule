@@ -4,7 +4,7 @@
 .PHONY: download-golangci-lint
 download-golangci-lint:
 ifeq (,$(wildcard ./bin/golangci-lint))
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.63.4 
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.64.5 
 endif
 
 # Install air if it doesn't exist
