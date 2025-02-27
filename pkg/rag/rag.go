@@ -2,10 +2,22 @@ package rag
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/philippgille/chromem-go"
+)
+
+var (
+	EXCLUDE_DIRS = []string{
+		"node_modules",
+		"vendor",
+		"dist",
+		"build",
+		".git",
+	}
 )
 
 type Store struct {
@@ -48,6 +60,22 @@ func (s *Store) AddRepository(path string) error {
 	return addDocumentsToCollection(s.ctx, collection, files)
 }
 
+func (s *Store) Query(path string, query string, nResults int) (string, error) {
+	collection, ok := s.Collections[path]
+	if !ok {
+		return "", fmt.Errorf("collection %s not found", path)
+	}
+	results, err := collection.Query(s.ctx, query, nResults, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	resultsString := make([]string, len(results))
+	for i, result := range results {
+		resultsString[i] = toString(result)
+	}
+	return strings.Join(resultsString, "\n"), nil
+}
+
 func addDocumentsToCollection(ctx context.Context, collection *chromem.Collection, files []string) error {
 	for _, file := range files {
 		content, err := os.ReadFile(file)
@@ -74,10 +102,24 @@ func getFiles(dir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() {
-			files = append(files, path)
+		if d.IsDir() {
+			for _, excludeDir := range EXCLUDE_DIRS {
+				if d.Name() == excludeDir {
+					return filepath.SkipDir
+				}
+			}
+			return nil
 		}
+		files = append(files, path)
 		return nil
 	})
 	return files, err
+}
+
+func toString(result chromem.Result) string {
+	return fmt.Sprintf("File: %s\n"+
+		"Content: %s\n",
+		result.Metadata["path"],
+		result.Content,
+	)
 }

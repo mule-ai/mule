@@ -39,9 +39,10 @@ type RemoteProviders struct {
 }
 
 func NewState(logger logr.Logger, settings settings.Settings) *AppState {
+	rag := rag.NewStore()
 	genaiProviders := initializeGenAIProviders(logger, settings)
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
-	agents := initializeAgents(logger, settings, genaiProviders)
+	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
@@ -60,7 +61,7 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 			}),
 		},
 		Agents: agents,
-		RAG:    rag.NewStore(),
+		RAG:    rag,
 	}
 }
 
@@ -86,7 +87,7 @@ func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) *G
 	return providers
 }
 
-func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders) map[int]*agent.Agent {
+func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders, rag *rag.Store) map[int]*agent.Agent {
 	agents := make(map[int]*agent.Agent)
 	for i, agentOpts := range settingsInput.Agents {
 		switch agentOpts.ProviderName {
@@ -107,6 +108,7 @@ func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genai
 			continue
 		}
 		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
+		agentOpts.RAG = rag
 		agents[settings.StartingAgent+i] = agent.NewAgent(agentOpts)
 	}
 	return agents
