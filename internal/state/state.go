@@ -9,6 +9,7 @@ import (
 	"github.com/mule-ai/mule/internal/scheduler"
 	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/rag"
 	"github.com/mule-ai/mule/pkg/remote"
 	"github.com/mule-ai/mule/pkg/repository"
 )
@@ -24,6 +25,7 @@ type AppState struct {
 	GenAI        *GenAIProviders
 	Remote       *RemoteProviders
 	Agents       map[int]*agent.Agent
+	RAG          *rag.Store
 }
 
 type GenAIProviders struct {
@@ -58,6 +60,7 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 			}),
 		},
 		Agents: agents,
+		RAG:    rag.NewStore(),
 	}
 }
 

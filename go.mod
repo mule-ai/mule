@@ -9,6 +9,7 @@ require (
 	github.com/google/go-github/v60 v60.0.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jbutlerdev/genai v0.0.0-20250227011727-128c11b158a2
+	github.com/philippgille/chromem-go v0.7.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
 	go.uber.org/zap v1.27.0
