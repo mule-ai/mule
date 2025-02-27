@@ -20,7 +20,7 @@ func RunWorkflow(agents map[int]*Agent, promptInput PromptInput, path string) er
 	if err != nil {
 		return err
 	}
-	reasoning, err := reasoningAgent.Generate(promptInput)
+	reasoning, err := reasoningAgent.Generate(path, promptInput)
 	if err != nil {
 		return err
 	}

@@ -11,7 +11,12 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/genai"
 	"github.com/jbutlerdev/genai/tools"
+	"github.com/mule-ai/mule/pkg/rag"
 	"github.com/mule-ai/mule/pkg/validation"
+)
+
+const (
+	RAG_N_RESULTS = 3
 )
 
 type Agent struct {
@@ -23,6 +28,7 @@ type Agent struct {
 	validations    []validation.ValidationFunc
 	name           string
 	path           string
+	rag            *rag.Store
 }
 
 type AgentOptions struct {
@@ -35,6 +41,7 @@ type AgentOptions struct {
 	Tools               []string        `json:"tools"`
 	ValidationFunctions []string        `json:"validationFunctions"`
 	Path                string          `json:"-"`
+	RAG                 *rag.Store      `json:"-"`
 }
 
 type PromptInput struct {
@@ -66,6 +73,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		name:           opts.Name,
 		// I don't like this, but it's a hack to get the path to the repository
 		path: opts.Path,
+		rag:  opts.RAG,
 	}
 	err := agent.SetTools(opts.Tools)
 	if err != nil {
@@ -114,6 +122,10 @@ func (a *Agent) Run(input PromptInput) error {
 	if err != nil {
 		return err
 	}
+	prompt, err = a.AddRAGContext(prompt)
+	if err != nil {
+		return err
+	}
 	chat.Send <- prompt
 
 	defer func() {
@@ -145,10 +157,17 @@ func (a *Agent) RunInPath(path string, input PromptInput) error {
 	return a.Run(input)
 }
 
-func (a *Agent) Generate(input PromptInput) (string, error) {
+func (a *Agent) Generate(path string, input PromptInput) (string, error) {
 	prompt, err := a.renderPromptTemplate(input)
 	if err != nil {
 		return "", err
+	}
+	if path != "" {
+		a.path = path
+		prompt, err = a.AddRAGContext(prompt)
+		if err != nil {
+			return "", err
+		}
 	}
 	return a.provider.Generate(a.model, prompt)
 }
@@ -165,6 +184,15 @@ func (a *Agent) renderPromptTemplate(input PromptInput) (string, error) {
 		return "", err
 	}
 	return rendered.String(), nil
+}
+
+func (a *Agent) AddRAGContext(prompt string) (string, error) {
+	ragContext, err := a.rag.Query(a.path, prompt, RAG_N_RESULTS)
+	if err != nil {
+		return "", err
+	}
+	prompt = "<context>\n" + ragContext + "\n</context>\n\n" + prompt
+	return prompt, nil
 }
 
 func GetPromptTemplateValues() string {
