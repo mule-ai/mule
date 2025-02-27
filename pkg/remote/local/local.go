@@ -331,8 +331,8 @@ func (p *ProviderConfig) Save() error {
 		return fmt.Errorf("error validating data path: %v", err)
 	}
 
-	// marshal data
-	data, err := json.Marshal(p)
+	// write this formatted
+	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error marshalling data: %v", err)
 	}

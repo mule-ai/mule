@@ -413,7 +413,8 @@ func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, issue *Issue
 		}
 	}
 
-	err := agents[settings.StartingAgent].RunInPath(r.Path, promptInput)
+	// err := agents[settings.StartingAgent].RunInPath(r.Path, promptInput)
+	err := agent.RunWorkflow(agents, promptInput, r.Path)
 	if err != nil {
 		r.Logger.Error(err, "Error running agent")
 		return false, err
