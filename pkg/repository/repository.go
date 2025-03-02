@@ -146,8 +146,8 @@ func (r *Repository) Commit(message string) error {
 
 	_, err = w.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "GitWatcher",
-			Email: "gitwatcher@local",
+			Name:  "mule",
+			Email: "mule@muleai.io",
 			When:  time.Now(),
 		},
 	})

@@ -26,7 +26,8 @@ func Run(in *ValidationInput) error {
 			out, err := validation(in.Path)
 			if err != nil {
 				validated = false
-				in.Logger.Error(err, "validation failed", "output", out)
+				errString := fmt.Sprintf("validation %d out of %d failed", i, in.Attempts)
+				in.Logger.Error(err, errString, "output", out)
 				in.Send <- out
 				<-in.Done
 				break
@@ -34,7 +35,7 @@ func Run(in *ValidationInput) error {
 			validated = true
 		}
 		if validated {
-			break
+			return nil
 		}
 	}
 	if !validated {

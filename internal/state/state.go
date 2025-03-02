@@ -39,7 +39,7 @@ type RemoteProviders struct {
 }
 
 func NewState(logger logr.Logger, settings settings.Settings) *AppState {
-	rag := rag.NewStore()
+	rag := rag.NewStore(logger.WithName("rag"))
 	genaiProviders := initializeGenAIProviders(logger, settings)
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders, rag)

@@ -1,10 +1,9 @@
 package agent
 
 import (
-	"encoding/json"
+	//"encoding/json"
 	"fmt"
-	"log"
-	"strings"
+	//"strings"
 )
 
 type TaskBreakdown struct {
@@ -24,18 +23,40 @@ func RunWorkflow(agents map[int]*Agent, promptInput PromptInput, path string) er
 	if err != nil {
 		return err
 	}
-	tasks, err := extractTasks(reasoning)
-	if err != nil {
-		return err
-	}
-	originalPromptTemplate := codeAgent.promptTemplate
-	for _, task := range tasks {
-		codeAgent.promptTemplate = fmt.Sprintf("%s\n\nYou have been given the following task: \n%s", originalPromptTemplate, task)
-		err = codeAgent.RunInPath(path, promptInput)
+	/*
+		tasks, err := extractTasks(reasoning)
 		if err != nil {
 			return err
 		}
+	*/
+	originalPromptTemplate := codeAgent.promptTemplate
+	codeAgent.promptTemplate = fmt.Sprintf("%s\n\n%s", originalPromptTemplate, reasoning)
+	err = codeAgent.RunInPath(path, promptInput)
+	codeAgent.promptTemplate = originalPromptTemplate
+	if err != nil {
+		return err
 	}
+	/*
+		originalPromptTemplate := codeAgent.promptTemplate
+		originalReasoningTemplate := reasoningAgent.promptTemplate
+		for _, task := range tasks {
+			codeAgent.promptTemplate = fmt.Sprintf("%s\n\nYou have been given the following task: \n%s", originalPromptTemplate, task)
+			err = codeAgent.RunInPath(path, promptInput)
+			if err != nil {
+				// attempt reasoning rescue
+				reasoningAgent.promptTemplate = fmt.Sprintf("Original Message:\n%s\n\nYour provided an agent with this task:\n%s\n\nAnd it got stuck. Try to provide more direction", originalReasoningTemplate, task)
+				response, err := reasoningAgent.Generate(path, promptInput)
+				if err != nil {
+					return err
+				}
+				codeAgent.promptTemplate = fmt.Sprintf("%s\n\nYou have been given the following task: \n%s", originalPromptTemplate, response)
+				err = codeAgent.RunInPath(path, promptInput)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	*/
 	return nil
 }
 
@@ -57,6 +78,7 @@ func codeAgent(agents map[int]*Agent) (*Agent, error) {
 	return nil, fmt.Errorf("code agent not found")
 }
 
+/*
 func extractTasks(reasoning string) ([]string, error) {
 	// remove all text before </think> including </think>
 	mark := strings.Index(reasoning, "</think>")
@@ -74,12 +96,12 @@ func extractTasks(reasoning string) ([]string, error) {
 	if end != -1 {
 		reasoning = reasoning[:end]
 	}
-	log.Println(reasoning)
 	// decode json from reasoning
 	var reasoningOutput TaskBreakdown
 	err := json.Unmarshal([]byte(reasoning), &reasoningOutput)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal reasoning: %w", err)
 	}
 	return reasoningOutput.Tasks, nil
 }
+*/
