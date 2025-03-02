@@ -3,12 +3,14 @@ module github.com/mule-ai/mule
 go 1.23.6
 
 require (
+	github.com/fsnotify/fsnotify v1.8.0
 	github.com/go-git/go-git/v5 v5.13.2
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/zapr v1.3.0
 	github.com/google/go-github/v60 v60.0.0
 	github.com/gorilla/mux v1.8.1
-	github.com/jbutlerdev/genai v0.0.0-20250215150814-e484a1756004
+	github.com/jbutlerdev/genai v0.0.0-20250302224455-dff09046f09b
+	github.com/philippgille/chromem-go v0.7.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
 	go.uber.org/zap v1.27.0

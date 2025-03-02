@@ -9,6 +9,7 @@ import (
 	"github.com/mule-ai/mule/internal/scheduler"
 	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/rag"
 	"github.com/mule-ai/mule/pkg/remote"
 	"github.com/mule-ai/mule/pkg/repository"
 )
@@ -24,6 +25,7 @@ type AppState struct {
 	GenAI        *GenAIProviders
 	Remote       *RemoteProviders
 	Agents       map[int]*agent.Agent
+	RAG          *rag.Store
 }
 
 type GenAIProviders struct {
@@ -37,9 +39,10 @@ type RemoteProviders struct {
 }
 
 func NewState(logger logr.Logger, settings settings.Settings) *AppState {
+	rag := rag.NewStore(logger.WithName("rag"))
 	genaiProviders := initializeGenAIProviders(logger, settings)
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
-	agents := initializeAgents(logger, settings, genaiProviders)
+	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
@@ -58,6 +61,7 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 			}),
 		},
 		Agents: agents,
+		RAG:    rag,
 	}
 }
 
@@ -83,7 +87,7 @@ func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) *G
 	return providers
 }
 
-func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders) map[int]*agent.Agent {
+func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders, rag *rag.Store) map[int]*agent.Agent {
 	agents := make(map[int]*agent.Agent)
 	for i, agentOpts := range settingsInput.Agents {
 		switch agentOpts.ProviderName {
@@ -104,6 +108,7 @@ func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genai
 			continue
 		}
 		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
+		agentOpts.RAG = rag
 		agents[settings.StartingAgent+i] = agent.NewAgent(agentOpts)
 	}
 	return agents

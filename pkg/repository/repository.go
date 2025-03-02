@@ -146,8 +146,8 @@ func (r *Repository) Commit(message string) error {
 
 	_, err = w.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "GitWatcher",
-			Email: "gitwatcher@local",
+			Name:  "mule",
+			Email: "mule@muleai.io",
 			When:  time.Now(),
 		},
 	})
@@ -413,7 +413,8 @@ func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, issue *Issue
 		}
 	}
 
-	err := agents[settings.StartingAgent].RunInPath(r.Path, promptInput)
+	// err := agents[settings.StartingAgent].RunInPath(r.Path, promptInput)
+	err := agent.RunWorkflow(agents, promptInput, r.Path)
 	if err != nil {
 		r.Logger.Error(err, "Error running agent")
 		return false, err
@@ -435,7 +436,7 @@ func (r *Repository) updatePR(agents map[int]*agent.Agent, commentId int64) erro
 		r.Logger.Error(err, "Error getting change summary")
 		return err
 	}
-	commitMessage, err := agents[settings.CommitAgent].Generate(agent.PromptInput{
+	commitMessage, err := agents[settings.CommitAgent].Generate("", agent.PromptInput{
 		IssueTitle:  "",
 		IssueBody:   "",
 		Commits:     "",
@@ -488,7 +489,7 @@ func (r *Repository) createPR(agents map[int]*agent.Agent, issue *Issue) error {
 		IsPRComment: false,
 	}
 
-	commitMessage, err := agents[settings.CommitAgent].Generate(promptInput)
+	commitMessage, err := agents[settings.CommitAgent].Generate("", promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating commit message")
 		return err
@@ -507,13 +508,13 @@ func (r *Repository) createPR(agents map[int]*agent.Agent, issue *Issue) error {
 		return err
 	}
 
-	prTitle, err := agents[settings.PRTitleAgent].Generate(promptInput)
+	prTitle, err := agents[settings.PRTitleAgent].Generate("", promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR title")
 		return err
 	}
 
-	prDescription, err := agents[settings.PRBodyAgent].Generate(promptInput)
+	prDescription, err := agents[settings.PRBodyAgent].Generate("", promptInput)
 	if err != nil {
 		r.Logger.Error(err, "Error generating PR description")
 		return err
