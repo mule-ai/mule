@@ -122,10 +122,12 @@ func (a *Agent) Run(input PromptInput) error {
 	if err != nil {
 		return err
 	}
+	chat.Logger.Info("Starting RAG")
 	prompt, err = a.AddRAGContext(prompt)
 	if err != nil {
 		return err
 	}
+	chat.Logger.Info("RAG Completed, sending first message")
 	chat.Send <- prompt
 
 	defer func() {
@@ -135,17 +137,18 @@ func (a *Agent) Run(input PromptInput) error {
 	<-chat.GenerationComplete
 	// validate output
 	err = validation.Run(&validation.ValidationInput{
-		Attempts:    10,
+		Attempts:    20,
 		Validations: a.validations,
 		Send:        chat.Send,
 		Done:        chat.GenerationComplete,
-		Logger:      a.logger,
+		Logger:      chat.Logger,
 		Path:        a.path,
 	})
 	if err != nil {
-		a.logger.Error(err, "Error validating output")
+		chat.Logger.Error(err, "Error validating output")
 		return err
 	}
+	chat.Logger.Info("Validation Succeeded")
 	return nil
 }
 
