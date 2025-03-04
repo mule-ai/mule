@@ -24,6 +24,7 @@ type AppState struct {
 	GenAI        *GenAIProviders
 	Remote       *RemoteProviders
 	Agents       map[int]*agent.Agent
+	agentMap     map[string]*agent.Agent // Track agents by name
 }
 
 type GenAIProviders struct {
@@ -41,6 +42,10 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders)
 	agents = mergeAgents(agents, systemAgents)
+	agentMap := make(map[string]*agent.Agent)
+	for _, ag := range agents {
+		agentMap[ag.Name()] = ag
+	}
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
 		Settings:     settings,
@@ -57,7 +62,8 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 				Path: "/",
 			}),
 		},
-		Agents: agents,
+		Agents:   agents,
+		agentMap: agentMap,
 	}
 }
 
@@ -104,7 +110,8 @@ func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genai
 			continue
 		}
 		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
-		agents[settings.StartingAgent+i] = agent.NewAgent(agentOpts)
+		agentInstance := agent.NewAgent(agentOpts)
+		agents[settings.StartingAgent+i] = agentInstance
 	}
 	return agents
 }
@@ -123,11 +130,14 @@ func initializeSystemAgents(logger logr.Logger, settingsInput settings.Settings,
 		systemAgentOpts.Provider = genaiProviders.Gemini
 	}
 	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.CommitTemplate
-	agents[settings.CommitAgent] = agent.NewAgent(systemAgentOpts)
+	agentInstance := agent.NewAgent(systemAgentOpts)
+	agents[settings.CommitAgent] = agentInstance
 	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRTitleTemplate
-	agents[settings.PRTitleAgent] = agent.NewAgent(systemAgentOpts)
+	agentInstance = agent.NewAgent(systemAgentOpts)
+	agents[settings.PRTitleAgent] = agentInstance
 	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRBodyTemplate
-	agents[settings.PRBodyAgent] = agent.NewAgent(systemAgentOpts)
+	agentInstance = agent.NewAgent(systemAgentOpts)
+	agents[settings.PRBodyAgent] = agentInstance
 	return agents
 }
 
@@ -138,7 +148,35 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 	return agents
 }
 
-/*
-	Tools:               []string{"writeFile", "tree", "readFile"},
-	ValidationFunctions: []string{"getDeps", "goFmt", "goModTidy", "golangciLint", "goTest"},
-*/
+func (s *AppState) UpdateState(newSettings *settings.Settings) error {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	// Identify agents whose configurations have changed
+	for _, newConfig := range newSettings.Agents {
+		currentAgent, ok := s.agentMap[newConfig.Name]
+		if ok {
+			// Agent exists, check if config has changed
+			if newConfig.ProviderName != currentAgent.ProviderName() || newConfig.Model != currentAgent.Model() {
+				// Config has changed, restart agent
+				currentAgent.Stop()
+				delete(s.agentMap, newConfig.Name)
+
+				// Initialize new agent instance with updated config
+				agentOpts := newConfig
+				newAgent := agent.NewAgent(agentOpts)
+				s.agentMap[newConfig.Name] = newAgent
+				newAgent.Start()
+			}
+		} else {
+			// Agent doesn't exist, create new agent
+			agentOpts := newConfig
+			newAgent := agent.NewAgent(agentOpts)
+			s.agentMap[newConfig.Name] = newAgent
+			newAgent.Start()
+		}
+	}
+
+	s.Settings = *newSettings
+	return nil
+}

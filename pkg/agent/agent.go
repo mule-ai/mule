@@ -23,6 +23,8 @@ type Agent struct {
 	validations    []validation.ValidationFunc
 	name           string
 	path           string
+	options        AgentOptions
+	done           chan bool
 }
 
 type AgentOptions struct {
@@ -65,7 +67,9 @@ func NewAgent(opts AgentOptions) *Agent {
 		validations:    validations,
 		name:           opts.Name,
 		// I don't like this, but it's a hack to get the path to the repository
-		path: opts.Path,
+		path:    opts.Path,
+		options: opts,
+		done:    make(chan bool),
 	}
 	err := agent.SetTools(opts.Tools)
 	if err != nil {
@@ -175,4 +179,27 @@ func GetPromptTemplateValues() string {
 		templates = append(templates, fmt.Sprintf("{{ .%s }}", val.Type().Field(i).Name))
 	}
 	return strings.Join(templates, ", ")
+}
+
+func (a *Agent) Stop() {
+	a.logger.Info("Stopping agent", "name", a.name)
+	close(a.done)
+}
+
+func (a *Agent) ProviderName() string {
+	return a.options.ProviderName
+}
+
+func (a *Agent) Model() string {
+	return a.model
+}
+
+func (a *Agent) Name() string {
+	return a.options.Name
+}
+
+func (a *Agent) Start() {
+	a.logger.Info("Starting agent", "name", a.name)
+	// Placeholder for agent's main loop, if needed
+	// For example, listen for messages on a channel and process them
 }
