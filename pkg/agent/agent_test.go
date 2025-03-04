@@ -114,85 +114,82 @@ func TestAgent_Start(t *testing.T) {
 }
 
 func TestNewState_AgentMapInitialization(t *testing.T) {
-	//logger := stdr.New(nil)
-	//settings := struct {
-	//	StartingAgent int
-	//	CommitAgent   int
-	//	PRTitleAgent  int
-	//	PRBodyAgent   int
-	//}{
-	//	StartingAgent: 0,
-	//	CommitAgent:   1,
-	//	PRTitleAgent:  2,
-	//	PRBodyAgent:   3,
-	//}
+	logger := stdr.New(nil)
+	settings := struct {
+		StartingAgent int
+		CommitAgent   int
+		PRTitleAgent  int
+		PRBodyAgent   int
+	}{StartingAgent: 0, CommitAgent: 1, PRTitleAgent: 2, PRBodyAgent: 3}
 
-	//genaiProviders := &struct{}{
-	//}
+	genaiProviders := &struct{}{}
 
 	// Test case 1: No overlapping agent names
-	//agents := map[int]*Agent{
-	//	0: NewTestAgent("agent1", "provider1", "model1"),
-	//	1: NewTestAgent("agent2", "provider2", "model2"),
-	//}
+	agents := map[int]*Agent{
+		0: NewTestAgent("agent1", "provider1", "model1"),
+		1: NewTestAgent("agent2", "provider2", "model2"),
+	}
 
-	//systemAgents := map[int]*Agent{
-	//	2: NewTestAgent("agent3", "provider3", "model3"),
-	//}
+	systemAgents := map[int]*Agent{
+		2: NewTestAgent("agent3", "provider3", "model3"),
+	}
 
-	//// Initialize agentMap directly as it's not exported.
-	//agentMap := make(map[string]*Agent)
-	//for _, ag := range agents {
-	//	agentMap[ag.Name()] = ag
-	//}
-	//for _, ag := range systemAgents {
-	//	agentMap[ag.Name()] = ag
-	//}
+	// Initialize agentMap directly as it's not exported.
+	agentMap := make(map[string]*Agent)
+	for _, ag := range agents {
+		agentMap[ag.Name()] = ag
+	}
+	for _, ag := range systemAgents {
+		agentMap[ag.Name()] = ag
+	}
 
-	//// Check that each agent is in the agentMap
-	//if _, ok := agentMap["agent1"]; !ok {
-	//	t.Error("agent1 not in agentMap")
-	//}
-	//if _, ok := agentMap["agent2"]; !ok {
-	//	t.Error("agent2 not in agentMap")
-	//}
-	//if _, ok := agentMap["agent3"]; !ok {
-	//	t.Error("agent3 not in agentMap")
-	//}
+	// Check that each agent is in the agentMap
+	if _, ok := agentMap["agent1"]; !ok {
+		t.Error("agent1 not in agentMap")
+	}
+	if _, ok := agentMap["agent2"]; !ok {
+		t.Error("agent2 not in agentMap")
+	}
+	if _, ok := agentMap["agent3"]; !ok {
+		t.Error("agent3 not in agentMap")
+	}
 
-	//// Check the total number of agents in the map
-	//if len(agentMap) != 3 {
-	//	t.Errorf("Expected 3 agents in agentMap, got %d", len(agentMap))
-	//}
+	// Check the total number of agents in the map
+	if len(agentMap) != 3 {
+		t.Errorf("Expected 3 agents in agentMap, got %d", len(agentMap))
+	}
 
 	// Test case 2: Overlapping agent names (system agent should override user agent)
-	//agents = map[int]*Agent{
-	//	0: NewTestAgent("agent1", "provider1", "model1"),
-	//	1: NewTestAgent("agent2", "provider2", "model2"),
-	//}
+	agents = map[int]*Agent{
+		0: NewTestAgent("agent1", "provider1", "model1"),
+		1: NewTestAgent("agent2", "provider2", "model2"),
+	}
 
-	//systemAgents = map[int]*Agent{
-	//	2: NewTestAgent("agent1", "provider3", "model3"), // Overlapping name
-	//}
+	systemAgents = map[int]*Agent{
+		2: NewTestAgent("agent1", "provider3", "model3"), // Overlapping name
+	}
 
-	//// Initialize agentMap directly as it's not exported.
-	//agentMap = make(map[string]*Agent)
-	//for _, ag := range agents {
-	//	agentMap[ag.Name()] = ag
-	//}
-	//for _, ag := range systemAgents {
-	//	agentMap[ag.Name()] = ag
-	//}
+	// Initialize agentMap directly as it's not exported.
+	agentMap = make(map[string]*Agent)
+	for _, ag := range agents {
+		agentMap[ag.Name()] = ag
+	}
+	for _, ag := range systemAgents {
+		agentMap[ag.Name()] = ag
+	}
 
-	//// Check that the system agent overrides the user agent
-	//if agentMap["agent1"].ProviderName() != "provider3" {
-	//	t.Error("System agent did not override user agent")
-	//}
+	// Check that the system agent overrides the user agent
+	if agentMap["agent1"].ProviderName() != "provider3" {
+		t.Error("System agent did not override user agent")
+	}
 
-	//// Check the total number of agents in the map
-	//if len(agentMap) != 2 {
-	//	t.Errorf("Expected 2 agents in agentMap, got %d", len(agentMap))
-	//}
+	// Check the total number of agents in the map
+	if len(agentMap) != 2 {
+		t.Errorf("Expected 2 agents in agentMap, got %d", len(agentMap))
+	}
+	_ = settings
+	_ = logger
+	_ = genaiProviders
 }
 
 // Mock settings struct for testing
