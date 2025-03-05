@@ -23,6 +23,7 @@ type Agent struct {
 	provider       *genai.Provider
 	model          string
 	promptTemplate string
+	promptContext  string
 	tools          []*tools.Tool
 	logger         logr.Logger
 	validations    []validation.ValidationFunc
@@ -106,6 +107,10 @@ func (a *Agent) SetPromptTemplate(promptTemplate string) {
 	a.promptTemplate = promptTemplate
 }
 
+func (a *Agent) SetPromptContext(promptContext string) {
+	a.promptContext = promptContext
+}
+
 func (a *Agent) Run(input PromptInput) error {
 	if a.provider == nil {
 		return fmt.Errorf("provider not set")
@@ -122,6 +127,7 @@ func (a *Agent) Run(input PromptInput) error {
 	if err != nil {
 		return err
 	}
+	prompt = a.promptContext + "\n\n" + prompt
 	chat.Logger.Info("Starting RAG")
 	prompt, err = a.AddRAGContext(prompt)
 	if err != nil {

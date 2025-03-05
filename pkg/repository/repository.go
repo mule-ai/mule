@@ -464,7 +464,7 @@ func (r *Repository) updatePR(agents map[int]*agent.Agent, commentId int64) erro
 	}
 
 	// Add reaction to mark comment as addressed
-	err = r.Remote.AddCommentReaction(r.Path, "+1", commentId)
+	err = r.Remote.AddCommentReaction(r.RemotePath, "+1", commentId)
 	if err != nil {
 		r.Logger.Error(err, "Error acknowledging PR comment")
 		return err

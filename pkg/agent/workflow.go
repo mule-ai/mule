@@ -29,10 +29,8 @@ func RunWorkflow(agents map[int]*Agent, promptInput PromptInput, path string) er
 			return err
 		}
 	*/
-	originalPromptTemplate := codeAgent.promptTemplate
-	codeAgent.promptTemplate = fmt.Sprintf("%s\n\n%s", originalPromptTemplate, reasoning)
+	codeAgent.SetPromptContext(reasoning)
 	err = codeAgent.RunInPath(path, promptInput)
-	codeAgent.promptTemplate = originalPromptTemplate
 	if err != nil {
 		return err
 	}
