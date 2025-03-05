@@ -26,7 +26,15 @@ var templates *template.Template
 
 func init() {
 	var err error
-	templates, err = template.ParseFS(templatesFS, "templates/*.html")
+
+	// Define template functions
+	funcMap := template.FuncMap{
+		"add": func(a, b int) int {
+			return a + b
+		},
+	}
+
+	templates, err = template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		panic(err)
 	}
@@ -66,6 +74,9 @@ func main() {
 	api.HandleFunc("/tools", handlers.HandleTools).Methods("GET")
 	api.HandleFunc("/validation-functions", handlers.HandleValidationFunctions).Methods("GET")
 	api.HandleFunc("/template-values", handlers.HandleTemplateValues).Methods("GET")
+	api.HandleFunc("/workflow-output-fields", handlers.HandleWorkflowOutputFields).Methods("GET")
+	api.HandleFunc("/workflow-input-mappings", handlers.HandleWorkflowInputMappings).Methods("GET")
+	api.HandleFunc("/workflow/execute", handlers.HandleExecuteWorkflow).Methods("POST")
 
 	// GitHub API routes
 	api.HandleFunc("/github/repositories", handlers.HandleGitHubRepositories).Methods("GET")
@@ -147,15 +158,16 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 
 func handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	state.State.Mu.RLock()
+	defer state.State.Mu.RUnlock()
+
 	data := PageData{
-		Page:         "settings",
-		Repositories: state.State.Repositories,
-		Settings:     state.State.Settings,
+		Page:     "settings",
+		Settings: state.State.Settings,
 	}
-	state.State.Mu.RUnlock()
 
 	err := templates.ExecuteTemplate(w, "layout.html", data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
