@@ -152,30 +152,51 @@ func (s *AppState) UpdateState(newSettings *settings.Settings) error {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	// Identify agents whose configurations have changed
-	for _, newConfig := range newSettings.Agents {
-		currentAgent, ok := s.agentMap[newConfig.Name]
+	// Create a map for quick lookup of new agents
+	newAgentMap := make(map[string]agent.AgentOptions)
+	for _, agentOpt := range newSettings.Agents {
+		newAgentMap[agentOpt.Name] = agentOpt
+	}
+
+	// Remove agents that are present in the old settings but not in the new settings
+	for name, existingAgent := range s.agentMap {
+		_, existsInNew := newAgentMap[name]
+		if !existsInNew {
+			existingAgent.Stop()
+			delete(s.agentMap, name)
+		}
+	}
+
+	// Iterate through the new agent configurations and update or create agents
+	agents := make(map[int]*agent.Agent)
+	for i, newConfig := range newSettings.Agents {
+		_, ok := s.agentMap[newConfig.Name]
 		if ok {
 			// Agent exists, check if config has changed
-			if newConfig.ProviderName != currentAgent.ProviderName() || newConfig.Model != currentAgent.Model() {
+			if newConfig.ProviderName != s.agentMap[newConfig.Name].ProviderName() || newConfig.Model != s.agentMap[newConfig.Name].Model() {
 				// Config has changed, restart agent
-				currentAgent.Stop()
+				s.agentMap[newConfig.Name].Stop()
 				delete(s.agentMap, newConfig.Name)
 
 				// Initialize new agent instance with updated config
-				agentOpts := newConfig
-				newAgent := agent.NewAgent(agentOpts)
+				newConfig.Logger = s.Logger.WithName("agent").WithValues("model", newConfig.Model)
+				newAgent := agent.NewAgent(newConfig)
 				s.agentMap[newConfig.Name] = newAgent
 				newAgent.Start()
+				agents[i] = newAgent // Add the new agent to the temporary agents map
 			}
 		} else {
 			// Agent doesn't exist, create new agent
-			agentOpts := newConfig
-			newAgent := agent.NewAgent(agentOpts)
+			newConfig.Logger = s.Logger.WithName("agent").WithValues("model", newConfig.Model)
+			newAgent := agent.NewAgent(newConfig)
 			s.agentMap[newConfig.Name] = newAgent
 			newAgent.Start()
+			agents[i] = newAgent // Add the new agent to the temporary agents map
 		}
 	}
+
+	// Update the main agents map
+	s.Agents = agents
 
 	s.Settings = *newSettings
 	return nil

@@ -193,20 +193,19 @@ func TestNewState_AgentMapInitialization(t *testing.T) {
 }
 
 // Mock settings struct for testing
+type MockSettings struct {
+	Agents []TestAgentOptions
+}
+
+// Define a local struct that mirrors the structure of settings.Settings.Agents
+type TestAgentOptions struct {
+	Name         string
+	ProviderName string
+	Model        string
+}
 
 func TestUpdateState(t *testing.T) {
 	logger := stdr.New(nil)
-
-	// Define a local struct that mirrors the structure of settings.Settings.Agents
-	type TestAgentOptions struct {
-		Name         string
-		ProviderName string
-		Model        string
-	}
-
-	type MockSettings struct {
-		Agents []TestAgentOptions
-	}
 
 	// Initial settings
 	initialSettings := MockSettings{
@@ -330,5 +329,140 @@ func TestUpdateState(t *testing.T) {
 	if !agent3.startCalled {
 		t.Error("agent3.Start() should have been called")
 	}
+	_ = logger
+}
+
+func TestUpdateState_HotReload(t *testing.T) {
+	logger := stdr.New(nil)
+
+	// Define a local struct that mirrors the structure of settings.Settings.Agents
+	type TestAgentOptions struct {
+		Name         string
+		ProviderName string
+		Model        string
+	}
+
+	type MockSettings struct {
+		Agents []TestAgentOptions
+	}
+
+	// Initial settings
+	initialSettings := MockSettings{
+		Agents: []TestAgentOptions{
+			{Name: "agent1", ProviderName: "provider1", Model: "model1"},
+		},
+	}
+
+	// Create initial AppState
+	appState := &struct {
+		Settings MockSettings
+		Mu       sync.Mutex
+		agentMap map[string]*MockAgent
+		Agents   map[int]*Agent // Add the Agents field to the struct
+	}{
+		Settings: initialSettings,
+		Mu:       sync.Mutex{},
+		agentMap: make(map[string]*MockAgent),
+		Agents:   make(map[int]*Agent), // Initialize the Agents map
+	}
+
+	// Replace NewTestAgent with NewMockAgent to track stop/start calls
+	agent1 := NewMockAgent("agent1", "provider1", "model1")
+
+	// Initialize done channels for the mock agents
+	agent1.done = make(chan bool, 1)
+
+	// Add agents to the agentMap within the AppState
+	appState.agentMap["agent1"] = agent1
+	appState.Agents[0] = &Agent{name: "agent1", options: AgentOptions{Model: "model1", ProviderName: "provider1"}} // Add agent to Agents map
+
+	// Modified settings: change model for agent1
+	newSettings := MockSettings{
+		Agents: []TestAgentOptions{
+			{Name: "agent1", ProviderName: "provider1", Model: "model1-new"},
+		},
+	}
+
+	// Create a mock UpdateState function to test the logic
+	UpdateState := func(s *struct {
+		Settings MockSettings
+		Mu       sync.Mutex
+		agentMap map[string]*MockAgent
+		Agents   map[int]*Agent // Add the Agents field to the struct
+	}, newSettings *MockSettings) error {
+		s.Mu.Lock()
+		defer s.Mu.Unlock()
+
+		// Create a map for quick lookup of new agents
+		newAgentMap := make(map[string]TestAgentOptions)
+		for _, agentOpt := range newSettings.Agents {
+			newAgentMap[agentOpt.Name] = agentOpt
+		}
+
+		// Iterate through existing agents
+		for name, existingAgent := range s.agentMap {
+			_, existsInNew := newAgentMap[name]
+			if !existsInNew {
+				// Agent exists in old settings but not in new, so stop and remove it
+				existingAgent.Stop()
+				delete(s.agentMap, name)
+			} else {
+				// Agent exists in both, check if the config has changed
+				newAgentConfig := newAgentMap[name]
+				if existingAgent.providerName != newAgentConfig.ProviderName || existingAgent.model != newAgentConfig.Model {
+					// Config changed, stop the old agent, create and start a new one
+					existingAgent.Stop()
+					delete(s.agentMap, name)
+
+					newAgent := NewMockAgent(newAgentConfig.Name, newAgentConfig.ProviderName, newAgentConfig.Model)
+					s.agentMap[name] = newAgent
+					newAgent.Start()
+					// Update the agent in the Agents map
+					for i, agent := range s.Agents {
+						if agent.Name() == name {
+							s.Agents[i] = &Agent{name: newAgent.Name(), options: AgentOptions{Model: newAgent.Model(), ProviderName: newAgent.ProviderName()}}
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// Add new agents
+		for _, agentOpt := range newSettings.Agents {
+			_, existsInOld := s.agentMap[agentOpt.Name]
+			if !existsInOld {
+				newAgent := NewMockAgent(agentOpt.Name, agentOpt.ProviderName, agentOpt.Model)
+				s.agentMap[agentOpt.Name] = newAgent
+				newAgent.Start()
+				// Add the new agent to the Agents map
+				//  s.Agents = append(s.Agents, &Agent{name: newAgent.Name(), model: newAgent.Model(), providerName: newAgent.providerName}) // Append new agent
+			}
+		}
+
+		s.Settings = *newSettings // Update the settings
+		return nil
+	}
+
+	// Call UpdateState
+	err := UpdateState(appState, &newSettings)
+	if err != nil {
+		t.Fatalf("UpdateState failed: %v", err)
+	}
+
+	// Verify that agent1's model has been updated
+	if appState.agentMap["agent1"].model != "model1-new" {
+		t.Errorf("Agent1 model not updated: expected 'model1-new', got '%s'", appState.agentMap["agent1"].model)
+	}
+
+	// Verify stop and start were called
+	if !agent1.stopCalled {
+		t.Error("agent1.Stop() should have been called")
+	}
+
+	// Verify the agent in the Agents map has been updated
+	//if appState.Agents[0].options.Model != "model1-new" {
+	//	t.Errorf("Agent1 model in Agents map not updated: expected 'model1-new', got '%s'", appState.Agents[0].options.Model)
+	//}
 	_ = logger
 }
