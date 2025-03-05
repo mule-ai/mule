@@ -356,12 +356,12 @@ func TestUpdateState_HotReload(t *testing.T) {
 	// Create initial AppState
 	appState := &struct {
 		Settings MockSettings
-		Mu       sync.Mutex
+		Mu       sync.RWMutex
 		agentMap map[string]*MockAgent
 		Agents   map[int]*Agent // Add the Agents field to the struct
 	}{
 		Settings: initialSettings,
-		Mu:       sync.Mutex{},
+		Mu:       sync.RWMutex{},
 		agentMap: make(map[string]*MockAgent),
 		Agents:   make(map[int]*Agent), // Initialize the Agents map
 	}
@@ -386,7 +386,7 @@ func TestUpdateState_HotReload(t *testing.T) {
 	// Create a mock UpdateState function to test the logic
 	UpdateState := func(s *struct {
 		Settings MockSettings
-		Mu       sync.Mutex
+		Mu       sync.RWMutex
 		agentMap map[string]*MockAgent
 		Agents   map[int]*Agent // Add the Agents field to the struct
 	}, newSettings *MockSettings) error {

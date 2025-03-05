@@ -168,14 +168,14 @@ func (s *AppState) UpdateState(newSettings *settings.Settings) error {
 	}
 
 	// Iterate through the new agent configurations and update or create agents
-	agents := make(map[int]*agent.Agent)
+	newAgents := make(map[int]*agent.Agent)
 	for i, newConfig := range newSettings.Agents {
-		_, ok := s.agentMap[newConfig.Name]
+		existingAgent, ok := s.agentMap[newConfig.Name]
 		if ok {
 			// Agent exists, check if config has changed
-			if newConfig.ProviderName != s.agentMap[newConfig.Name].ProviderName() || newConfig.Model != s.agentMap[newConfig.Name].Model() {
+			if newConfig.ProviderName != existingAgent.ProviderName() || newConfig.Model != existingAgent.Model() {
 				// Config has changed, restart agent
-				s.agentMap[newConfig.Name].Stop()
+				existingAgent.Stop()
 				delete(s.agentMap, newConfig.Name)
 
 				// Initialize new agent instance with updated config
@@ -183,7 +183,10 @@ func (s *AppState) UpdateState(newSettings *settings.Settings) error {
 				newAgent := agent.NewAgent(newConfig)
 				s.agentMap[newConfig.Name] = newAgent
 				newAgent.Start()
-				agents[i] = newAgent // Add the new agent to the temporary agents map
+				newAgents[i] = newAgent
+			} else {
+				// Agent exists and config is the same, keep the existing agent
+				newAgents[i] = existingAgent
 			}
 		} else {
 			// Agent doesn't exist, create new agent
@@ -191,12 +194,12 @@ func (s *AppState) UpdateState(newSettings *settings.Settings) error {
 			newAgent := agent.NewAgent(newConfig)
 			s.agentMap[newConfig.Name] = newAgent
 			newAgent.Start()
-			agents[i] = newAgent // Add the new agent to the temporary agents map
+			newAgents[i] = newAgent
 		}
 	}
 
 	// Update the main agents map
-	s.Agents = agents
+	s.Agents = newAgents
 
 	s.Settings = *newSettings
 	return nil
