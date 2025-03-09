@@ -1,0 +1,93 @@
+{{define "local-provider"}}
+<div class="card">
+    <h2>Local Provider - {{.Repository.Path}}</h2>
+    
+    <!-- Issues Section -->
+    <div class="section">
+        <h3>Issues</h3>
+        <button onclick="showNewIssueModal()" class="button">Create New Issue</button>
+        <div id="issuesList">
+            {{range .Issues}}
+            <div class="issue-item">
+                <div class="issue-header">
+                    <div class="issue-title">#{{.Number}} - {{.Title}}</div>
+                </div>
+                <div class="issue-body">{{.Body}}</div>
+                <div class="issue-meta">
+                    Created: {{.CreatedAt}} | Status: {{.State}}
+                    <button onclick="showEditIssueModal(this.closest('.issue-item'), '{{.Number}}')" class="button small">Edit</button>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<div id="editIssueModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('editIssueModal')">&times;</span>
+        <h2>Edit Issue</h2>
+        <form id="editIssueForm" onsubmit="handleEditIssue(event)">
+            <input type="hidden" id="repoPath" value="{{.Repository.Path}}">
+            <input type="hidden" id="editIssueNumber">
+            <div class="form-group">
+                <label for="editTitle">Title</label>
+                <input type="text" id="editTitle" class="input" required>
+            </div>
+            <div class="form-group">
+                <label for="editBody">Body</label>
+                <textarea id="editBody" class="input" required></textarea>
+            </div>
+            <button type="submit" class="button">Save Changes</button>
+        </form>
+    </div>
+</div>
+
+<script>
+function showEditIssueModal(issueElement, issueNumber) {
+    const modal = document.getElementById('editIssueModal');
+    
+    const currentTitle = issueElement.querySelector('.issue-title').textContent.split('#')[1].trim();
+    const currentBody = issueElement.querySelector('.issue-body').textContent;
+
+    document.getElementById('editIssueNumber').value = issueNumber;
+    document.getElementById('editTitle').value = currentTitle;
+    document.getElementById('editBody').value = currentBody;
+
+    modal.style.display = 'block';
+}
+
+async function handleEditIssue(event) {
+    event.preventDefault();
+    
+    const form = document.getElementById('editIssueForm');
+    const issueNumber = parseInt(document.getElementById('editIssueNumber').value);
+    const newTitle = document.getElementById('editTitle').value;
+    const newBody = document.getElementById('editBody').value;
+    const path = document.getElementById('repoPath').value;
+
+    try {
+        await fetch('/api/local/issues', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                path: path,
+                issueNumber: issueNumber,
+                title: newTitle,
+                body: newBody
+            })
+        });
+        
+        closeModal('editIssueModal');
+        window.location.reload();
+    } catch (err) {
+        alert("Error saving changes");
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.style.display = 'none';
+}
+</script>
+{{end}}
