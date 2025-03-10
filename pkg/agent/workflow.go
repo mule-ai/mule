@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/go-logr/logr"
 )
 
 // WorkflowStep represents a step in a workflow
@@ -43,11 +45,12 @@ func RunWorkflow(agents map[int]*Agent, promptInput PromptInput, path string) er
 	if err != nil {
 		return err
 	}
-	reasoning, err := reasoningAgent.Generate(path, promptInput)
+	// reasoning, err := reasoningAgent.Generate(path, promptInput)
+	reasoning, err := reasoningAgent.GenerateWithTools(path, promptInput)
 	if err != nil {
 		return err
 	}
-
+	reasoning = extractReasoning(reasoning, reasoningAgent.logger)
 	codeAgent.SetPromptContext(reasoning)
 	err = codeAgent.RunInPath(path, promptInput)
 	if err != nil {
@@ -55,6 +58,17 @@ func RunWorkflow(agents map[int]*Agent, promptInput PromptInput, path string) er
 	}
 
 	return nil
+}
+
+func extractReasoning(content string, logger logr.Logger) string {
+	split := strings.Split(content, `</think>`)
+	if len(split) < 2 {
+		logger.Error(fmt.Errorf("reasoning agent did not return a think section"), "Reasoning agent did not return a think section, returning original content", "content", content)
+		return content
+	}
+	logger.Info("Reasoning Response", "content", split[1])
+	reasoning := strings.TrimSpace(split[1])
+	return reasoning
 }
 
 // ExecuteWorkflow runs a workflow defined by the given steps using the provided agents

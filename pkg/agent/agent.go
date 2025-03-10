@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/genai"
@@ -117,6 +118,10 @@ func (a *Agent) Run(input PromptInput) error {
 	}
 	chat := a.provider.Chat(a.model, a.tools)
 
+	defer func() {
+		chat.Done <- true
+	}()
+
 	go func() {
 		for response := range chat.Recv {
 			a.logger.Info("Response", "response", response)
@@ -136,9 +141,6 @@ func (a *Agent) Run(input PromptInput) error {
 	chat.Logger.Info("RAG Completed, sending first message")
 	chat.Send <- prompt
 
-	defer func() {
-		chat.Done <- true
-	}()
 	// block until generation is complete
 	<-chat.GenerationComplete
 	// validate output
@@ -179,6 +181,66 @@ func (a *Agent) Generate(path string, input PromptInput) (string, error) {
 		}
 	}
 	return a.provider.Generate(a.model, prompt)
+}
+
+func (a *Agent) GenerateWithTools(path string, input PromptInput) (string, error) {
+	if a.provider == nil {
+		return "", fmt.Errorf("provider not set")
+	}
+	a.path = path
+	for _, tool := range a.tools {
+		tool.Options["basePath"] = path
+	}
+	// messge for return
+	message := ""
+
+	chat := a.provider.Chat(a.model, a.tools)
+
+	defer func() {
+		chat.Done <- true
+	}()
+
+	go func() {
+		for response := range chat.Recv {
+			a.logger.Info("Response", "response", response)
+			message = response
+		}
+	}()
+
+	prompt, err := a.renderPromptTemplate(input)
+	if err != nil {
+		return "", err
+	}
+	prompt = a.promptContext + "\n\n" + prompt
+	chat.Logger.Info("Starting RAG")
+	prompt, err = a.AddRAGContext(prompt)
+	if err != nil {
+		return "", err
+	}
+	chat.Logger.Info("RAG Completed, sending first message")
+	chat.Send <- prompt
+
+	// block until generation is complete
+	<-chat.GenerationComplete
+	// validate output
+	err = validation.Run(&validation.ValidationInput{
+		Attempts:    20,
+		Validations: a.validations,
+		Send:        chat.Send,
+		Done:        chat.GenerationComplete,
+		Logger:      chat.Logger,
+		Path:        a.path,
+	})
+	if err != nil {
+		chat.Logger.Error(err, "Error validating output")
+		return "", err
+	}
+	chat.Logger.Info("Validation Succeeded")
+	for message == "" {
+		chat.Logger.Info("Waiting for message")
+		time.Sleep(1 * time.Second)
+	}
+	return message, nil
 }
 
 func (a *Agent) renderPromptTemplate(input PromptInput) (string, error) {
