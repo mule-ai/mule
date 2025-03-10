@@ -3,9 +3,11 @@ package handlers
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,15 +43,25 @@ type LogsData struct {
 func HandleLogs(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	level := r.URL.Query().Get("level")
+	limitStr := r.URL.Query().Get("limit")
 	isAjax := r.Header.Get("X-Requested-With") == "XMLHttpRequest"
+
+	// Parse limit parameter, default to 10 if not specified or invalid
+	limit := 10
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil {
+			limit = parsedLimit
+		}
+	}
 
 	// Read and parse log file
 	file, err := os.Open(log.LogFile)
 	if err != nil {
+		errString := fmt.Sprintf("Error reading log file: %v", err)
 		if isAjax {
-			http.Error(w, `{"error": "Error reading log file"}`, http.StatusInternalServerError)
+			http.Error(w, `{"error": "`+errString+`"}`, http.StatusInternalServerError)
 		} else {
-			http.Error(w, "Error reading log file", http.StatusInternalServerError)
+			http.Error(w, errString, http.StatusInternalServerError)
 		}
 		return
 	}
@@ -57,26 +69,80 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 
 	// Map to store conversations by ID
 	conversations := make(map[string]*Conversation)
-	scanner := bufio.NewScanner(file)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	reader := bufio.NewReader(file)
 
-	for scanner.Scan() {
+	const maxLineLength = 1024 * 1024 // 1MB
+
+	for {
+		// ReadLine returns line, isPrefix, error
+		var fullLine []byte
+		isLineTooLong := false
+		for {
+			line, isPrefix, err := reader.ReadLine()
+			if err != nil {
+				if err.Error() == "EOF" {
+					break
+				}
+				errString := fmt.Sprintf("Error reading line: %v", err)
+				if isAjax {
+					http.Error(w, `{"error": "`+errString+`"}`, http.StatusInternalServerError)
+				} else {
+					http.Error(w, errString, http.StatusInternalServerError)
+				}
+				return
+			}
+
+			fullLine = append(fullLine, line...)
+			if len(fullLine) > maxLineLength {
+				isLineTooLong = true
+				// Discard the rest of the line
+				for isPrefix {
+					_, isPrefix, err = reader.ReadLine()
+					if err != nil {
+						if err.Error() == "EOF" {
+							break
+						}
+						errString := fmt.Sprintf("Error reading line: %v", err)
+						if isAjax {
+							http.Error(w, `{"error": "`+errString+`"}`, http.StatusInternalServerError)
+						} else {
+							http.Error(w, errString, http.StatusInternalServerError)
+						}
+						return
+					}
+				}
+				break
+			}
+			if !isPrefix {
+				break
+			}
+		}
+
+		// Break the outer loop if we've reached EOF
+		if len(fullLine) == 0 {
+			break
+		}
+
 		var entry LogEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			// log.Printf("Error unmarshalling log entry: %v", err)
-			// log.Printf("Log entry: %v", fmt.Sprintf("%v", string(scanner.Bytes())))
-			continue // Skip invalid JSON entries
+		if isLineTooLong {
+			// Try to parse the JSON we have to get the metadata
+			if err := json.Unmarshal(fullLine[:maxLineLength], &entry); err != nil {
+				continue // Skip if we can't even parse the metadata
+			}
+			// Replace the content with a message about the length
+			entry.Content = "[Content exceeds 1MB and has been truncated]"
+		} else {
+			if err := json.Unmarshal(fullLine, &entry); err != nil {
+				continue // Skip invalid JSON entries
+			}
 		}
 		entry.Time = time.Unix(int64(entry.TimeStamp), 0)
 
 		// Apply filters
 		if level != "" && !strings.EqualFold(entry.Level, level) {
-			// log.Printf("Skipping log entry due to level: %v", entry)
 			continue
 		}
 		if search != "" && !strings.Contains(strings.ToLower(entry.Message), strings.ToLower(search)) {
-			// log.Printf("Skipping log entry due to search: %v", entry)
 			continue
 		}
 
@@ -94,12 +160,6 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}
-	err = scanner.Err()
-	if err != nil {
-		// log.Printf("Error scanning log file: %v", err)
-		http.Error(w, "Error scanning log file", http.StatusInternalServerError)
-		return
 	}
 
 	// Convert map to slice and sort by start time
@@ -122,6 +182,11 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(sortedConversations, func(i, j int) bool {
 		return sortedConversations[i].StartTime.After(sortedConversations[j].StartTime)
 	})
+
+	// Apply conversation limit if greater than 0 (0 means no limit)
+	if limit > 0 && len(sortedConversations) > limit {
+		sortedConversations = sortedConversations[:limit]
+	}
 
 	if isAjax {
 		w.Header().Set("Content-Type", "application/json")

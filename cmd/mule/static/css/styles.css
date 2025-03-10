@@ -1,0 +1,98 @@
+/* Workflow Diagram Styles */
+.workflow-visualization {
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+.workflow-diagram {
+    background-color: #f5f5f5;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 10px;
+}
+
+.workflow-diagram-steps {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.diagram-step {
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 10px;
+    min-width: 200px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    display: flex;
+    align-items: flex-start;
+}
+
+.diagram-step-number {
+    background-color: var(--primary-color);
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin-right: 10px;
+    flex-shrink: 0;
+}
+
+.diagram-step-content {
+    flex-grow: 1;
+}
+
+.diagram-agent-name {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.diagram-step-details {
+    font-size: 0.85em;
+    color: #666;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.diagram-first-step {
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+.diagram-connector {
+    display: flex;
+    align-items: center;
+    color: var(--primary-color);
+}
+
+.diagram-connector svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+.empty-diagram {
+    color: #888;
+    font-style: italic;
+    padding: 10px;
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .workflow-diagram-steps {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .diagram-connector {
+        transform: rotate(90deg);
+        margin: 5px 0;
+    }
+} 

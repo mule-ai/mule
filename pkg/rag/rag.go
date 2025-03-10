@@ -19,6 +19,7 @@ var (
 		"vendor",
 		"dist",
 		"build",
+		"bin",
 		".git",
 	}
 	EXCLUDE_FILES = []string{
@@ -34,6 +35,7 @@ var (
 		".gitignore",
 		".air.toml",
 		"mule.log",
+		"Makefile",
 	}
 )
 

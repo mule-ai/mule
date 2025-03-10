@@ -31,6 +31,7 @@ type Provider interface {
 	DeleteIssue(repoPath string, issueNumber int) error
 	DeletePullRequest(repoPath string, prNumber int) error
 	UpdateIssueState(issueNumber int, state string) error
+	UpdateIssue(issueNumber int, title, body string) error
 	AddLabelToIssue(issueNumber int, label string) error
 	FetchRepositories() ([]types.Repository, error)
 	FetchIssues(remotePath string, options types.IssueFilterOptions) ([]types.Issue, error)

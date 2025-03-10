@@ -9,6 +9,13 @@
             <option value="error">Error</option>
             <option value="warning">Warning</option>
         </select>
+        <select id="limit-filter" class="input">
+            <option value="10">Last 10 Conversations</option>
+            <option value="25">Last 25 Conversations</option>
+            <option value="50">Last 50 Conversations</option>
+            <option value="100">Last 100 Conversations</option>
+            <option value="0">All Conversations</option>
+        </select>
         <button class="button" onclick="refreshLogs()">Refresh</button>
         <label class="auto-refresh">
             <input type="checkbox" id="auto-refresh" checked>
@@ -23,6 +30,9 @@
                 <span class="timestamp">{{.StartTime}}</span>
                 <span class="message-count">{{.MessageCount}} messages</span>
                 <span class="level {{.Status}}">{{.Status}}</span>
+                <button class="scroll-to-latest" onclick="scrollToLatest(event, '{{.ID}}')" style="display: none">
+                    Scroll to Latest
+                </button>
             </div>
             <div class="conversation-messages">
                 {{range .Messages}}
@@ -51,6 +61,20 @@
 </div>
 
 <style>
+.scroll-to-latest {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    border: none;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.scroll-to-latest:hover {
+    opacity: 0.9;
+}
+
 .filters {
     display: flex;
     gap: 1rem;
@@ -286,6 +310,22 @@ const REFRESH_INTERVAL = 5000; // 5 seconds
 function toggleConversation(header) {
     const messages = header.nextElementSibling;
     messages.classList.toggle('active');
+    const scrollButton = header.querySelector('.scroll-to-latest');
+    if (messages.classList.contains('active')) {
+        scrollButton.style.display = 'block';
+    } else {
+        scrollButton.style.display = 'none';
+    }
+}
+
+function scrollToLatest(event, conversationId) {
+    event.stopPropagation(); // Prevent triggering the conversation toggle
+    const conversation = document.querySelector(`.conversation-group[data-conversation-id="${conversationId}"]`);
+    const messages = conversation.querySelector('.conversation-messages');
+    const lastMessage = messages.lastElementChild;
+    if (lastMessage) {
+        lastMessage.scrollIntoView({ behavior: 'smooth' });
+    }
 }
 
 function createLogEntry(log) {
@@ -312,6 +352,9 @@ function createConversationGroup(conv, isExpanded) {
                 <span class="timestamp">${new Date(conv.StartTime).toLocaleString()}</span>
                 <span class="message-count">${conv.MessageCount} messages</span>
                 <span class="level ${conv.Status}">${conv.Status}</span>
+                <button class="scroll-to-latest" onclick="scrollToLatest(event, '${conv.ID}')" style="display: ${isExpanded ? 'block' : 'none'}">
+                    Scroll to Latest
+                </button>
             </div>
             <div class="conversation-messages${isExpanded ? ' active' : ''}">
                 ${conv.Messages.map(msg => createLogEntry(msg)).join('')}
@@ -335,7 +378,8 @@ function getExpandedConversations() {
 async function fetchLogs() {
     const search = document.getElementById('search').value;
     const level = document.getElementById('level-filter').value;
-    const url = `/logs?search=${encodeURIComponent(search)}&level=${encodeURIComponent(level)}`;
+    const limit = document.getElementById('limit-filter').value;
+    const url = `/logs?search=${encodeURIComponent(search)}&level=${encodeURIComponent(level)}&limit=${encodeURIComponent(limit)}`;
     
     try {
         // Store expanded states before updating

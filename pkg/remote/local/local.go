@@ -94,6 +94,16 @@ func (p *Provider) UpdateIssueState(issueNumber int, state string) error {
 	return p.Save()
 }
 
+func (p *Provider) UpdateIssue(issueNumber int, title, body string) error {
+	issue, ok := p.Issues[issueNumber]
+	if !ok {
+		return fmt.Errorf("issue %d not found", issueNumber)
+	}
+	issue.Title = title
+	issue.Body = body
+	return p.Save()
+}
+
 func (p *Provider) FetchIssues(remotePath string, options types.IssueFilterOptions) ([]types.Issue, error) {
 	issues := make([]types.Issue, 0, len(p.Issues))
 	for _, issue := range p.Issues {

@@ -20,6 +20,9 @@ type ValidationInput struct {
 func Run(in *ValidationInput) error {
 	// run validation attempts
 	validated := false
+	if len(in.Validations) == 0 {
+		return nil
+	}
 	for i := 0; i < in.Attempts; i++ {
 		// run validations
 		for _, validation := range in.Validations {
