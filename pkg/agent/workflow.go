@@ -223,6 +223,9 @@ func processOutput(content string, outputField string) string {
 	switch outputField {
 	case "generatedText":
 		return content
+	case "generatedTextWithReasoning":
+		// For generatedTextWithReasoning, we keep the reasoning section if it exists
+		return content
 	case "extractedCode":
 		return extractCode(content)
 	case "summary":

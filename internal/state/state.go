@@ -142,8 +142,3 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 	}
 	return agents
 }
-
-/*
-	Tools:               []string{"writeFile", "tree", "readFile"},
-	ValidationFunctions: []string{"getDeps", "goFmt", "goModTidy", "golangciLint", "goTest"},
-*/

@@ -161,11 +161,12 @@
                         <input type="hidden" name="workflows[{{$index}}].id" value="{{$workflow.ID}}">
                         
                         <div class="workflow-steps-container">
-                            <h4>Workflow Steps</h4>
+                            <h4>Steps</h4>
                             <div class="workflow-steps" data-workflow-index="{{$index}}">
                                 {{range $stepIndex, $step := $workflow.Steps}}
                                 <div class="workflow-step" data-step-index="{{$stepIndex}}">
                                     <div class="workflow-step-header">
+                                        <span class="drag-handle">☰</span>
                                         <span class="step-number">{{add $stepIndex 1}}</span>
                                         <div class="step-agent-name">{{$step.AgentName}}</div>
                                         <button type="button" class="button secondary remove-step" onclick="removeWorkflowStep(this)">×</button>
@@ -182,57 +183,22 @@
                                             </select>
                                         </div>
                                         <div class="form-group">
-                                            <label class="checkbox-item">
-                                                <input type="checkbox" name="workflows[{{$index}}].steps[{{$stepIndex}}].isFirst" {{if $step.IsFirst}}checked{{end}} onchange="handleFirstStepChange(this)">
-                                                First step in workflow
-                                            </label>
-                                        </div>
-                                        {{if not $step.IsFirst}}
-                                        <div class="form-group">
-                                            <label class="label">Input Mapping</label>
-                                            <select name="workflows[{{$index}}].steps[{{$stepIndex}}].inputMapping" class="input input-mapping-select">
-                                                <option value="">Select input mapping</option>
-                                                <option value="useAsPrompt" {{if eq $step.InputMapping "useAsPrompt"}}selected{{end}}>Use as prompt</option>
-                                                <option value="appendToPrompt" {{if eq $step.InputMapping "appendToPrompt"}}selected{{end}}>Append to prompt</option>
-                                                <option value="useAsContext" {{if eq $step.InputMapping "useAsContext"}}selected{{end}}>Use as context</option>
-                                                <option value="useAsInstructions" {{if eq $step.InputMapping "useAsInstructions"}}selected{{end}}>Use as instructions</option>
-                                                <option value="useAsCodeInput" {{if eq $step.InputMapping "useAsCodeInput"}}selected{{end}}>Use as code input</option>
-                                                <option value="useAsReviewTarget" {{if eq $step.InputMapping "useAsReviewTarget"}}selected{{end}}>Use as review target</option>
-                                            </select>
-                                        </div>
-                                        {{end}}
-                                        <div class="form-group">
-                                            <label class="label">Output Field</label>
+                                            <label class="label">Output Type</label>
                                             <select name="workflows[{{$index}}].steps[{{$stepIndex}}].outputField" class="input output-field-select">
-                                                <option value="">Select output field</option>
-                                                <option value="generatedText" {{if eq $step.OutputField "generatedText"}}selected{{end}}>Generated Text</option>
-                                                <option value="extractedCode" {{if eq $step.OutputField "extractedCode"}}selected{{end}}>Extracted Code</option>
-                                                <option value="summary" {{if eq $step.OutputField "summary"}}selected{{end}}>Summary</option>
-                                                <option value="actionItems" {{if eq $step.OutputField "actionItems"}}selected{{end}}>Action Items</option>
-                                                <option value="suggestedChanges" {{if eq $step.OutputField "suggestedChanges"}}selected{{end}}>Suggested Changes</option>
-                                                <option value="reviewComments" {{if eq $step.OutputField "reviewComments"}}selected{{end}}>Review Comments</option>
-                                                <option value="testCases" {{if eq $step.OutputField "testCases"}}selected{{end}}>Test Cases</option>
-                                                <option value="documentationText" {{if eq $step.OutputField "documentationText"}}selected{{end}}>Documentation Text</option>
+                                                <option value="">Select output type</option>
+                                                <option value="generatedText" {{if eq $step.OutputField "generatedText"}}selected{{end}}>Generated Text (without reasoning)</option>
+                                                <option value="generatedTextWithReasoning" {{if eq $step.OutputField "generatedTextWithReasoning"}}selected{{end}}>Generated Text with Reasoning</option>
                                             </select>
                                         </div>
                                     </div>
                                 </div>
                                 {{end}}
                             </div>
+                            <div class="help-text">Drag and drop steps using the ☰ handle to reorder them. The first step in the list will be executed first.</div>
                             <button type="button" class="button secondary add-step" onclick="addWorkflowStep('{{$index}}')">Add Step</button>
                         </div>
                         
-                        <div class="workflow-visualization">
-                            <h4>Workflow Diagram</h4>
-                            <div class="workflow-diagram">
-                                <div class="workflow-diagram-steps" data-workflow-diagram="{{$index}}">
-                                    <!-- Diagram will be generated by JavaScript -->
-                                </div>
-                            </div>
-                        </div>
-                        
                         <div class="workflow-actions">
-                            <button type="button" class="button primary execute-workflow" data-workflow-id="{{$workflow.ID}}" onclick="executeWorkflow(this)">Execute Workflow</button>
                             <button type="button" class="button secondary remove-workflow" onclick="removeWorkflow(this)">Remove Workflow</button>
                         </div>
                     </div>
@@ -662,6 +628,24 @@ textarea.input {
     padding: 0.5rem;
     background: rgba(255,255,255,0.05);
     gap: 0.5rem;
+}
+
+.drag-handle {
+    cursor: move;
+    font-size: 1.2rem;
+    color: rgba(255,255,255,0.5);
+    margin-right: 0.5rem;
+    transition: color 0.2s;
+    user-select: none;
+}
+
+.drag-handle:hover {
+    color: var(--primary-color);
+}
+
+.workflow-step.dragging {
+    opacity: 0.5;
+    border: 2px dashed var(--primary-color);
 }
 
 .step-number {
@@ -1125,14 +1109,9 @@ async function handleUpdateSettings(event) {
             const stepData = {
                 id: formData.get(`workflows[${index}].steps[${stepIndex}].id`),
                 agentName: formData.get(`workflows[${index}].steps[${stepIndex}].agentName`),
-                isFirst: formData.get(`workflows[${index}].steps[${stepIndex}].isFirst`) === 'on',
-                outputField: formData.get(`workflows[${index}].steps[${stepIndex}].outputField`) || ""
+                outputField: formData.get(`workflows[${index}].steps[${stepIndex}].outputField`) || "",
+                isFirst: stepIndex === 0
             };
-            
-            // Only include inputMapping if not the first step
-            if (!stepData.isFirst) {
-                stepData.inputMapping = formData.get(`workflows[${index}].steps[${stepIndex}].inputMapping`) || "";
-            }
             
             workflowData.steps.push(stepData);
         });
@@ -1255,9 +1234,10 @@ function createWorkflowHTML(index) {
                 <input type="hidden" name="workflows[${index}].id" value="${id}">
                 
                 <div class="workflow-steps-container">
-                    <h4>Workflow Steps</h4>
+                    <h4>Generation Options</h4>
                     <div class="workflow-steps" data-workflow-index="${index}">
                     </div>
+                    <div class="help-text">Drag and drop steps using the ☰ handle to reorder them. The first step in the list will be executed first.</div>
                     <button type="button" class="button secondary add-step" onclick="addWorkflowStep(${index})">Add Step</button>
                 </div>
                 <button type="button" class="button secondary remove-workflow" onclick="removeWorkflow(this)">Remove Workflow</button>
@@ -1268,11 +1248,11 @@ function createWorkflowHTML(index) {
 
 function createWorkflowStepHTML(workflowIndex, stepIndex) {
     const id = 'step_' + Date.now();
-    const isFirst = stepIndex === 0;
     
     return `
         <div class="workflow-step" data-step-index="${stepIndex}">
             <div class="workflow-step-header">
+                <span class="drag-handle">☰</span>
                 <span class="step-number">${stepIndex + 1}</span>
                 <div class="step-agent-name">Select an agent</div>
                 <button type="button" class="button secondary remove-step" onclick="removeWorkflowStep(this)">×</button>
@@ -1287,37 +1267,11 @@ function createWorkflowStepHTML(workflowIndex, stepIndex) {
                     </select>
                 </div>
                 <div class="form-group">
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="workflows[${workflowIndex}].steps[${stepIndex}].isFirst" ${isFirst ? 'checked' : ''} onchange="handleFirstStepChange(this)">
-                        First step in workflow
-                    </label>
-                </div>
-                ${isFirst ? '' : `
-                <div class="form-group">
-                    <label class="label">Input Mapping</label>
-                    <select name="workflows[${workflowIndex}].steps[${stepIndex}].inputMapping" class="input input-mapping-select">
-                        <option value="">Select input mapping</option>
-                        <option value="useAsPrompt">Use as prompt</option>
-                        <option value="appendToPrompt">Append to prompt</option>
-                        <option value="useAsContext">Use as context</option>
-                        <option value="useAsInstructions">Use as instructions</option>
-                        <option value="useAsCodeInput">Use as code input</option>
-                        <option value="useAsReviewTarget">Use as review target</option>
-                    </select>
-                </div>
-                `}
-                <div class="form-group">
-                    <label class="label">Output Field</label>
+                    <label class="label">Output Type</label>
                     <select name="workflows[${workflowIndex}].steps[${stepIndex}].outputField" class="input output-field-select">
-                        <option value="">Select output field</option>
-                        <option value="generatedText">Generated Text</option>
-                        <option value="extractedCode">Extracted Code</option>
-                        <option value="summary">Summary</option>
-                        <option value="actionItems">Action Items</option>
-                        <option value="suggestedChanges">Suggested Changes</option>
-                        <option value="reviewComments">Review Comments</option>
-                        <option value="testCases">Test Cases</option>
-                        <option value="documentationText">Documentation Text</option>
+                        <option value="">Select output type</option>
+                        <option value="generatedText">Generated Text (without reasoning)</option>
+                        <option value="generatedTextWithReasoning">Generated Text with Reasoning</option>
                     </select>
                 </div>
             </div>
@@ -1424,7 +1378,7 @@ function reindexWorkflowSteps(workflowIndex) {
         // Update step number
         const stepNumber = step.querySelector('.step-number');
         if (stepNumber) {
-            stepNumber.textContent = stepIndex + 1;
+            stepNumber.textContent = index + 1;
         }
         
         // Update all input names in this step
@@ -1432,16 +1386,6 @@ function reindexWorkflowSteps(workflowIndex) {
             const name = input.name.replace(/steps\[\d+\]/, `steps[${stepIndex}]`);
             input.name = name;
         });
-        
-        // Handle first step checkbox
-        const isFirstCheckbox = step.querySelector('input[name$="isFirst"]');
-        if (isFirstCheckbox) {
-            // If this is the first step and no steps are marked as first, check it
-            if (stepIndex === 0 && !Array.from(steps).some(s => s.querySelector('input[name$="isFirst"]:checked'))) {
-                isFirstCheckbox.checked = true;
-                handleFirstStepChange(isFirstCheckbox);
-            }
-        }
     });
 }
 
@@ -1449,35 +1393,6 @@ function updateStepAgentName(select) {
     const step = select.closest('.workflow-step');
     const agentNameDisplay = step.querySelector('.step-agent-name');
     agentNameDisplay.textContent = select.value || 'Select an agent';
-}
-
-function handleFirstStepChange(checkbox) {
-    const step = checkbox.closest('.workflow-step');
-    const workflowIndex = step.closest('.workflow-steps').dataset.workflowIndex;
-    const stepIndex = step.dataset.stepIndex;
-    const workflow = document.querySelector(`.workflow[data-index="${workflowIndex}"]`);
-    
-    // If this checkbox is checked, uncheck all others
-    if (checkbox.checked) {
-        workflow.querySelectorAll('.workflow-step').forEach(otherStep => {
-            if (otherStep !== step) {
-                const otherCheckbox = otherStep.querySelector('input[name$="isFirst"]');
-                if (otherCheckbox) {
-                    otherCheckbox.checked = false;
-                }
-            }
-        });
-    }
-    
-    // Show/hide input mapping based on whether this is the first step
-    const inputMappingGroup = step.querySelector('.input-mapping-select')?.closest('.form-group');
-    if (inputMappingGroup) {
-        if (checkbox.checked) {
-            inputMappingGroup.style.display = 'none';
-        } else {
-            inputMappingGroup.style.display = 'block';
-        }
-    }
 }
 
 function handleDefaultWorkflowChange(checkbox) {
@@ -1502,6 +1417,9 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleSection(sectionId);
         });
     });
+
+    // Initialize drag and drop for workflow steps
+    initDragAndDrop();
 
     // Initialize system agent
     const systemSection = document.getElementById('system');
@@ -1564,12 +1482,101 @@ document.addEventListener('DOMContentLoaded', () => {
         workflow.querySelectorAll('.agent-select').forEach(select => {
             updateStepAgentName(select);
         });
-        
-        // Initialize first step visibility
-        workflow.querySelectorAll('input[name$="isFirst"]').forEach(checkbox => {
-            handleFirstStepChange(checkbox);
-        });
     });
 });
+
+// Initialize drag and drop functionality for workflow steps
+function initDragAndDrop() {
+    document.querySelectorAll('.workflow-steps').forEach(container => {
+        initSortable(container);
+    });
+}
+
+// Initialize sortable container
+function initSortable(container) {
+    let draggedItem = null;
+    const items = container.querySelectorAll('.workflow-step');
+    
+    items.forEach(item => {
+        const handle = item.querySelector('.drag-handle');
+        
+        handle.addEventListener('mousedown', function(e) {
+            draggedItem = item;
+            const rect = item.getBoundingClientRect();
+            
+            // Set initial position
+            item.classList.add('dragging');
+            
+            // Create a clone for the "ghost" image
+            const ghost = item.cloneNode(true);
+            ghost.style.position = 'absolute';
+            ghost.style.top = '-1000px';
+            ghost.style.opacity = '0';
+            document.body.appendChild(ghost);
+            
+            // Set the drag ghost image
+            e.dataTransfer = e.dataTransfer || {};
+            if (e.dataTransfer.setDragImage) {
+                e.dataTransfer.setDragImage(ghost, 0, 0);
+            }
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            
+            // Prevent text selection during drag
+            e.preventDefault();
+        });
+    });
+    
+    function onMouseMove(e) {
+        if (!draggedItem) return;
+        
+        const items = Array.from(container.querySelectorAll('.workflow-step:not(.dragging)'));
+        
+        // Find the element we're hovering over
+        const nextItem = items.find(item => {
+            const rect = item.getBoundingClientRect();
+            return e.clientY < rect.top + rect.height / 2;
+        });
+        
+        if (nextItem) {
+            container.insertBefore(draggedItem, nextItem);
+        } else {
+            container.appendChild(draggedItem);
+        }
+        
+        // Update step numbers
+        updateStepNumbers(container);
+    }
+    
+    function onMouseUp() {
+        if (!draggedItem) return;
+        
+        draggedItem.classList.remove('dragging');
+        draggedItem = null;
+        
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        
+        // Remove any ghost elements
+        const ghosts = document.querySelectorAll('.workflow-step[style*="position: absolute"]');
+        ghosts.forEach(ghost => ghost.remove());
+        
+        // Reindex the steps
+        const workflowIndex = container.dataset.workflowIndex;
+        reindexWorkflowSteps(workflowIndex);
+    }
+}
+
+// Update step numbers after drag and drop
+function updateStepNumbers(container) {
+    const steps = container.querySelectorAll('.workflow-step');
+    steps.forEach((step, index) => {
+        const numberElement = step.querySelector('.step-number');
+        if (numberElement) {
+            numberElement.textContent = index + 1;
+        }
+    });
+}
 </script>
 {{end}}

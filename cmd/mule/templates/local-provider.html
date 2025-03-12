@@ -21,20 +21,22 @@
                 <div class="issue-body">{{.Body}}</div>
                 <div class="issue-meta">
                     State: {{.State}} | Created: <span class="created-at" data-time="{{.CreatedAt}}"></span>
-                    {{if eq .State "open"}}
-                    <button onclick="updateIssueState('{{.Number}}', 'closed')" class="button small">Close Issue</button>
-                    {{else}}
-                    <button onclick="updateIssueState('{{.Number}}', 'open')" class="button small">Reopen Issue</button>
-                    {{end}}
+                </div>
+                <div class="issue-actions">
+                    <button onclick="showCommentModal('{{.Number}}', 'issue')" class="button">Add Comment</button>
                     <button 
                         onclick="showEditIssueModal(this)" 
-                        class="button small"
+                        class="button"
                         data-issue-number="{{.Number}}" 
                         data-issue-title="{{.Title}}" 
                         data-issue-body="{{.Body}}">Edit Issue</button>
-                    <button onclick="deleteIssue('{{.Number}}')" class="button small danger">Delete Issue</button>
+                    {{if eq .State "open"}}
+                    <button onclick="updateIssueState('{{.Number}}', 'closed')" class="button">Close Issue</button>
+                    {{else}}
+                    <button onclick="updateIssueState('{{.Number}}', 'open')" class="button">Reopen Issue</button>
+                    {{end}}
+                    <button onclick="deleteIssue('{{.Number}}')" class="button danger">Delete Issue</button>
                 </div>
-                <button onclick="showCommentModal('{{.Number}}', 'issue')" class="button">Add Comment</button>
                 
                 <!-- Issue Comments -->
                 <div class="comments-section">
@@ -475,6 +477,13 @@ textarea.input {
     gap: 0.5rem;
 }
 
+.issue-actions {
+    margin: 0.75rem 0;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
 .expand-icon {
     transition: transform 0.2s ease;
 }
@@ -806,6 +815,15 @@ textarea.input {
     }
 
     .pr-actions button {
+        width: 100%;
+    }
+
+    .issue-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .issue-actions button {
         width: 100%;
     }
 
