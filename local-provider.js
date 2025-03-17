@@ -5,39 +5,40 @@ function showEditIssueModal(issueNumber, title, body) {
     document.getElementById('editBody').value = body;
 }
 
-function handleEditIssue(event) {
+async function handleEditIssue(event) {
     event.preventDefault();
-
-    const issueNumber = document.getElementById('issueNumber').value;
+    
+    const form = document.getElementById('editIssueForm');
+    const issueNumber = parseInt(document.getElementById('issueNumber').value);
     const newTitle = document.getElementById('editTitle').value;
     const newBody = document.getElementById('editBody').value;
+    const path = document.getElementById('repoPath').value;
 
-    fetch('/api/local/issues', {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            path: '/data/jbutler/tmpgit/mule-ai/mule/repositories/local-repo',
-            issueNumber: parseInt(issueNumber),
-            title: newTitle,
-            body: newBody
-        })
-    }).then(response => {
-        if (response.ok) {
-            updateIssueDisplay(issueNumber, newTitle, newBody);
-            document.getElementById('editModal').style.display = 'none';
-            alert('Issue updated successfully');
-        } else {
-            response.text().then(text => alert(`Error: ${text}`));
-        }
-    }).catch(error => alert(`Error: ${error}`));
+    try {
+        const response = await fetch('/api/local/issues', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                path,
+                issueNumber,
+                title: newTitle,
+                body: newBody
+            })
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+
+        closeModal('editIssueModal');
+        updateIssueDisplay(issueNumber, newTitle, newBody);
+    } catch (err) {
+        alert(`Error saving changes: ${err.message}`);
+    }
 }
 
-function updateIssueDisplay(issueNumber, newTitle, newBody) {
-    const issueElement = document.getElementById(`issue-${issueNumber}`);
+function updateIssueDisplay(number, title, body) {
+    const issueElement = document.getElementById(`issue-${number}`);
     if (issueElement) {
-        issueElement.querySelector('.issue-title').innerText = `#${issueNumber} ${newTitle}`;
-        issueElement.querySelector('.issue-body').innerText = newBody;
+        issueElement.querySelector('.issue-title').innerText = `#${number} ${title}`;
+        issueElement.querySelector('.issue-body').innerText = body;
     }
 }
