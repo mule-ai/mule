@@ -75,6 +75,12 @@ func (p *Provider) UpdateIssueState(issueNumber int, state string) error {
 	return nil
 }
 
+func (p *Provider) UpdateIssue(issueNumber int, title, body string) error {
+	// For now, we'll implement a stub that returns nil
+	// When GitHub integration is needed, implement the actual update logic
+	return nil
+}
+
 func (p *Provider) CreateIssueComment(remotePath string, issueNumber int, comment types.Comment) error {
 	return nil
 }

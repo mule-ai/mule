@@ -74,8 +74,9 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 			l.Error(err, "Error getting repo status")
 		}
 		appState.Repositories[path] = r
+		defaultWorkflow := appState.Workflows["default"]
 		err = appState.Scheduler.AddTask(path, repo.Schedule, func() {
-			err := r.Sync(appState.Agents)
+			err := r.Sync(appState.Agents, defaultWorkflow)
 			if err != nil {
 				l.Error(err, "Error syncing repo")
 			}

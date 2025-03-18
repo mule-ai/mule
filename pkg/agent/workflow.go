@@ -1,107 +1,125 @@
 package agent
 
 import (
-	//"encoding/json"
+	"errors"
 	"fmt"
-	//"strings"
+	"strings"
 )
 
-type TaskBreakdown struct {
-	Tasks []string `json:"tasks"`
+// WorkflowStep represents a step in a workflow
+type WorkflowStep struct {
+	ID          string `json:"id"`
+	AgentID     int    `json:"agentID"`
+	AgentName   string `json:"agentName"`
+	OutputField string `json:"outputField"`
 }
 
-func RunWorkflow(agents map[int]*Agent, promptInput PromptInput, path string) error {
-	reasoningAgent, err := reasoningAgent(agents)
-	if err != nil {
-		return err
+// WorkflowResult represents the result of a workflow step execution
+type WorkflowResult struct {
+	AgentID     int
+	OutputField string
+	Content     string
+	StepID      string
+	Error       error
+}
+
+// WorkflowContext holds the state of a workflow execution
+type WorkflowContext struct {
+	Results      map[string]WorkflowResult // Map of step ID to result
+	CurrentInput PromptInput
+	Path         string
+}
+
+// ExecuteWorkflow runs a workflow defined by the given steps using the provided agents
+func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInput PromptInput, path string) (map[string]WorkflowResult, error) {
+	if len(workflow) == 0 {
+		return nil, errors.New("workflow has no steps")
 	}
-	codeAgent, err := codeAgent(agents)
-	if err != nil {
-		return err
+
+	// Initialize workflow context
+	ctx := &WorkflowContext{
+		Results:      make(map[string]WorkflowResult),
+		CurrentInput: promptInput,
+		Path:         path,
 	}
-	reasoning, err := reasoningAgent.Generate(path, promptInput)
-	if err != nil {
-		return err
-	}
-	/*
-		tasks, err := extractTasks(reasoning)
+
+	var prevResult *WorkflowResult
+
+	// Execute steps in sequence
+	for _, step := range workflow {
+		// Execute the step
+		result, err := executeWorkflowStep(step, agentMap, ctx, prevResult)
 		if err != nil {
-			return err
+			return ctx.Results, err
 		}
-	*/
-	originalPromptTemplate := codeAgent.promptTemplate
-	codeAgent.promptTemplate = fmt.Sprintf("%s\n\n%s", originalPromptTemplate, reasoning)
-	err = codeAgent.RunInPath(path, promptInput)
-	codeAgent.promptTemplate = originalPromptTemplate
+
+		// Store the result
+		ctx.Results[step.ID] = result
+
+		// Set this step as the previous for the next iteration
+		prevResult = &result
+	}
+
+	return ctx.Results, nil
+}
+
+// executeWorkflowStep executes a single step in the workflow
+func executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agent, ctx *WorkflowContext, prevResult *WorkflowResult) (WorkflowResult, error) {
+	result := WorkflowResult{
+		AgentID:     step.AgentID,
+		OutputField: step.OutputField,
+		StepID:      step.ID,
+	}
+
+	// Get the agent for this step
+	agent, exists := agentMap[step.AgentID]
+	if !exists {
+		result.Error = fmt.Errorf("agent with ID %d not found", step.AgentID)
+		return result, result.Error
+	}
+
+	// Prepare input based on previous step if this is not the first step
+	if prevResult != nil {
+		// Using previous result's content as the next step's input
+		// Default behavior is to use the previous step's output as the next step's input
+		agent.SetPromptContext(prevResult.Content)
+	}
+
+	// Execute the agent
+	var content string
+	var err error
+
+	// Generate content using the agent
+	content, err = agent.GenerateWithTools(ctx.Path, ctx.CurrentInput)
 	if err != nil {
-		return err
+		result.Error = err
+		return result, err
 	}
-	/*
-		originalPromptTemplate := codeAgent.promptTemplate
-		originalReasoningTemplate := reasoningAgent.promptTemplate
-		for _, task := range tasks {
-			codeAgent.promptTemplate = fmt.Sprintf("%s\n\nYou have been given the following task: \n%s", originalPromptTemplate, task)
-			err = codeAgent.RunInPath(path, promptInput)
-			if err != nil {
-				// attempt reasoning rescue
-				reasoningAgent.promptTemplate = fmt.Sprintf("Original Message:\n%s\n\nYour provided an agent with this task:\n%s\n\nAnd it got stuck. Try to provide more direction", originalReasoningTemplate, task)
-				response, err := reasoningAgent.Generate(path, promptInput)
-				if err != nil {
-					return err
-				}
-				codeAgent.promptTemplate = fmt.Sprintf("%s\n\nYou have been given the following task: \n%s", originalPromptTemplate, response)
-				err = codeAgent.RunInPath(path, promptInput)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	*/
-	return nil
+
+	// Process the output based on the specified output field
+	result.Content = processOutput(content, step.OutputField)
+
+	return result, nil
 }
 
-func reasoningAgent(agents map[int]*Agent) (*Agent, error) {
-	for _, agent := range agents {
-		if agent.name == "reasoning" {
-			return agent, nil
-		}
+// processOutput extracts the specified field from the agent's output
+func processOutput(content string, outputField string) string {
+	switch outputField {
+	case "generatedText":
+		return extractReasoning(content)
+	case "generatedTextWithReasoning":
+		// For generatedTextWithReasoning, we keep the reasoning section if it exists
+		return content
+	default:
+		return content
 	}
-	return nil, fmt.Errorf("reasoning agent not found")
 }
 
-func codeAgent(agents map[int]*Agent) (*Agent, error) {
-	for _, agent := range agents {
-		if agent.name == "code" {
-			return agent, nil
-		}
+func extractReasoning(content string) string {
+	split := strings.Split(content, `</think>`)
+	if len(split) < 2 {
+		return content
 	}
-	return nil, fmt.Errorf("code agent not found")
+	reasoning := strings.TrimSpace(split[1])
+	return reasoning
 }
-
-/*
-func extractTasks(reasoning string) ([]string, error) {
-	// remove all text before </think> including </think>
-	mark := strings.Index(reasoning, "</think>")
-	if mark == -1 {
-		return nil, fmt.Errorf("reasoning agent returned no output")
-	}
-	reasoning = reasoning[mark+7:]
-	// remove the text from the code block if its in one
-	codeBlock := strings.Index(reasoning, "```json")
-	if codeBlock != -1 {
-		reasoning = reasoning[codeBlock+7:]
-	}
-	// remove the closing code block
-	end := strings.Index(reasoning, "```")
-	if end != -1 {
-		reasoning = reasoning[:end]
-	}
-	// decode json from reasoning
-	var reasoningOutput TaskBreakdown
-	err := json.Unmarshal([]byte(reasoning), &reasoningOutput)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal reasoning: %w", err)
-	}
-	return reasoningOutput.Tasks, nil
-}
-*/

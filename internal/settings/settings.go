@@ -16,6 +16,7 @@ type Settings struct {
 	AIProviders []AIProviderSettings `json:"aiProviders"`
 	Agents      []agent.AgentOptions `json:"agents"`
 	SystemAgent SystemAgentSettings  `json:"systemAgent"`
+	Workflows   []WorkflowSettings   `json:"workflows"`
 }
 
 type AIProviderSettings struct {
@@ -30,4 +31,12 @@ type SystemAgentSettings struct {
 	CommitTemplate  string `json:"commitTemplate"`
 	PRTitleTemplate string `json:"prTitleTemplate"`
 	PRBodyTemplate  string `json:"prBodyTemplate"`
+}
+
+type WorkflowSettings struct {
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	IsDefault   bool                 `json:"isDefault"`
+	Steps       []agent.WorkflowStep `json:"steps"`
 }

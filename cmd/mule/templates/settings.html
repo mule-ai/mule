@@ -6,6 +6,7 @@
         <button class="tab-button" data-tab="providers">AI Providers</button>
         <button class="tab-button" data-tab="agents">Agents</button>
         <button class="tab-button" data-tab="system">System Agent</button>
+        <button class="tab-button" data-tab="workflows">Workflows</button>
     </div>
 
     <form id="settingsForm" onsubmit="return handleUpdateSettings(event)">
@@ -49,9 +50,9 @@
         <div id="agents" class="tab-content">
             <div id="agents">
                 {{range $index, $agent := .Settings.Agents}}
-                <div class="agent" data-index="{{$index}}">
+                <div class="agent" data-index="{{$index}}" data-agent-id="{{$agent.ID}}">
                     <div class="agent-header" onclick="toggleAgent(this)">
-                        <div class="agent-name-display"></div>
+                        <div class="agent-name-display">{{$agent.Name}}</div>
                         <button type="button" class="button secondary toggle-agent">
                             <span class="toggle-icon">▼</span>
                         </button>
@@ -61,6 +62,7 @@
                             <label class="label">Name</label>
                             <input type="text" name="agents[{{$index}}].name" class="input agent-name-input" value="{{$agent.Name}}" placeholder="Enter agent name" onchange="updateAgentNameDisplay(this)">
                         </div>
+                        <input type="hidden" name="agents[{{$index}}].id" value="{{$agent.ID}}">
                         <div class="form-group">
                             <label class="label">Provider</label>
                             <select name="agents[{{$index}}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
@@ -130,6 +132,82 @@
                 <textarea name="systemAgent.prBodyTemplate" class="input" rows="8" placeholder="Enter the PR body template">{{.Settings.SystemAgent.PRBodyTemplate}}</textarea>
                 <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
             </div>
+        </div>
+
+        <div id="workflows" class="tab-content">
+            <div id="workflows-container">
+                {{range $index, $workflow := .Settings.Workflows}}
+                <div class="workflow" data-index="{{$index}}">
+                    <div class="workflow-header" onclick="toggleWorkflow(this)">
+                        <div class="workflow-name-display">{{$workflow.Name}}</div>
+                        <button type="button" class="button secondary toggle-workflow">
+                            <span class="toggle-icon">▼</span>
+                        </button>
+                    </div>
+                    <div class="workflow-content">
+                        <div class="form-group">
+                            <label class="label">Name</label>
+                            <input type="text" name="workflows[{{$index}}].name" class="input workflow-name-input" value="{{$workflow.Name}}" placeholder="Enter workflow name" onchange="updateWorkflowNameDisplay(this)">
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Description</label>
+                            <textarea name="workflows[{{$index}}].description" class="input" rows="2" placeholder="Enter workflow description">{{$workflow.Description}}</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-item">
+                                <input type="checkbox" name="workflows[{{$index}}].isDefault" {{if $workflow.IsDefault}}checked{{end}} onchange="handleDefaultWorkflowChange(this)">
+                                Set as default workflow
+                            </label>
+                        </div>
+                        <input type="hidden" name="workflows[{{$index}}].id" value="{{$workflow.ID}}">
+                        
+                        <div class="workflow-steps-container">
+                            <h4>Steps</h4>
+                            <div class="workflow-steps" data-workflow-index="{{$index}}">
+                                {{range $stepIndex, $step := $workflow.Steps}}
+                                <div class="workflow-step" data-step-index="{{$stepIndex}}">
+                                    <div class="workflow-step-header">
+                                        <span class="drag-handle">☰</span>
+                                        <span class="step-number">{{add $stepIndex 1}}</span>
+                                        <div class="step-agent-name">{{$step.AgentName}}</div>
+                                        <button type="button" class="button secondary remove-step" onclick="removeWorkflowStep(this)">×</button>
+                                    </div>
+                                    <div class="workflow-step-content">
+                                        <input type="hidden" name="workflows[{{$index}}].steps[{{$stepIndex}}].id" value="{{$step.ID}}">
+                                        <input type="hidden" name="workflows[{{$index}}].steps[{{$stepIndex}}].agentID" value="{{$step.AgentID}}">
+                                        <div class="form-group">
+                                            <label class="label">Agent</label>
+                                            <select name="workflows[{{$index}}].steps[{{$stepIndex}}].agentName" class="input agent-select" onchange="updateStepAgentName(this)">
+                                                <option value="">Select an agent</option>
+                                                {{range $agentIndex, $agent := $.Settings.Agents}}
+                                                <option value="{{$agent.Name}}" data-agent-id="{{$agent.ID}}" {{if eq $step.AgentName $agent.Name}}selected{{end}}>{{$agent.Name}}</option>
+                                                {{end}}
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="label">Output Type</label>
+                                            <select name="workflows[{{$index}}].steps[{{$stepIndex}}].outputField" class="input output-field-select">
+                                                <option value="">Select output type</option>
+                                                <option value="generatedText" {{if eq $step.OutputField "generatedText"}}selected{{end}}>Generated Text (without reasoning)</option>
+                                                <option value="generatedTextWithReasoning" {{if eq $step.OutputField "generatedTextWithReasoning"}}selected{{end}}>Generated Text with Reasoning</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                {{end}}
+                            </div>
+                            <div class="help-text">Drag and drop steps using the ☰ handle to reorder them. The first step in the list will be executed first.</div>
+                            <button type="button" class="button secondary add-step" onclick="addWorkflowStep('{{$index}}')">Add Step</button>
+                        </div>
+                        
+                        <div class="workflow-actions">
+                            <button type="button" class="button secondary remove-workflow" onclick="removeWorkflow(this)">Remove Workflow</button>
+                        </div>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+            <button type="button" class="button secondary" onclick="addWorkflow()">Add Workflow</button>
         </div>
 
         <button type="submit" class="button primary">Save Settings</button>
@@ -477,6 +555,152 @@ textarea.input {
         font-size: 0.8rem;
     }
 }
+
+/* Workflow styles */
+.workflow {
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 0;
+    margin-bottom: 1rem;
+    border-radius: 4px;
+}
+
+.workflow-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.workflow-name-display {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.toggle-workflow {
+    background: none !important;
+    border: none !important;
+    padding: 0.25rem 0.5rem;
+    margin: 0 !important;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    color: var(--text-color) !important;
+    pointer-events: none;
+}
+
+.workflow-content {
+    padding: 1rem;
+    transition: all 0.3s ease-out;
+    max-height: 2000px;
+    opacity: 1;
+}
+
+.workflow-content.collapsed {
+    padding: 0;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+}
+
+.workflow-steps-container {
+    margin-top: 1rem;
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+.workflow-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.workflow-step {
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.workflow-step-header {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    background: rgba(255,255,255,0.05);
+    gap: 0.5rem;
+}
+
+.drag-handle {
+    cursor: move;
+    font-size: 1.2rem;
+    color: rgba(255,255,255,0.5);
+    margin-right: 0.5rem;
+    transition: color 0.2s;
+    user-select: none;
+}
+
+.drag-handle:hover {
+    color: var(--primary-color);
+}
+
+.workflow-step.dragging {
+    opacity: 0.5;
+    border: 2px dashed var(--primary-color);
+}
+
+.step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.step-agent-name {
+    flex-grow: 1;
+    font-weight: 500;
+}
+
+.remove-step {
+    background: none !important;
+    border: none !important;
+    color: rgba(255,255,255,0.7) !important;
+    font-size: 1.2rem;
+    padding: 0 !important;
+    margin: 0 !important;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.remove-step:hover {
+    color: rgba(255,0,0,0.7) !important;
+}
+
+.workflow-step-content {
+    padding: 1rem;
+}
+
+/* Mobile responsive adjustments for workflows */
+@media (max-width: 768px) {
+    .workflow-diagram-steps {
+        flex-direction: column;
+    }
+    
+    .diagram-arrow {
+        transform: rotate(90deg);
+        margin: 1rem 0;
+    }
+}
 </style>
 
 <script>
@@ -588,8 +812,11 @@ function reindexProviders() {
 
 // Agent management
 function createAgentHTML(index) {
+    // Calculate agent ID (start at 10 as 0-9 are reserved for system)
+    const agentID = index + 10;
+    
     return `
-        <div class="agent" data-index="${index}">
+        <div class="agent" data-index="${index}" data-agent-id="${agentID}">
             <div class="agent-header" onclick="toggleAgent(this)">
                 <div class="agent-name-display">Unnamed Agent</div>
                 <button type="button" class="button secondary toggle-agent">
@@ -601,6 +828,7 @@ function createAgentHTML(index) {
                     <label class="label">Name</label>
                     <input type="text" name="agents[${index}].name" class="input agent-name-input" placeholder="Enter agent name" onchange="updateAgentNameDisplay(this)">
                 </div>
+                <input type="hidden" name="agents[${index}].id" value="${agentID}">
                 <div class="form-group">
                     <label class="label">Provider</label>
                     <select name="agents[${index}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
@@ -666,7 +894,10 @@ function removeAgent(button) {
 function reindexAgents() {
     const agents = document.querySelectorAll('.agent');
     agents.forEach((agent, index) => {
+        // Update the index but keep the original agent ID
         agent.dataset.index = index;
+        
+        // Update all input names in this agent
         agent.querySelectorAll('[name^="agents["]').forEach(input => {
             const name = input.name.replace(/agents\[\d+\]/, `agents[${index}]`);
             input.name = name;
@@ -771,7 +1002,8 @@ async function handleUpdateSettings(event) {
             commitTemplate: formData.get('systemAgent.commitTemplate') || "",
             prTitleTemplate: formData.get('systemAgent.prTitleTemplate') || "",
             prBodyTemplate: formData.get('systemAgent.prBodyTemplate') || ""
-        }
+        },
+        workflows: []
     };
 
     // Collect AI providers
@@ -789,6 +1021,7 @@ async function handleUpdateSettings(event) {
     agents.forEach((agent, index) => {
         // Get values directly from FormData
         const agentData = {
+            id: parseInt(formData.get(`agents[${index}].id`) || agent.dataset.agentId || (index + 10), 10),
             name: formData.get(`agents[${index}].name`),
             providerName: formData.get(`agents[${index}].providerName`) || "",
             model: formData.get(`agents[${index}].model`) || "",
@@ -808,6 +1041,34 @@ async function handleUpdateSettings(event) {
         settings.agents.push(agentData);
     });
 
+    // Collect workflows
+    const workflows = document.querySelectorAll('.workflow');
+    workflows.forEach((workflow, index) => {
+        const workflowData = {
+            id: formData.get(`workflows[${index}].id`),
+            name: formData.get(`workflows[${index}].name`),
+            description: formData.get(`workflows[${index}].description`),
+            isDefault: formData.get(`workflows[${index}].isDefault`) === 'on',
+            steps: []
+        };
+        
+        // Collect steps for this workflow
+        const steps = workflow.querySelectorAll('.workflow-step');
+        steps.forEach((step, stepIndex) => {
+            const stepData = {
+                id: formData.get(`workflows[${index}].steps[${stepIndex}].id`),
+                agentName: formData.get(`workflows[${index}].steps[${stepIndex}].agentName`),
+                agentID: parseInt(formData.get(`workflows[${index}].steps[${stepIndex}].agentID`) || '0', 10),
+                outputField: formData.get(`workflows[${index}].steps[${stepIndex}].outputField`) || "",
+                isFirst: stepIndex === 0
+            };
+            
+            workflowData.steps.push(stepData);
+        });
+        
+        settings.workflows.push(workflowData);
+    });
+
     try {
         const response = await fetch('/api/settings', {
             method: 'POST',
@@ -816,7 +1077,7 @@ async function handleUpdateSettings(event) {
         });
 
         if (!response.ok) {
-            throw new Error(responseText);
+            throw new Error(await response.text());
         }
         alert('Settings saved successfully');
     } catch (error) {
@@ -894,6 +1155,218 @@ async function handleSystemAgentProviderChange(select) {
     }
 }
 
+// Workflow management
+function createWorkflowHTML(index) {
+    const id = 'workflow_' + Date.now();
+    return `
+        <div class="workflow" data-index="${index}">
+            <div class="workflow-header" onclick="toggleWorkflow(this)">
+                <div class="workflow-name-display">New Workflow</div>
+                <button type="button" class="button secondary toggle-workflow">
+                    <span class="toggle-icon">▼</span>
+                </button>
+            </div>
+            <div class="workflow-content">
+                <div class="form-group">
+                    <label class="label">Name</label>
+                    <input type="text" name="workflows[${index}].name" class="input workflow-name-input" value="New Workflow" placeholder="Enter workflow name" onchange="updateWorkflowNameDisplay(this)">
+                </div>
+                <div class="form-group">
+                    <label class="label">Description</label>
+                    <textarea name="workflows[${index}].description" class="input" rows="2" placeholder="Enter workflow description"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-item">
+                        <input type="checkbox" name="workflows[${index}].isDefault" onchange="handleDefaultWorkflowChange(this)">
+                        Set as default workflow
+                    </label>
+                </div>
+                <input type="hidden" name="workflows[${index}].id" value="${id}">
+                
+                <div class="workflow-steps-container">
+                    <h4>Generation Options</h4>
+                    <div class="workflow-steps" data-workflow-index="${index}">
+                    </div>
+                    <div class="help-text">Drag and drop steps using the ☰ handle to reorder them. The first step in the list will be executed first.</div>
+                    <button type="button" class="button secondary add-step" onclick="addWorkflowStep(${index})">Add Step</button>
+                </div>
+                <button type="button" class="button secondary remove-workflow" onclick="removeWorkflow(this)">Remove Workflow</button>
+            </div>
+        </div>
+    `;
+}
+
+function createWorkflowStepHTML(workflowIndex, stepIndex) {
+    const id = 'step_' + Date.now();
+    
+    return `
+        <div class="workflow-step" data-step-index="${stepIndex}">
+            <div class="workflow-step-header">
+                <span class="drag-handle">☰</span>
+                <span class="step-number">${stepIndex + 1}</span>
+                <div class="step-agent-name">Select an agent</div>
+                <button type="button" class="button secondary remove-step" onclick="removeWorkflowStep(this)">×</button>
+            </div>
+            <div class="workflow-step-content">
+                <input type="hidden" name="workflows[${workflowIndex}].steps[${stepIndex}].id" value="${id}">
+                <div class="form-group">
+                    <label class="label">Agent</label>
+                    <select name="workflows[${workflowIndex}].steps[${stepIndex}].agentName" class="input agent-select" onchange="updateStepAgentName(this)">
+                        <option value="">Select an agent</option>
+                        ${getAgentOptions()}
+                    </select>
+                    <input type="hidden" name="workflows[${workflowIndex}].steps[${stepIndex}].agentID" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="label">Output Type</label>
+                    <select name="workflows[${workflowIndex}].steps[${stepIndex}].outputField" class="input output-field-select">
+                        <option value="">Select output type</option>
+                        <option value="generatedText">Generated Text (without reasoning)</option>
+                        <option value="generatedTextWithReasoning">Generated Text with Reasoning</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function getAgentOptions() {
+    const agents = document.querySelectorAll('.agent');
+    let options = '';
+    
+    agents.forEach((agent) => {
+        const nameInput = agent.querySelector('.agent-name-input');
+        const agentID = agent.dataset.agentId;
+        if (nameInput && nameInput.value && agentID) {
+            // Use the agent ID from the data attribute
+            options += `<option value="${nameInput.value}" data-agent-id="${agentID}">${nameInput.value}</option>`;
+        }
+    });
+    
+    return options;
+}
+
+function addWorkflow() {
+    const workflows = document.getElementById('workflows-container');
+    const index = workflows.children.length;
+    workflows.insertAdjacentHTML('beforeend', createWorkflowHTML(index));
+    
+    // Add first step automatically
+    addWorkflowStep(index);
+}
+
+function removeWorkflow(button) {
+    button.closest('.workflow').remove();
+    reindexWorkflows();
+}
+
+function reindexWorkflows() {
+    const workflows = document.querySelectorAll('.workflow');
+    workflows.forEach((workflow, index) => {
+        workflow.dataset.index = index;
+        
+        // Update all input names in this workflow
+        workflow.querySelectorAll('[name^="workflows["]').forEach(input => {
+            const name = input.name.replace(/workflows\[\d+\]/, `workflows[${index}]`);
+            input.name = name;
+        });
+        
+        // Update workflow steps container
+        const stepsContainer = workflow.querySelector('.workflow-steps');
+        if (stepsContainer) {
+            stepsContainer.dataset.workflowIndex = index;
+        }
+        
+        // Update add step button
+        const addStepButton = workflow.querySelector('.add-step');
+        if (addStepButton) {
+            addStepButton.setAttribute('onclick', `addWorkflowStep(${index})`);
+        }
+    });
+}
+
+function toggleWorkflow(header) {
+    const workflow = header.closest('.workflow');
+    const content = workflow.querySelector('.workflow-content');
+    const icon = header.querySelector('.toggle-icon');
+    
+    content.classList.toggle('collapsed');
+    if (content.classList.contains('collapsed')) {
+        icon.textContent = '▶';
+    } else {
+        icon.textContent = '▼';
+    }
+}
+
+function updateWorkflowNameDisplay(input) {
+    const workflow = input.closest('.workflow');
+    const nameDisplay = workflow.querySelector('.workflow-name-input');
+    nameDisplay.value = input.value || 'Unnamed Workflow';
+}
+
+function addWorkflowStep(workflowIndex) {
+    const workflow = document.querySelector(`.workflow[data-index="${workflowIndex}"]`);
+    const stepsContainer = workflow.querySelector('.workflow-steps');
+    const stepIndex = stepsContainer.children.length;
+    
+    stepsContainer.insertAdjacentHTML('beforeend', createWorkflowStepHTML(workflowIndex, stepIndex));
+    reindexWorkflowSteps(workflowIndex);
+}
+
+function removeWorkflowStep(button) {
+    const step = button.closest('.workflow-step');
+    const workflowIndex = step.closest('.workflow-steps').dataset.workflowIndex;
+    
+    step.remove();
+    reindexWorkflowSteps(workflowIndex);
+}
+
+function reindexWorkflowSteps(workflowIndex) {
+    const workflow = document.querySelector(`.workflow[data-index="${workflowIndex}"]`);
+    const steps = workflow.querySelectorAll('.workflow-step');
+    
+    steps.forEach((step, stepIndex) => {
+        step.dataset.stepIndex = stepIndex;
+        
+        // Update step number
+        const stepNumber = step.querySelector('.step-number');
+        if (stepNumber) {
+            stepNumber.textContent = stepIndex + 1;
+        }
+        
+        // Update all input names in this step
+        step.querySelectorAll('[name^="workflows["]').forEach(input => {
+            const name = input.name.replace(/steps\[\d+\]/, `steps[${stepIndex}]`);
+            input.name = name;
+        });
+    });
+}
+
+function updateStepAgentName(select) {
+    const step = select.closest('.workflow-step');
+    const agentNameDisplay = step.querySelector('.step-agent-name');
+    agentNameDisplay.textContent = select.value || 'Select an agent';
+    
+    // Update the agentID hidden input
+    const agentIDInput = step.querySelector('input[name$="agentID"]');
+    const selectedOption = select.options[select.selectedIndex];
+    if (agentIDInput && selectedOption) {
+        // Ensure agentID is stored as a number, not a string
+        agentIDInput.value = parseInt(selectedOption.dataset.agentId || '0', 10);
+    }
+}
+
+function handleDefaultWorkflowChange(checkbox) {
+    if (checkbox.checked) {
+        // Uncheck all other default workflow checkboxes
+        document.querySelectorAll('input[name$="isDefault"]').forEach(otherCheckbox => {
+            if (otherCheckbox !== checkbox) {
+                otherCheckbox.checked = false;
+            }
+        });
+    }
+}
+
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
     initTabs();
@@ -905,6 +1378,9 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleSection(sectionId);
         });
     });
+
+    // Initialize drag and drop for workflow steps
+    initDragAndDrop();
 
     // Initialize system agent
     const systemSection = document.getElementById('system');
@@ -954,6 +1430,114 @@ document.addEventListener('DOMContentLoaded', () => {
             loadAgentExtras(event.target);
         }
     });
+
+    // Initialize all workflows
+    document.querySelectorAll('.workflow').forEach(workflow => {
+        // Initialize name display
+        const nameInput = workflow.querySelector('.workflow-name-input');
+        if (nameInput) {
+            updateWorkflowNameDisplay(nameInput);
+        }
+        
+        // Initialize step agent names
+        workflow.querySelectorAll('.agent-select').forEach(select => {
+            updateStepAgentName(select);
+        });
+    });
 });
+
+// Initialize drag and drop functionality for workflow steps
+function initDragAndDrop() {
+    document.querySelectorAll('.workflow-steps').forEach(container => {
+        initSortable(container);
+    });
+}
+
+// Initialize sortable container
+function initSortable(container) {
+    let draggedItem = null;
+    const items = container.querySelectorAll('.workflow-step');
+    
+    items.forEach(item => {
+        const handle = item.querySelector('.drag-handle');
+        
+        handle.addEventListener('mousedown', function(e) {
+            draggedItem = item;
+            const rect = item.getBoundingClientRect();
+            
+            // Set initial position
+            item.classList.add('dragging');
+            
+            // Create a clone for the "ghost" image
+            const ghost = item.cloneNode(true);
+            ghost.style.position = 'absolute';
+            ghost.style.top = '-1000px';
+            ghost.style.opacity = '0';
+            document.body.appendChild(ghost);
+            
+            // Set the drag ghost image
+            e.dataTransfer = e.dataTransfer || {};
+            if (e.dataTransfer.setDragImage) {
+                e.dataTransfer.setDragImage(ghost, 0, 0);
+            }
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            
+            // Prevent text selection during drag
+            e.preventDefault();
+        });
+    });
+    
+    function onMouseMove(e) {
+        if (!draggedItem) return;
+        
+        const items = Array.from(container.querySelectorAll('.workflow-step:not(.dragging)'));
+        
+        // Find the element we're hovering over
+        const nextItem = items.find(item => {
+            const rect = item.getBoundingClientRect();
+            return e.clientY < rect.top + rect.height / 2;
+        });
+        
+        if (nextItem) {
+            container.insertBefore(draggedItem, nextItem);
+        } else {
+            container.appendChild(draggedItem);
+        }
+        
+        // Update step numbers
+        updateStepNumbers(container);
+    }
+    
+    function onMouseUp() {
+        if (!draggedItem) return;
+        
+        draggedItem.classList.remove('dragging');
+        draggedItem = null;
+        
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        
+        // Remove any ghost elements
+        const ghosts = document.querySelectorAll('.workflow-step[style*="position: absolute"]');
+        ghosts.forEach(ghost => ghost.remove());
+        
+        // Reindex the steps
+        const workflowIndex = container.dataset.workflowIndex;
+        reindexWorkflowSteps(workflowIndex);
+    }
+}
+
+// Update step numbers after drag and drop
+function updateStepNumbers(container) {
+    const steps = container.querySelectorAll('.workflow-step');
+    steps.forEach((step, index) => {
+        const numberElement = step.querySelector('.step-number');
+        if (numberElement) {
+            numberElement.textContent = index + 1;
+        }
+    });
+}
 </script>
 {{end}}

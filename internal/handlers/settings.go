@@ -88,3 +88,43 @@ func HandleTemplateValues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+// HandleWorkflowOutputFields returns the available output fields for workflow steps
+func HandleWorkflowOutputFields(w http.ResponseWriter, r *http.Request) {
+	// These are the fields that can be used as outputs from one agent to another
+	outputFields := []string{
+		"generatedText",     // The raw generated text from an agent
+		"extractedCode",     // Code extracted from the generated text
+		"summary",           // A summary of the generated content
+		"actionItems",       // Action items extracted from the content
+		"suggestedChanges",  // Suggested code changes
+		"reviewComments",    // Code review comments
+		"testCases",         // Generated test cases
+		"documentationText", // Generated documentation
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(outputFields); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+// HandleWorkflowInputMappings returns the available input mappings for workflow steps
+func HandleWorkflowInputMappings(w http.ResponseWriter, r *http.Request) {
+	// These are the ways to map outputs from previous steps to inputs for the next step
+	inputMappings := []string{
+		"useAsPrompt",       // Use the output directly as the prompt
+		"appendToPrompt",    // Append the output to the existing prompt
+		"useAsContext",      // Use the output as context information
+		"useAsInstructions", // Use the output as instructions for the agent
+		"useAsCodeInput",    // Use the output as code to be processed
+		"useAsReviewTarget", // Use the output as the target for a review
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(inputMappings); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}

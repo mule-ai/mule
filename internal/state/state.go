@@ -26,6 +26,7 @@ type AppState struct {
 	Remote       *RemoteProviders
 	Agents       map[int]*agent.Agent
 	RAG          *rag.Store
+	Workflows    map[string][]agent.WorkflowStep
 }
 
 type GenAIProviders struct {
@@ -44,6 +45,7 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
+	workflows := initializeWorkflows(settings)
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
 		Settings:     settings,
@@ -60,8 +62,9 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 				Path: "/",
 			}),
 		},
-		Agents: agents,
-		RAG:    rag,
+		Agents:    agents,
+		RAG:       rag,
+		Workflows: workflows,
 	}
 }
 
@@ -89,7 +92,7 @@ func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) *G
 
 func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders, rag *rag.Store) map[int]*agent.Agent {
 	agents := make(map[int]*agent.Agent)
-	for i, agentOpts := range settingsInput.Agents {
+	for _, agentOpts := range settingsInput.Agents {
 		switch agentOpts.ProviderName {
 		case genai.OLLAMA:
 			if genaiProviders.Ollama == nil {
@@ -109,7 +112,7 @@ func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genai
 		}
 		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
 		agentOpts.RAG = rag
-		agents[settings.StartingAgent+i] = agent.NewAgent(agentOpts)
+		agents[agentOpts.ID] = agent.NewAgent(agentOpts)
 	}
 	return agents
 }
@@ -143,7 +146,13 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 	return agents
 }
 
-/*
-	Tools:               []string{"writeFile", "tree", "readFile"},
-	ValidationFunctions: []string{"getDeps", "goFmt", "goModTidy", "golangciLint", "goTest"},
-*/
+func initializeWorkflows(settingsInput settings.Settings) map[string][]agent.WorkflowStep {
+	workflows := make(map[string][]agent.WorkflowStep)
+	for _, workflow := range settingsInput.Workflows {
+		workflows[workflow.Name] = workflow.Steps
+		if workflow.IsDefault {
+			workflows["default"] = workflow.Steps
+		}
+	}
+	return workflows
+}

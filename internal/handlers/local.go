@@ -374,3 +374,34 @@ func HandleDeleteLocalPullRequest(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 }
+
+func HandleUpdateLocalIssue(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path        string `json:"path"`
+		IssueNumber int    `json:"issueNumber"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo, err := getRepository(req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	repo.Mu.Lock()
+	defer repo.Mu.Unlock()
+
+	err = repo.Remote.UpdateIssue(req.IssueNumber, req.Title, req.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

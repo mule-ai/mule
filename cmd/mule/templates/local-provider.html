@@ -21,14 +21,22 @@
                 <div class="issue-body">{{.Body}}</div>
                 <div class="issue-meta">
                     State: {{.State}} | Created: <span class="created-at" data-time="{{.CreatedAt}}"></span>
-                    {{if eq .State "open"}}
-                    <button onclick="updateIssueState('{{.Number}}', 'closed')" class="button small">Close Issue</button>
-                    {{else}}
-                    <button onclick="updateIssueState('{{.Number}}', 'open')" class="button small">Reopen Issue</button>
-                    {{end}}
-                    <button onclick="deleteIssue('{{.Number}}')" class="button small danger">Delete Issue</button>
                 </div>
-                <button onclick="showCommentModal('{{.Number}}', 'issue')" class="button">Add Comment</button>
+                <div class="issue-actions">
+                    <button onclick="showCommentModal('{{.Number}}', 'issue')" class="button">Add Comment</button>
+                    <button 
+                        onclick="showEditIssueModal(this)" 
+                        class="button"
+                        data-issue-number="{{.Number}}" 
+                        data-issue-title="{{.Title}}" 
+                        data-issue-body="{{.Body}}">Edit Issue</button>
+                    {{if eq .State "open"}}
+                    <button onclick="updateIssueState('{{.Number}}', 'closed')" class="button">Close Issue</button>
+                    {{else}}
+                    <button onclick="updateIssueState('{{.Number}}', 'open')" class="button">Reopen Issue</button>
+                    {{end}}
+                    <button onclick="deleteIssue('{{.Number}}')" class="button danger">Delete Issue</button>
+                </div>
                 
                 <!-- Issue Comments -->
                 <div class="comments-section">
@@ -209,6 +217,26 @@
                 <input type="text" id="labelName" name="label" required class="input" placeholder="Enter label text">
             </div>
             <button type="submit" class="button">Add Label</button>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Issue Modal -->
+<div id="editIssueModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('editIssueModal')">&times;</span>
+        <h3>Edit Issue</h3>
+        <form id="editIssueForm" onsubmit="return handleEditIssue(event)">
+            <input type="hidden" id="editIssueNumber" name="issueNumber">
+            <div class="form-group">
+                <label for="editIssueTitle">Title</label>
+                <input type="text" id="editIssueTitle" name="title" required class="input">
+            </div>
+            <div class="form-group">
+                <label for="editIssueBody">Description</label>
+                <textarea id="editIssueBody" name="body" required class="input"></textarea>
+            </div>
+            <button type="submit" class="button">Update Issue</button>
         </form>
     </div>
 </div>
@@ -447,6 +475,13 @@ textarea.input {
     margin: 0.75rem 0;
     display: flex;
     gap: 0.5rem;
+}
+
+.issue-actions {
+    margin: 0.75rem 0;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .expand-icon {
@@ -783,6 +818,15 @@ textarea.input {
         width: 100%;
     }
 
+    .issue-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .issue-actions button {
+        width: 100%;
+    }
+
     .diff-file-header {
         flex-direction: column;
         align-items: flex-start;
@@ -958,6 +1002,18 @@ async function addReaction(path, commentId, reaction) {
 function showLabelModal(issueNumber) {
     const modal = document.getElementById('labelModal');
     document.getElementById('labelIssueNumber').value = issueNumber;
+    modal.style.display = 'block';
+}
+
+function showEditIssueModal(button) {
+    const modal = document.getElementById('editIssueModal');
+    const issueNumber = button.getAttribute('data-issue-number');
+    const title = button.getAttribute('data-issue-title');
+    const body = button.getAttribute('data-issue-body');
+    
+    document.getElementById('editIssueNumber').value = issueNumber;
+    document.getElementById('editIssueTitle').value = title;
+    document.getElementById('editIssueBody').value = body;
     modal.style.display = 'block';
 }
 
@@ -1397,6 +1453,30 @@ async function deletePullRequest(prNumber) {
     } catch (error) {
         alert('Error deleting pull request: ' + error);
     }
+}
+
+async function handleEditIssue(event) {
+    event.preventDefault();
+    const form = event.target;
+    
+    try {
+        const response = await fetch('/api/local/issues/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                path: '{{.Repository.Path}}',
+                issueNumber: parseInt(form.issueNumber.value),
+                title: form.title.value,
+                body: form.body.value
+            })
+        });
+        
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        alert('Error updating issue: ' + error);
+    }
+    return false;
 }
 </script>
 {{end}} 

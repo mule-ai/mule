@@ -68,8 +68,9 @@ func HandleAddRepository(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Adding scheduler task for %s", repo.Path)
 
 	// Set up scheduler for the repository
+	defaultWorkflow := state.State.Workflows["default"]
 	err = state.State.Scheduler.AddTask(repo.Path, repo.Schedule, func() {
-		err := repo.Sync(state.State.Agents)
+		err := repo.Sync(state.State.Agents, defaultWorkflow)
 		if err != nil {
 			log.Printf("Error syncing repo: %v", err)
 		}
@@ -211,7 +212,8 @@ func HandleSyncRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = repo.Sync(state.State.Agents)
+	defaultWorkflow := state.State.Workflows["default"]
+	err = repo.Sync(state.State.Agents, defaultWorkflow)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
