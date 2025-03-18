@@ -103,6 +103,9 @@ func (s *Store) AddRepository(path string) error {
 }
 
 func (s *Store) Query(path string, query string, nResults int) (string, error) {
+	if s.Collections == nil {
+		return "", fmt.Errorf("collections not initialized")
+	}
 	collection, ok := s.Collections[path]
 	if !ok {
 		return "", fmt.Errorf("collection %s not found", path)

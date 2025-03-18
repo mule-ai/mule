@@ -50,9 +50,9 @@
         <div id="agents" class="tab-content">
             <div id="agents">
                 {{range $index, $agent := .Settings.Agents}}
-                <div class="agent" data-index="{{$index}}">
+                <div class="agent" data-index="{{$index}}" data-agent-id="{{$agent.ID}}">
                     <div class="agent-header" onclick="toggleAgent(this)">
-                        <div class="agent-name-display"></div>
+                        <div class="agent-name-display">{{$agent.Name}}</div>
                         <button type="button" class="button secondary toggle-agent">
                             <span class="toggle-icon">▼</span>
                         </button>
@@ -62,6 +62,7 @@
                             <label class="label">Name</label>
                             <input type="text" name="agents[{{$index}}].name" class="input agent-name-input" value="{{$agent.Name}}" placeholder="Enter agent name" onchange="updateAgentNameDisplay(this)">
                         </div>
+                        <input type="hidden" name="agents[{{$index}}].id" value="{{$agent.ID}}">
                         <div class="form-group">
                             <label class="label">Provider</label>
                             <select name="agents[{{$index}}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
@@ -173,12 +174,13 @@
                                     </div>
                                     <div class="workflow-step-content">
                                         <input type="hidden" name="workflows[{{$index}}].steps[{{$stepIndex}}].id" value="{{$step.ID}}">
+                                        <input type="hidden" name="workflows[{{$index}}].steps[{{$stepIndex}}].agentID" value="{{$step.AgentID}}">
                                         <div class="form-group">
                                             <label class="label">Agent</label>
                                             <select name="workflows[{{$index}}].steps[{{$stepIndex}}].agentName" class="input agent-select" onchange="updateStepAgentName(this)">
                                                 <option value="">Select an agent</option>
                                                 {{range $agentIndex, $agent := $.Settings.Agents}}
-                                                <option value="{{$agent.Name}}" {{if eq $step.AgentName $agent.Name}}selected{{end}}>{{$agent.Name}}</option>
+                                                <option value="{{$agent.Name}}" data-agent-id="{{$agent.ID}}" {{if eq $step.AgentName $agent.Name}}selected{{end}}>{{$agent.Name}}</option>
                                                 {{end}}
                                             </select>
                                         </div>
@@ -688,67 +690,6 @@ textarea.input {
     padding: 1rem;
 }
 
-.workflow-visualization {
-    margin-top: 1rem;
-    padding: 1rem;
-    border: 1px dashed rgba(255,255,255,0.2);
-    border-radius: 4px;
-    min-height: 100px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.workflow-diagram {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    overflow-x: auto;
-    padding: 1rem 0;
-}
-
-.workflow-diagram-steps {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
-
-.diagram-step {
-    padding: 0.5rem 1rem;
-    background: rgba(var(--primary-color-rgb), 0.2);
-    border: 1px solid var(--primary-color);
-    border-radius: 4px;
-    min-width: 120px;
-    text-align: center;
-}
-
-.diagram-arrow {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.arrow-line {
-    width: 50px;
-    height: 2px;
-    background: rgba(255,255,255,0.5);
-}
-
-.arrow-label {
-    font-size: 0.7rem;
-    color: rgba(255,255,255,0.7);
-    text-align: center;
-    max-width: 80px;
-}
-
-.first-step-indicator {
-    background: var(--primary-color);
-    color: white;
-    font-weight: bold;
-}
-
 /* Mobile responsive adjustments for workflows */
 @media (max-width: 768px) {
     .workflow-diagram-steps {
@@ -871,8 +812,11 @@ function reindexProviders() {
 
 // Agent management
 function createAgentHTML(index) {
+    // Calculate agent ID (start at 10 as 0-9 are reserved for system)
+    const agentID = index + 10;
+    
     return `
-        <div class="agent" data-index="${index}">
+        <div class="agent" data-index="${index}" data-agent-id="${agentID}">
             <div class="agent-header" onclick="toggleAgent(this)">
                 <div class="agent-name-display">Unnamed Agent</div>
                 <button type="button" class="button secondary toggle-agent">
@@ -884,6 +828,7 @@ function createAgentHTML(index) {
                     <label class="label">Name</label>
                     <input type="text" name="agents[${index}].name" class="input agent-name-input" placeholder="Enter agent name" onchange="updateAgentNameDisplay(this)">
                 </div>
+                <input type="hidden" name="agents[${index}].id" value="${agentID}">
                 <div class="form-group">
                     <label class="label">Provider</label>
                     <select name="agents[${index}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
@@ -949,7 +894,10 @@ function removeAgent(button) {
 function reindexAgents() {
     const agents = document.querySelectorAll('.agent');
     agents.forEach((agent, index) => {
+        // Update the index but keep the original agent ID
         agent.dataset.index = index;
+        
+        // Update all input names in this agent
         agent.querySelectorAll('[name^="agents["]').forEach(input => {
             const name = input.name.replace(/agents\[\d+\]/, `agents[${index}]`);
             input.name = name;
@@ -1073,6 +1021,7 @@ async function handleUpdateSettings(event) {
     agents.forEach((agent, index) => {
         // Get values directly from FormData
         const agentData = {
+            id: parseInt(formData.get(`agents[${index}].id`) || agent.dataset.agentId || (index + 10), 10),
             name: formData.get(`agents[${index}].name`),
             providerName: formData.get(`agents[${index}].providerName`) || "",
             model: formData.get(`agents[${index}].model`) || "",
@@ -1109,6 +1058,7 @@ async function handleUpdateSettings(event) {
             const stepData = {
                 id: formData.get(`workflows[${index}].steps[${stepIndex}].id`),
                 agentName: formData.get(`workflows[${index}].steps[${stepIndex}].agentName`),
+                agentID: parseInt(formData.get(`workflows[${index}].steps[${stepIndex}].agentID`) || '0', 10),
                 outputField: formData.get(`workflows[${index}].steps[${stepIndex}].outputField`) || "",
                 isFirst: stepIndex === 0
             };
@@ -1265,6 +1215,7 @@ function createWorkflowStepHTML(workflowIndex, stepIndex) {
                         <option value="">Select an agent</option>
                         ${getAgentOptions()}
                     </select>
+                    <input type="hidden" name="workflows[${workflowIndex}].steps[${stepIndex}].agentID" value="0">
                 </div>
                 <div class="form-group">
                     <label class="label">Output Type</label>
@@ -1283,10 +1234,12 @@ function getAgentOptions() {
     const agents = document.querySelectorAll('.agent');
     let options = '';
     
-    agents.forEach(agent => {
+    agents.forEach((agent) => {
         const nameInput = agent.querySelector('.agent-name-input');
-        if (nameInput && nameInput.value) {
-            options += `<option value="${nameInput.value}">${nameInput.value}</option>`;
+        const agentID = agent.dataset.agentId;
+        if (nameInput && nameInput.value && agentID) {
+            // Use the agent ID from the data attribute
+            options += `<option value="${nameInput.value}" data-agent-id="${agentID}">${nameInput.value}</option>`;
         }
     });
     
@@ -1378,7 +1331,7 @@ function reindexWorkflowSteps(workflowIndex) {
         // Update step number
         const stepNumber = step.querySelector('.step-number');
         if (stepNumber) {
-            stepNumber.textContent = index + 1;
+            stepNumber.textContent = stepIndex + 1;
         }
         
         // Update all input names in this step
@@ -1393,6 +1346,14 @@ function updateStepAgentName(select) {
     const step = select.closest('.workflow-step');
     const agentNameDisplay = step.querySelector('.step-agent-name');
     agentNameDisplay.textContent = select.value || 'Select an agent';
+    
+    // Update the agentID hidden input
+    const agentIDInput = step.querySelector('input[name$="agentID"]');
+    const selectedOption = select.options[select.selectedIndex];
+    if (agentIDInput && selectedOption) {
+        // Ensure agentID is stored as a number, not a string
+        agentIDInput.value = parseInt(selectedOption.dataset.agentId || '0', 10);
+    }
 }
 
 function handleDefaultWorkflowChange(checkbox) {

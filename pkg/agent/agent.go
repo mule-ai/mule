@@ -21,6 +21,7 @@ const (
 )
 
 type Agent struct {
+	id             int
 	provider       *genai.Provider
 	model          string
 	promptTemplate string
@@ -34,6 +35,7 @@ type Agent struct {
 }
 
 type AgentOptions struct {
+	ID                  int             `json:"id"`
 	Provider            *genai.Provider `json:"-"`
 	ProviderName        string          `json:"providerName"`
 	Name                string          `json:"name"`
@@ -67,6 +69,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		}
 	}
 	agent := &Agent{
+		id:             opts.ID,
 		provider:       opts.Provider,
 		model:          opts.Model,
 		promptTemplate: opts.PromptTemplate,
@@ -82,6 +85,10 @@ func NewAgent(opts AgentOptions) *Agent {
 		opts.Logger.Error(err, "Error setting tools")
 	}
 	return agent
+}
+
+func (a *Agent) GetID() int {
+	return a.id
 }
 
 func (a *Agent) SetModel(model string) error {
@@ -258,6 +265,10 @@ func (a *Agent) renderPromptTemplate(input PromptInput) (string, error) {
 }
 
 func (a *Agent) AddRAGContext(prompt string) (string, error) {
+	if a.rag == nil {
+		a.logger.Info("RAG not initialized, skipping")
+		return prompt, nil
+	}
 	ragContext, err := a.rag.Query(a.path, prompt, RAG_N_RESULTS)
 	if err != nil {
 		return "", err

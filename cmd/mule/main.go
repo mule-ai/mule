@@ -76,7 +76,6 @@ func main() {
 	api.HandleFunc("/template-values", handlers.HandleTemplateValues).Methods("GET")
 	api.HandleFunc("/workflow-output-fields", handlers.HandleWorkflowOutputFields).Methods("GET")
 	api.HandleFunc("/workflow-input-mappings", handlers.HandleWorkflowInputMappings).Methods("GET")
-	api.HandleFunc("/workflow/execute", handlers.HandleExecuteWorkflow).Methods("POST")
 
 	// GitHub API routes
 	api.HandleFunc("/github/repositories", handlers.HandleGitHubRepositories).Methods("GET")
@@ -121,9 +120,10 @@ func main() {
 	defer state.State.Scheduler.Stop()
 
 	handler := c.Handler(r)
+	defaultWorkflow := state.State.Workflows["default"]
 	go func() {
 		for _, repo := range state.State.Repositories {
-			err := repo.Sync(state.State.Agents)
+			err := repo.Sync(state.State.Agents, defaultWorkflow)
 			if err != nil {
 				l.Error(err, "Error syncing repo")
 			}
