@@ -1,19 +1,28 @@
+<form id="editIssueForm">
+    <input type="hidden" id="issueNumber" value="{{issue.number}}">
+    <input type="hidden" id="repoPath" value="{{repoPath}}">
+    <input type="text" id="editTitle" value="{{issue.title}}">
+    <textarea id="editBody">{{issue.body}}</textarea>
+    <button type="submit">Save</button>
+</form>
+
+<script>
 async function handleEditIssue(event) {
     event.preventDefault();
     
     const form = document.getElementById('editIssueForm');
-    const issueNumber = parseInt(document.getElementById('editIssueNumber').value);
+    const issueNumber = parseInt(document.getElementById('issueNumber').value);
     const newTitle = document.getElementById('editTitle').value;
     const newBody = document.getElementById('editBody').value;
-    const path = document.getElementById('repoPath').value;
+    const repoPath = document.getElementById('repoPath').value;
 
     try {
         const response = await fetch('/api/local/issues', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                path,
-                issueNumber,
+                path: repoPath,
+                issueNumber: issueNumber,
                 title: newTitle,
                 body: newBody
             })
@@ -29,12 +38,16 @@ async function handleEditIssue(event) {
 }
 
 function updateIssueDisplay(number, title, body) {
-    const issueElements = document.querySelectorAll('.issue-item');
+    const issueElements = document.querySelectorAll('.issue-item[data-issue-number="' + number + '"]');
     issueElements.forEach(element => {
-        const currentNumber = parseInt(element.getAttribute('data-issue-number'));
-        if (currentNumber === number) {
-            element.querySelector('.issue-title').textContent = `#${number} ${title}`;
-            element.querySelector('.issue-body').textContent = body;
-        }
+        element.querySelector('.issue-title').textContent = `#${number} ${title}`;
+        element.querySelector('.issue-body').textContent = body;
     });
 }
+
+// Add event listener to the form
+const form = document.getElementById('editIssueForm');
+if (form) {
+    form.addEventListener('submit', handleEditIssue);
+}
+</script>
