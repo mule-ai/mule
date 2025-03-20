@@ -26,7 +26,10 @@ type AppState struct {
 	Remote       *RemoteProviders
 	Agents       map[int]*agent.Agent
 	RAG          *rag.Store
-	Workflows    map[string][]agent.WorkflowStep
+	Workflows    map[string]struct {
+		Steps               []agent.WorkflowStep
+		ValidationFunctions []string
+	}
 }
 
 type GenAIProviders struct {
@@ -146,12 +149,32 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 	return agents
 }
 
-func initializeWorkflows(settingsInput settings.Settings) map[string][]agent.WorkflowStep {
-	workflows := make(map[string][]agent.WorkflowStep)
+func initializeWorkflows(settingsInput settings.Settings) map[string]struct {
+	Steps               []agent.WorkflowStep
+	ValidationFunctions []string
+} {
+	workflows := make(map[string]struct {
+		Steps               []agent.WorkflowStep
+		ValidationFunctions []string
+	})
+
 	for _, workflow := range settingsInput.Workflows {
-		workflows[workflow.Name] = workflow.Steps
+		workflows[workflow.Name] = struct {
+			Steps               []agent.WorkflowStep
+			ValidationFunctions []string
+		}{
+			Steps:               workflow.Steps,
+			ValidationFunctions: workflow.ValidationFunctions,
+		}
+
 		if workflow.IsDefault {
-			workflows["default"] = workflow.Steps
+			workflows["default"] = struct {
+				Steps               []agent.WorkflowStep
+				ValidationFunctions []string
+			}{
+				Steps:               workflow.Steps,
+				ValidationFunctions: workflow.ValidationFunctions,
+			}
 		}
 	}
 	return workflows
