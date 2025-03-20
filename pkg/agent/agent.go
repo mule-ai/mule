@@ -13,7 +13,6 @@ import (
 	"github.com/jbutlerdev/genai"
 	"github.com/jbutlerdev/genai/tools"
 	"github.com/mule-ai/mule/pkg/rag"
-	"github.com/mule-ai/mule/pkg/validation"
 )
 
 const (
@@ -28,24 +27,22 @@ type Agent struct {
 	promptContext  string
 	tools          []*tools.Tool
 	logger         logr.Logger
-	validations    []validation.ValidationFunc
 	name           string
 	path           string
 	rag            *rag.Store
 }
 
 type AgentOptions struct {
-	ID                  int             `json:"id"`
-	Provider            *genai.Provider `json:"-"`
-	ProviderName        string          `json:"providerName"`
-	Name                string          `json:"name"`
-	Model               string          `json:"model"`
-	PromptTemplate      string          `json:"promptTemplate"`
-	Logger              logr.Logger     `json:"-"`
-	Tools               []string        `json:"tools"`
-	ValidationFunctions []string        `json:"validationFunctions"`
-	Path                string          `json:"-"`
-	RAG                 *rag.Store      `json:"-"`
+	ID             int             `json:"id"`
+	Provider       *genai.Provider `json:"-"`
+	ProviderName   string          `json:"providerName"`
+	Name           string          `json:"name"`
+	Model          string          `json:"model"`
+	PromptTemplate string          `json:"promptTemplate"`
+	Logger         logr.Logger     `json:"-"`
+	Tools          []string        `json:"tools"`
+	Path           string          `json:"-"`
+	RAG            *rag.Store      `json:"-"`
 }
 
 type PromptInput struct {
@@ -59,22 +56,12 @@ type PromptInput struct {
 }
 
 func NewAgent(opts AgentOptions) *Agent {
-	validations := make([]validation.ValidationFunc, len(opts.ValidationFunctions))
-	for i, fn := range opts.ValidationFunctions {
-		v, ok := validation.Get(fn)
-		if ok {
-			validations[i] = v
-		} else {
-			opts.Logger.Error(fmt.Errorf("validation function %s not found", fn), "Validation function not found")
-		}
-	}
 	agent := &Agent{
 		id:             opts.ID,
 		provider:       opts.Provider,
 		model:          opts.Model,
 		promptTemplate: opts.PromptTemplate,
 		logger:         opts.Logger,
-		validations:    validations,
 		name:           opts.Name,
 		// I don't like this, but it's a hack to get the path to the repository
 		path: opts.Path,
@@ -140,30 +127,17 @@ func (a *Agent) Run(input PromptInput) error {
 		return err
 	}
 	prompt = a.promptContext + "\n\n" + prompt
-	chat.Logger.Info("Starting RAG")
+	a.logger.Info("Starting RAG")
 	prompt, err = a.AddRAGContext(prompt)
 	if err != nil {
 		return err
 	}
-	chat.Logger.Info("RAG Completed, sending first message")
+	a.logger.Info("RAG Completed, sending first message")
 	chat.Send <- prompt
 
 	// block until generation is complete
 	<-chat.GenerationComplete
-	// validate output
-	err = validation.Run(&validation.ValidationInput{
-		Attempts:    20,
-		Validations: a.validations,
-		Send:        chat.Send,
-		Done:        chat.GenerationComplete,
-		Logger:      chat.Logger,
-		Path:        a.path,
-	})
-	if err != nil {
-		chat.Logger.Error(err, "Error validating output")
-		return err
-	}
-	chat.Logger.Info("Validation Succeeded")
+
 	return nil
 }
 
@@ -190,6 +164,7 @@ func (a *Agent) Generate(path string, input PromptInput) (string, error) {
 	return a.provider.Generate(a.model, prompt)
 }
 
+// GenerateWithTools has been moved to the workflow package, so we can simplify here
 func (a *Agent) GenerateWithTools(path string, input PromptInput) (string, error) {
 	if a.provider == nil {
 		return "", fmt.Errorf("provider not set")
@@ -198,7 +173,7 @@ func (a *Agent) GenerateWithTools(path string, input PromptInput) (string, error
 	for _, tool := range a.tools {
 		tool.Options["basePath"] = path
 	}
-	// messge for return
+	// message for return
 	message := ""
 
 	chat := a.provider.Chat(a.model, a.tools)
@@ -229,21 +204,11 @@ func (a *Agent) GenerateWithTools(path string, input PromptInput) (string, error
 
 	// block until generation is complete
 	<-chat.GenerationComplete
-	// validate output
-	err = validation.Run(&validation.ValidationInput{
-		Attempts:    20,
-		Validations: a.validations,
-		Send:        chat.Send,
-		Done:        chat.GenerationComplete,
-		Logger:      chat.Logger,
-		Path:        a.path,
-	})
-	if err != nil {
-		chat.Logger.Error(err, "Error validating output")
-		return "", err
-	}
-	chat.Logger.Info("Validation Succeeded")
-	for message == "" {
+
+	for i := 0; i < 30; i++ {
+		if message != "" {
+			break
+		}
 		chat.Logger.Info("Waiting for message")
 		time.Sleep(1 * time.Second)
 	}

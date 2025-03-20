@@ -80,21 +80,21 @@ func (s *Store) AddRepository(path string) error {
 	collection, ok := s.Collections[path]
 	if !ok {
 		if err := s.NewCollection(path); err != nil {
-			return err
+			return fmt.Errorf("error creating collection: %w", err)
 		}
 		collection = s.Collections[path]
 	}
 	// get all files in the repository
 	files, err := getFiles(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting files: %w", err)
 	}
 
 	// watch the repository for changes
 	for _, file := range files {
 		err := s.watcher.Add(file)
 		if err != nil {
-			return err
+			return fmt.Errorf("error adding file to watcher: %w", err)
 		}
 		s.watchedFiles[file] = true
 	}
@@ -200,7 +200,7 @@ func addDocumentsToCollection(ctx context.Context, collection *chromem.Collectio
 	for _, file := range files {
 		content, err := os.ReadFile(file)
 		if err != nil {
-			return err
+			return fmt.Errorf("error reading file: %w", err)
 		}
 		err = collection.AddDocument(ctx, chromem.Document{
 			ID:      file,
@@ -210,7 +210,7 @@ func addDocumentsToCollection(ctx context.Context, collection *chromem.Collectio
 			},
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("error adding document: %s %w", file, err)
 		}
 	}
 	return nil

@@ -63,8 +63,9 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 		err = appState.RAG.AddRepository(repo.Path)
 		if err != nil {
 			l.Error(err, "Error adding repository to RAG")
+		} else {
+			l.Info("Added repository to VectorDB", "path", repo.Path)
 		}
-		l.Info("Added repository to VectorDB", "path", repo.Path)
 		r.Logger = l.WithName("repository").WithValues("path", repo.Path)
 		r.Schedule = repo.Schedule
 		r.RemotePath = repo.RemotePath

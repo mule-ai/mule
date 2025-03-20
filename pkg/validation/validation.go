@@ -9,42 +9,25 @@ import (
 var discard = logr.Discard()
 
 type ValidationInput struct {
-	Attempts    int
 	Validations []ValidationFunc
-	Send        chan<- string
-	Done        <-chan bool
 	Logger      logr.Logger
 	Path        string
 }
 
-func Run(in *ValidationInput) error {
+func Run(in *ValidationInput) (string, error) {
 	// run validation attempts
-	validated := false
-	if len(in.Validations) == 0 {
-		return nil
+	if len(in.Validations) < 1 {
+		return "", nil
 	}
-	for i := 0; i < in.Attempts; i++ {
-		// run validations
-		for _, validation := range in.Validations {
-			out, err := validation(in.Path)
-			if err != nil {
-				validated = false
-				errString := fmt.Sprintf("validation %d out of %d failed", i, in.Attempts)
-				in.Logger.Error(err, errString, "output", out)
-				in.Send <- out
-				<-in.Done
-				break
-			}
-			validated = true
-		}
-		if validated {
-			return nil
+	// run validations
+	for _, validation := range in.Validations {
+		out, err := validation(in.Path)
+		if err != nil {
+			in.Logger.Error(err, "validation failed", "output", out)
+			return out, fmt.Errorf("validation failed")
 		}
 	}
-	if !validated {
-		return fmt.Errorf("validation failed")
-	}
-	return nil
+	return "", nil
 }
 
 func Validations() []string {

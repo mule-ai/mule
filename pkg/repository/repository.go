@@ -207,7 +207,10 @@ func (r *Repository) Fetch() error {
 	return nil
 }
 
-func (r *Repository) Sync(agents map[int]*agent.Agent, workflow []agent.WorkflowStep) error {
+func (r *Repository) Sync(agents map[int]*agent.Agent, workflow struct {
+	Steps               []agent.WorkflowStep
+	ValidationFunctions []string
+}) error {
 	r.Logger.Info("Syncing repository")
 	if len(agents) == 0 {
 		return fmt.Errorf("no agents provided")
@@ -379,7 +382,10 @@ func (r *Repository) getChanges() (*Changes, error) {
 	}, nil
 }
 
-func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, workflow []agent.WorkflowStep, issue *Issue) (bool, error) {
+func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, workflow struct {
+	Steps               []agent.WorkflowStep
+	ValidationFunctions []string
+}, issue *Issue) (bool, error) {
 	prompt := ""
 	var unresolvedCommentId int64
 	var promptInput agent.PromptInput
@@ -414,7 +420,7 @@ func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, workflow []a
 	}
 
 	// err := agent.RunWorkflow(agents, promptInput, r.Path)
-	_, err := agent.ExecuteWorkflow(workflow, agents, promptInput, r.Path)
+	_, err := agent.ExecuteWorkflow(workflow.Steps, agents, promptInput, r.Path, r.Logger, workflow.ValidationFunctions)
 	if err != nil {
 		r.Logger.Error(err, "Error running agent")
 		return false, err

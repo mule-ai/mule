@@ -88,12 +88,6 @@
                                 <div class="loading">Loading tools...</div>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label class="label">Validation Functions</label>
-                            <div class="checkbox-group validation-functions-select" data-validation-functions="{{range $index, $func := $agent.ValidationFunctions}}{{if $index}},{{end}}{{$func}}{{end}}">
-                                <div class="loading">Loading validation functions...</div>
-                            </div>
-                        </div>
                         <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
                     </div>
                 </div>
@@ -160,6 +154,13 @@
                             </label>
                         </div>
                         <input type="hidden" name="workflows[{{$index}}].id" value="{{$workflow.ID}}">
+                        
+                        <div class="form-group">
+                            <label class="label">Validation Functions</label>
+                            <div class="checkbox-group validation-functions-select" data-validation-functions="{{range $index, $func := $workflow.ValidationFunctions}}{{if $index}},{{end}}{{$func}}{{end}}">
+                                <div class="loading">Loading validation functions...</div>
+                            </div>
+                        </div>
                         
                         <div class="workflow-steps-container">
                             <h4>Steps</h4>
@@ -854,12 +855,6 @@ function createAgentHTML(index) {
                         <div class="loading">Loading tools...</div>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label class="label">Validation Functions</label>
-                    <div class="checkbox-group validation-functions-select" data-validation-functions="">
-                        <div class="loading">Loading validation functions...</div>
-                    </div>
-                </div>
                 <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
             </div>
         </div>
@@ -874,7 +869,7 @@ async function addAgent() {
     agents.insertAdjacentHTML('beforeend', createAgentHTML(index));
     const newAgent = agents.lastElementChild;
     
-    // Initialize the agent's extras (tools, validation functions, template values)
+    // Initialize the agent's extras (tools and template values)
     await loadAgentExtras(newAgent);
     
     // Initialize the name display
@@ -1026,16 +1021,12 @@ async function handleUpdateSettings(event) {
             providerName: formData.get(`agents[${index}].providerName`) || "",
             model: formData.get(`agents[${index}].model`) || "",
             promptTemplate: formData.get(`agents[${index}].promptTemplate`) || "",
-            tools: [],
-            validationFunctions: []
+            tools: []
         };
 
         // Get checkbox values
         const toolsChecked = agent.querySelectorAll('.tools-select input:checked');
-        const validationFuncsChecked = agent.querySelectorAll('.validation-functions-select input:checked');
-
         agentData.tools = Array.from(toolsChecked).map(cb => cb.value);
-        agentData.validationFunctions = Array.from(validationFuncsChecked).map(cb => cb.value);
 
         // Add all agents to the settings
         settings.agents.push(agentData);
@@ -1049,8 +1040,13 @@ async function handleUpdateSettings(event) {
             name: formData.get(`workflows[${index}].name`),
             description: formData.get(`workflows[${index}].description`),
             isDefault: formData.get(`workflows[${index}].isDefault`) === 'on',
-            steps: []
+            steps: [],
+            validationFunctions: []
         };
+        
+        // Get validation functions for this workflow
+        const validationFuncsChecked = workflow.querySelectorAll('.validation-functions-select input:checked');
+        workflowData.validationFunctions = Array.from(validationFuncsChecked).map(cb => cb.value);
         
         // Collect steps for this workflow
         const steps = workflow.querySelectorAll('.workflow-step');
@@ -1090,20 +1086,16 @@ async function handleUpdateSettings(event) {
 // Helper functions
 async function loadAgentExtras(agent) {
     const toolsContainer = agent.querySelector('.tools-select');
-    const validationContainer = agent.querySelector('.validation-functions-select');
     const templateValuesSpan = agent.querySelector('.template-values');
     
-    // Parse existing tools and validation functions from data attributes
+    // Parse existing tools from data attributes
     const toolsData = toolsContainer.dataset.tools || '';
-    const validationData = validationContainer.dataset.validationFunctions || '';
     
     // Split by comma and filter out empty strings
     const selectedTools = toolsData ? toolsData.split(',').map(t => t.trim()).filter(Boolean) : [];
-    const selectedFunctions = validationData ? validationData.split(',').map(f => f.trim()).filter(Boolean) : [];
     
     // Load the checkboxes with the selected values
     loadTools(toolsContainer, selectedTools);
-    loadValidationFunctions(validationContainer, selectedFunctions);
 
     // Load template values
     try {
@@ -1183,8 +1175,15 @@ function createWorkflowHTML(index) {
                 </div>
                 <input type="hidden" name="workflows[${index}].id" value="${id}">
                 
+                <div class="form-group">
+                    <label class="label">Validation Functions</label>
+                    <div class="checkbox-group validation-functions-select" data-validation-functions="">
+                        <div class="loading">Loading validation functions...</div>
+                    </div>
+                </div>
+                
                 <div class="workflow-steps-container">
-                    <h4>Generation Options</h4>
+                    <h4>Steps</h4>
                     <div class="workflow-steps" data-workflow-index="${index}">
                     </div>
                     <div class="help-text">Drag and drop steps using the ☰ handle to reorder them. The first step in the list will be executed first.</div>
@@ -1246,10 +1245,15 @@ function getAgentOptions() {
     return options;
 }
 
-function addWorkflow() {
+async function addWorkflow() {
     const workflows = document.getElementById('workflows-container');
     const index = workflows.children.length;
     workflows.insertAdjacentHTML('beforeend', createWorkflowHTML(index));
+    
+    const newWorkflow = workflows.lastElementChild;
+    
+    // Initialize validation functions
+    await loadWorkflowExtras(newWorkflow);
     
     // Add first step automatically
     addWorkflowStep(index);
@@ -1304,13 +1308,17 @@ function updateWorkflowNameDisplay(input) {
     nameDisplay.value = input.value || 'Unnamed Workflow';
 }
 
-function addWorkflowStep(workflowIndex) {
+async function addWorkflowStep(workflowIndex) {
     const workflow = document.querySelector(`.workflow[data-index="${workflowIndex}"]`);
     const stepsContainer = workflow.querySelector('.workflow-steps');
     const stepIndex = stepsContainer.children.length;
     
     stepsContainer.insertAdjacentHTML('beforeend', createWorkflowStepHTML(workflowIndex, stepIndex));
-    reindexWorkflowSteps(workflowIndex);
+    const newStep = stepsContainer.lastElementChild;
+    
+    // Initialize the agent select
+    const agentSelect = newStep.querySelector('.agent-select');
+    updateStepAgentName(agentSelect);
 }
 
 function removeWorkflowStep(button) {
@@ -1439,9 +1447,15 @@ document.addEventListener('DOMContentLoaded', () => {
             updateWorkflowNameDisplay(nameInput);
         }
         
+        // Initialize validation functions
+        loadWorkflowExtras(workflow);
+        
         // Initialize step agent names
-        workflow.querySelectorAll('.agent-select').forEach(select => {
-            updateStepAgentName(select);
+        workflow.querySelectorAll('.workflow-step').forEach(step => {
+            const select = step.querySelector('.agent-select');
+            if (select) {
+                updateStepAgentName(select);
+            }
         });
     });
 });
@@ -1538,6 +1552,19 @@ function updateStepNumbers(container) {
             numberElement.textContent = index + 1;
         }
     });
+}
+
+async function loadWorkflowExtras(workflow) {
+    const validationContainer = workflow.querySelector('.validation-functions-select');
+    
+    // Parse existing validation functions from data attributes
+    const validationData = validationContainer.dataset.validationFunctions || '';
+    
+    // Split by comma and filter out empty strings
+    const selectedFunctions = validationData ? validationData.split(',').map(f => f.trim()).filter(Boolean) : [];
+    
+    // Load the checkboxes with the selected values
+    loadValidationFunctions(validationContainer, selectedFunctions);
 }
 </script>
 {{end}}

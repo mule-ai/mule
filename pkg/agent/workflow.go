@@ -4,7 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/go-logr/logr"
+	"github.com/mule-ai/mule/pkg/validation"
 )
+
+const numValidationAttempts = 20
 
 // WorkflowStep represents a step in a workflow
 type WorkflowStep struct {
@@ -25,39 +30,72 @@ type WorkflowResult struct {
 
 // WorkflowContext holds the state of a workflow execution
 type WorkflowContext struct {
-	Results      map[string]WorkflowResult // Map of step ID to result
-	CurrentInput PromptInput
-	Path         string
+	Results             map[string]WorkflowResult // Map of step ID to result
+	CurrentInput        PromptInput
+	Path                string
+	Logger              logr.Logger
+	ValidationFunctions []string
 }
 
 // ExecuteWorkflow runs a workflow defined by the given steps using the provided agents
-func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInput PromptInput, path string) (map[string]WorkflowResult, error) {
+func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInput PromptInput, path string, logger logr.Logger, validationFunctions []string) (map[string]WorkflowResult, error) {
 	if len(workflow) == 0 {
 		return nil, errors.New("workflow has no steps")
 	}
 
 	// Initialize workflow context
 	ctx := &WorkflowContext{
-		Results:      make(map[string]WorkflowResult),
-		CurrentInput: promptInput,
-		Path:         path,
+		Results:             make(map[string]WorkflowResult),
+		CurrentInput:        promptInput,
+		Path:                path,
+		Logger:              logger,
+		ValidationFunctions: validationFunctions,
 	}
 
-	var prevResult *WorkflowResult
+	// Initialize validations
+	validations := make([]validation.ValidationFunc, len(validationFunctions))
+	for i, fn := range validationFunctions {
+		v, ok := validation.Get(fn)
+		if ok {
+			validations[i] = v
+		} else {
+			ctx.Logger.Error(fmt.Errorf("validation function %s not found", fn), "Validation function not found")
+		}
+	}
 
-	// Execute steps in sequence
-	for _, step := range workflow {
-		// Execute the step
-		result, err := executeWorkflowStep(step, agentMap, ctx, prevResult)
-		if err != nil {
-			return ctx.Results, err
+	var err error
+	var prevResult *WorkflowResult
+	for i := 0; i < numValidationAttempts; i++ {
+
+		// Execute steps in sequence
+		for _, step := range workflow {
+			// Execute the step
+			result, err := executeWorkflowStep(step, agentMap, ctx, prevResult)
+			if err != nil {
+				return ctx.Results, err
+			}
+
+			// Store the result
+			ctx.Results[step.ID] = result
+
+			// Set this step as the previous for the next iteration
+			prevResult = &result
 		}
 
-		// Store the result
-		ctx.Results[step.ID] = result
+		// Run validations after the final step if they exist at the workflow level
+		prevResult.Content, err = validation.Run(&validation.ValidationInput{
+			Validations: validations,
+			Logger:      ctx.Logger,
+			Path:        ctx.Path,
+		})
 
-		// Set this step as the previous for the next iteration
-		prevResult = &result
+		if err != nil {
+			errString := fmt.Sprintf("Validation attempt %d out of %d failed, retrying: %s", i, numValidationAttempts, err)
+			ctx.Logger.Error(err, errString, "output", prevResult.Content)
+			continue
+		}
+		ctx.Logger.Info("Validation Succeeded")
+		break
 	}
 
 	return ctx.Results, nil
@@ -89,13 +127,11 @@ func executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agent, ctx *Workfl
 	var content string
 	var err error
 
-	// Generate content using the agent
 	content, err = agent.GenerateWithTools(ctx.Path, ctx.CurrentInput)
 	if err != nil {
 		result.Error = err
 		return result, err
 	}
-
 	// Process the output based on the specified output field
 	result.Content = processOutput(content, step.OutputField)
 

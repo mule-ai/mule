@@ -34,9 +34,10 @@ type SystemAgentSettings struct {
 }
 
 type WorkflowSettings struct {
-	ID          string               `json:"id"`
-	Name        string               `json:"name"`
-	Description string               `json:"description"`
-	IsDefault   bool                 `json:"isDefault"`
-	Steps       []agent.WorkflowStep `json:"steps"`
+	ID                  string               `json:"id"`
+	Name                string               `json:"name"`
+	Description         string               `json:"description"`
+	IsDefault           bool                 `json:"isDefault"`
+	Steps               []agent.WorkflowStep `json:"steps"`
+	ValidationFunctions []string             `json:"validationFunctions"`
 }
