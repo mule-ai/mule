@@ -25,6 +25,7 @@ type Agent struct {
 	model          string
 	promptTemplate string
 	promptContext  string
+	systemPrompt   string
 	tools          []*tools.Tool
 	logger         logr.Logger
 	name           string
@@ -39,6 +40,7 @@ type AgentOptions struct {
 	Name           string          `json:"name"`
 	Model          string          `json:"model"`
 	PromptTemplate string          `json:"promptTemplate"`
+	SystemPrompt   string          `json:"systemPrompt"`
 	Logger         logr.Logger     `json:"-"`
 	Tools          []string        `json:"tools"`
 	Path           string          `json:"-"`
@@ -61,6 +63,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		provider:       opts.Provider,
 		model:          opts.Model,
 		promptTemplate: opts.PromptTemplate,
+		systemPrompt:   opts.SystemPrompt,
 		logger:         opts.Logger,
 		name:           opts.Name,
 		// I don't like this, but it's a hack to get the path to the repository
@@ -106,11 +109,18 @@ func (a *Agent) SetPromptContext(promptContext string) {
 	a.promptContext = promptContext
 }
 
+func (a *Agent) SetSystemPrompt(systemPrompt string) {
+	a.systemPrompt = systemPrompt
+}
+
 func (a *Agent) Run(input PromptInput) error {
 	if a.provider == nil {
 		return fmt.Errorf("provider not set")
 	}
-	chat := a.provider.Chat(a.model, a.tools)
+	chat := a.provider.Chat(genai.ModelOptions{
+		ModelName:    a.model,
+		SystemPrompt: a.systemPrompt,
+	}, a.tools)
 
 	defer func() {
 		chat.Done <- true
@@ -161,7 +171,10 @@ func (a *Agent) Generate(path string, input PromptInput) (string, error) {
 			return "", err
 		}
 	}
-	return a.provider.Generate(a.model, prompt)
+	return a.provider.Generate(genai.ModelOptions{
+		ModelName:    a.model,
+		SystemPrompt: a.systemPrompt,
+	}, prompt)
 }
 
 // GenerateWithTools has been moved to the workflow package, so we can simplify here
@@ -176,7 +189,10 @@ func (a *Agent) GenerateWithTools(path string, input PromptInput) (string, error
 	// message for return
 	message := ""
 
-	chat := a.provider.Chat(a.model, a.tools)
+	chat := a.provider.Chat(genai.ModelOptions{
+		ModelName:    a.model,
+		SystemPrompt: a.systemPrompt,
+	}, a.tools)
 
 	defer func() {
 		chat.Done <- true
