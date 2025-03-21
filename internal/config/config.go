@@ -35,7 +35,7 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 			// Create default state if config doesn't exist
 			appState := &state.AppState{
 				Repositories: make(map[string]*repository.Repository),
-				Settings:     settings.Settings{},
+				Settings:     settings.DefaultSettings,
 				Scheduler:    scheduler.NewScheduler(l),
 			}
 			state.State = appState
