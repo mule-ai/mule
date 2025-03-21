@@ -171,18 +171,18 @@ func (s *Store) checkFiles(path string, collection *chromem.Collection) {
 	for _, file := range files {
 		watched, ok := s.watchedFiles[file]
 		if !watched || !ok {
-			s.mu.Lock()
-			defer s.mu.Unlock()
 			err := s.watcher.Add(file)
 			if err != nil {
 				s.logger.Error(err, "error adding file to watcher")
 				continue
 			}
+			s.mu.Lock()
 			s.watchedFiles[file] = true
 			err = addDocumentsToCollection(s.ctx, collection, []string{file})
 			if err != nil {
 				s.logger.Error(err, "error adding document")
 			}
+			s.mu.Unlock()
 		}
 	}
 }

@@ -83,9 +83,22 @@
                             <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
                         </div>
                         <div class="form-group">
+                            <label class="label">System Prompt</label>
+                            <textarea name="agents[{{$index}}].systemPrompt" class="input" rows="4" placeholder="Enter the agent's system prompt">{{$agent.SystemPrompt}}</textarea>
+                            <small class="help-text">The system prompt provides high-level instructions for the AI model</small>
+                        </div>
+                        <div class="form-group">
                             <label class="label">Tools</label>
                             <div class="checkbox-group tools-select" data-tools="{{range $index, $tool := $agent.Tools}}{{if $index}},{{end}}{{$tool}}{{end}}">
                                 <div class="loading">Loading tools...</div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="label">UDiff Settings</label>
+                            <div class="checkbox-item">
+                                <input type="checkbox" name="agents[{{$index}}].udiffSettings.enabled" {{if $agent.UDiffSettings.Enabled}}checked{{end}}>
+                                Enable UDiff Application
+                                <small class="help-text">When enabled, the agent will automatically apply unified diffs (udiffs) found in its responses to the codebase.</small>
                             </div>
                         </div>
                         <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
@@ -125,6 +138,11 @@
                 <label class="label">Pull Request Body Template</label>
                 <textarea name="systemAgent.prBodyTemplate" class="input" rows="8" placeholder="Enter the PR body template">{{.Settings.SystemAgent.PRBodyTemplate}}</textarea>
                 <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
+            </div>
+            <div class="form-group">
+                <label class="label">System Prompt</label>
+                <textarea name="systemAgent.systemPrompt" class="input" rows="4" placeholder="Enter the system prompt">{{.Settings.SystemAgent.SystemPrompt}}</textarea>
+                <small class="help-text">The system prompt provides high-level instructions for the AI model</small>
             </div>
         </div>
 
@@ -850,9 +868,22 @@ function createAgentHTML(index) {
                     <small class="help-text">Available template values: <span class="template-values">Loading...</span></small>
                 </div>
                 <div class="form-group">
+                    <label class="label">System Prompt</label>
+                    <textarea name="agents[${index}].systemPrompt" class="input" rows="4" placeholder="Enter the agent's system prompt"></textarea>
+                    <small class="help-text">The system prompt provides high-level instructions for the AI model</small>
+                </div>
+                <div class="form-group">
                     <label class="label">Tools</label>
                     <div class="checkbox-group tools-select" data-tools="">
                         <div class="loading">Loading tools...</div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="label">UDiff Settings</label>
+                    <div class="checkbox-item">
+                        <input type="checkbox" name="agents[${index}].udiffSettings.enabled" onchange="handleUDiffSettingsChange(this)">
+                        Enable UDiff Application
+                        <small class="help-text">When enabled, the agent will automatically apply unified diffs (udiffs) found in its responses to the codebase.</small>
                     </div>
                 </div>
                 <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
@@ -996,7 +1027,8 @@ async function handleUpdateSettings(event) {
             model: formData.get('systemAgent.model') || "",
             commitTemplate: formData.get('systemAgent.commitTemplate') || "",
             prTitleTemplate: formData.get('systemAgent.prTitleTemplate') || "",
-            prBodyTemplate: formData.get('systemAgent.prBodyTemplate') || ""
+            prBodyTemplate: formData.get('systemAgent.prBodyTemplate') || "",
+            systemPrompt: formData.get('systemAgent.systemPrompt') || ""
         },
         workflows: []
     };
@@ -1021,7 +1053,11 @@ async function handleUpdateSettings(event) {
             providerName: formData.get(`agents[${index}].providerName`) || "",
             model: formData.get(`agents[${index}].model`) || "",
             promptTemplate: formData.get(`agents[${index}].promptTemplate`) || "",
-            tools: []
+            systemPrompt: formData.get(`agents[${index}].systemPrompt`) || "",
+            tools: [],
+            udiffSettings: {
+                enabled: formData.get(`agents[${index}].udiffSettings.enabled`) === 'on'
+            }
         };
 
         // Get checkbox values

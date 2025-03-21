@@ -31,6 +31,7 @@ type SystemAgentSettings struct {
 	CommitTemplate  string `json:"commitTemplate"`
 	PRTitleTemplate string `json:"prTitleTemplate"`
 	PRBodyTemplate  string `json:"prBodyTemplate"`
+	SystemPrompt    string `json:"systemPrompt"`
 }
 
 type WorkflowSettings struct {

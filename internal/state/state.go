@@ -125,6 +125,7 @@ func initializeSystemAgents(logger logr.Logger, settingsInput settings.Settings,
 	systemAgentOpts := agent.AgentOptions{
 		ProviderName: settingsInput.SystemAgent.ProviderName,
 		Model:        settingsInput.SystemAgent.Model,
+		SystemPrompt: settingsInput.SystemAgent.SystemPrompt,
 		Logger:       logger.WithName("system-agent"),
 	}
 	switch settingsInput.SystemAgent.ProviderName {

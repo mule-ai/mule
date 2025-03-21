@@ -196,6 +196,12 @@ function updateStepAgentName(select) {
     updateWorkflowDiagram(workflowIndex);
 }
 
+function handleUDiffSettingsChange(checkbox) {
+    // This function is a placeholder for future enhancements
+    // Currently just handles the checkbox state
+    console.log("UDiff settings changed:", checkbox.checked);
+}
+
 function removeWorkflow(button) {
     const workflow = button.closest('.workflow');
     const workflowContainer = workflow.closest('.workflow-container');
