@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"os"
 	"sort"
@@ -76,7 +77,6 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 	for {
 		// ReadLine returns line, isPrefix, error
 		var fullLine []byte
-		isLineTooLong := false
 		for {
 			line, isPrefix, err := reader.ReadLine()
 			if err != nil {
@@ -93,26 +93,6 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 			}
 
 			fullLine = append(fullLine, line...)
-			if len(fullLine) > maxLineLength {
-				isLineTooLong = true
-				// Discard the rest of the line
-				for isPrefix {
-					_, isPrefix, err = reader.ReadLine()
-					if err != nil {
-						if err.Error() == "EOF" {
-							break
-						}
-						errString := fmt.Sprintf("Error reading line: %v", err)
-						if isAjax {
-							http.Error(w, `{"error": "`+errString+`"}`, http.StatusInternalServerError)
-						} else {
-							http.Error(w, errString, http.StatusInternalServerError)
-						}
-						return
-					}
-				}
-				break
-			}
 			if !isPrefix {
 				break
 			}
@@ -124,19 +104,26 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var entry LogEntry
-		if isLineTooLong {
+		if len(fullLine) > maxLineLength {
 			// Try to parse the JSON we have to get the metadata
-			if err := json.Unmarshal(fullLine[:maxLineLength], &entry); err != nil {
-				continue // Skip if we can't even parse the metadata
+			if err := json.Unmarshal(fullLine, &entry); err != nil {
+				continue // Skip if we can't parse the JSON
 			}
-			// Replace the content with a message about the length
-			entry.Content = "[Content exceeds 1MB and has been truncated]"
+			// Only truncate the content field if it exists and is too long
+			if entry.Content != "" && len(entry.Content) > maxLineLength {
+				entry.Content = fmt.Sprintf("[Content exceeds %d bytes and has been truncated]", maxLineLength)
+			}
 		} else {
 			if err := json.Unmarshal(fullLine, &entry); err != nil {
 				continue // Skip invalid JSON entries
 			}
 		}
 		entry.Time = time.Unix(int64(entry.TimeStamp), 0)
+
+		// HTML escape the content and message fields
+		entry.Message = html.EscapeString(entry.Message)
+		entry.Content = html.EscapeString(entry.Content)
+		entry.Error = html.EscapeString(entry.Error)
 
 		// Apply filters
 		if level != "" && !strings.EqualFold(entry.Level, level) {
