@@ -93,6 +93,14 @@
                                 <div class="loading">Loading tools...</div>
                             </div>
                         </div>
+                        <div class="form-group">
+                            <label class="label">UDiff Settings</label>
+                            <div class="checkbox-item">
+                                <input type="checkbox" name="agents[{{$index}}].udiffSettings.enabled" {{if $agent.UDiffSettings.Enabled}}checked{{end}}>
+                                Enable UDiff Application
+                                <small class="help-text">When enabled, the agent will automatically apply unified diffs (udiffs) found in its responses to the codebase.</small>
+                            </div>
+                        </div>
                         <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
                     </div>
                 </div>
@@ -870,6 +878,14 @@ function createAgentHTML(index) {
                         <div class="loading">Loading tools...</div>
                     </div>
                 </div>
+                <div class="form-group">
+                    <label class="label">UDiff Settings</label>
+                    <div class="checkbox-item">
+                        <input type="checkbox" name="agents[${index}].udiffSettings.enabled" onchange="handleUDiffSettingsChange(this)">
+                        Enable UDiff Application
+                        <small class="help-text">When enabled, the agent will automatically apply unified diffs (udiffs) found in its responses to the codebase.</small>
+                    </div>
+                </div>
                 <button type="button" class="button secondary remove-agent" onclick="removeAgent(this)">Remove Agent</button>
             </div>
         </div>
@@ -1038,7 +1054,10 @@ async function handleUpdateSettings(event) {
             model: formData.get(`agents[${index}].model`) || "",
             promptTemplate: formData.get(`agents[${index}].promptTemplate`) || "",
             systemPrompt: formData.get(`agents[${index}].systemPrompt`) || "",
-            tools: []
+            tools: [],
+            udiffSettings: {
+                enabled: formData.get(`agents[${index}].udiffSettings.enabled`) === 'on'
+            }
         };
 
         // Get checkbox values

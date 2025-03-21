@@ -132,8 +132,17 @@ func executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agent, ctx *Workfl
 		result.Error = err
 		return result, err
 	}
+
 	// Process the output based on the specified output field
 	result.Content = processOutput(content, step.OutputField)
+
+	// Process udiffs if enabled
+	if agent.GetUDiffSettings().Enabled {
+		if err := agent.ProcessUDiffs(content, ctx.Logger); err != nil {
+			ctx.Logger.Error(err, "Error processing udiffs for step", "stepID", step.ID)
+			// Don't fail the workflow because of udiff errors
+		}
+	}
 
 	return result, nil
 }

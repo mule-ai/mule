@@ -31,6 +31,7 @@ type Agent struct {
 	name           string
 	path           string
 	rag            *rag.Store
+	udiffSettings  UDiffSettings
 }
 
 type AgentOptions struct {
@@ -45,6 +46,7 @@ type AgentOptions struct {
 	Tools          []string        `json:"tools"`
 	Path           string          `json:"-"`
 	RAG            *rag.Store      `json:"-"`
+	UDiffSettings  UDiffSettings   `json:"udiffSettings"`
 }
 
 type PromptInput struct {
@@ -67,8 +69,9 @@ func NewAgent(opts AgentOptions) *Agent {
 		logger:         opts.Logger,
 		name:           opts.Name,
 		// I don't like this, but it's a hack to get the path to the repository
-		path: opts.Path,
-		rag:  opts.RAG,
+		path:          opts.Path,
+		rag:           opts.RAG,
+		udiffSettings: opts.UDiffSettings,
 	}
 	err := agent.SetTools(opts.Tools)
 	if err != nil {
@@ -111,6 +114,14 @@ func (a *Agent) SetPromptContext(promptContext string) {
 
 func (a *Agent) SetSystemPrompt(systemPrompt string) {
 	a.systemPrompt = systemPrompt
+}
+
+func (a *Agent) SetUDiffSettings(settings UDiffSettings) {
+	a.udiffSettings = settings
+}
+
+func (a *Agent) GetUDiffSettings() UDiffSettings {
+	return a.udiffSettings
 }
 
 func (a *Agent) Run(input PromptInput) error {
@@ -177,6 +188,29 @@ func (a *Agent) Generate(path string, input PromptInput) (string, error) {
 	}, prompt)
 }
 
+// ProcessUDiffs checks if a message contains udiffs and applies them if udiff setting is enabled
+func (a *Agent) ProcessUDiffs(message string, logger logr.Logger) error {
+	if !a.udiffSettings.Enabled {
+		return nil
+	}
+
+	// Parse udiffs from the message
+	diffs, err := ParseUDiffs(message)
+	if err != nil {
+		logger.Error(err, "failed to parse udiffs")
+		return fmt.Errorf("failed to parse udiffs: %w", err)
+	}
+
+	// If no diffs found, nothing to do
+	if len(diffs) == 0 {
+		logger.Info("No udiffs found, skipping")
+		return nil
+	}
+
+	// Apply the udiffs
+	return ApplyUDiffs(diffs, a.path, logger)
+}
+
 // GenerateWithTools has been moved to the workflow package, so we can simplify here
 func (a *Agent) GenerateWithTools(path string, input PromptInput) (string, error) {
 	if a.provider == nil {
@@ -228,6 +262,16 @@ func (a *Agent) GenerateWithTools(path string, input PromptInput) (string, error
 		chat.Logger.Info("Waiting for message")
 		time.Sleep(1 * time.Second)
 	}
+
+	// Process udiffs in the response if enabled
+	if a.udiffSettings.Enabled {
+		err = a.ProcessUDiffs(message, chat.Logger)
+		if err != nil {
+			a.logger.Error(err, "Error processing udiffs", "message", message)
+			// Don't return the error so that the message still gets returned
+		}
+	}
+
 	return message, nil
 }
 
