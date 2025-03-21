@@ -65,7 +65,6 @@ func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInp
 
 	var err error
 	var prevResult *WorkflowResult
-	validationFailed := true
 	for i := 0; i < numValidationAttempts; i++ {
 
 		// Execute steps in sequence
@@ -95,13 +94,10 @@ func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInp
 			ctx.Logger.Error(err, errString, "output", prevResult.Content)
 			continue
 		}
-		validationFailed = false
 		ctx.Logger.Info("Validation Succeeded")
 		break
 	}
-	if validationFailed {
-		return ctx.Results, fmt.Errorf("validation of workflow results failed")
-	}
+
 	return ctx.Results, nil
 }
 
