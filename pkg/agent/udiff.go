@@ -382,6 +382,15 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 			continue
 		}
 
+		// Check if any hunks attempt to modify the first line of an existing file
+		for _, hunk := range diff.Hunks {
+			if hunk.StartLine <= 1 {
+				logger.Error(nil, "attempt to overwrite the first line of a file rejected",
+					"file", targetPath, "lineNumber", hunk.StartLine)
+				return fmt.Errorf("cannot apply diff that modifies the first line of an existing file: %s", targetPath)
+			}
+		}
+
 		// For existing files that need modification, read the current content
 		fileContent, err := os.ReadFile(absTargetPath)
 		if err != nil && !os.IsNotExist(err) {
@@ -391,6 +400,9 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 
 		// If the file doesn't exist but we're trying to modify it, treat it as a new file
 		if os.IsNotExist(err) {
+			// For non-existent files, we can allow writing to any line as it's effectively a new file
+			logger.Info("file doesn't exist, treating as a new file", "targetPath", targetPath)
+
 			// Create an empty file
 			var content strings.Builder
 			for _, hunk := range diff.Hunks {
