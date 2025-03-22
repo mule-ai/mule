@@ -183,11 +183,102 @@ func validateTargetPath(targetPath, basePath string, logger logr.Logger) (string
 	// Remove any leading slashes to prevent absolute path tricks
 	targetPath = strings.TrimPrefix(targetPath, "/")
 
+	// Check if targetPath already includes the basePath to avoid double inclusion
+	if strings.HasPrefix(targetPath, basePath) {
+		// If targetPath already has the basePath, remove it to avoid duplication
+		targetPath = strings.TrimPrefix(targetPath, basePath)
+		// Remove any leading slashes after trimming
+		targetPath = strings.TrimPrefix(targetPath, "/")
+		logger.Info("removed basePath from targetPath to avoid duplication",
+			"originalPath", targetPath,
+			"basePath", basePath)
+	}
+
 	// Join paths and get absolute paths
 	absBasePath, err := filepath.Abs(basePath)
 	if err != nil {
 		logger.Error(err, "failed to get absolute base path", "basePath", basePath)
 		return "", fmt.Errorf("failed to get absolute base path: %w", err)
+	}
+
+	// Check if the path is a subpath or just a filename
+	// For paths like "handlers/local.go" or just "local.go", we need to find the full path
+	if !filepath.IsAbs(targetPath) && !strings.HasPrefix(targetPath, "pkg/") {
+		// First, check if the direct path exists
+		directPath := filepath.Join(absBasePath, targetPath)
+		_, err := os.Stat(directPath)
+
+		if os.IsNotExist(err) {
+			// Path doesn't exist directly, try to find it
+			// Case 1: Try adding "pkg/" prefix if it appears to be a subpath
+			if strings.Contains(targetPath, "/") {
+				pkgPath := filepath.Join(absBasePath, "pkg", targetPath)
+				_, pkgErr := os.Stat(pkgPath)
+
+				if pkgErr == nil {
+					// Found the file in pkg/
+					logger.Info("found file by adding pkg/ prefix",
+						"originalPath", targetPath,
+						"fullPath", "pkg/"+targetPath)
+					targetPath = "pkg/" + targetPath
+				}
+			} else {
+				// Case 2: It's just a filename, try to find it anywhere
+				matches := []string{}
+
+				// Use a recursive function to find the file
+				err := filepath.Walk(absBasePath, func(path string, info os.FileInfo, err error) error {
+					if err != nil {
+						return nil // Skip errors
+					}
+
+					if !info.IsDir() && info.Name() == targetPath {
+						// Convert to relative path
+						rel, err := filepath.Rel(absBasePath, path)
+						if err == nil {
+							matches = append(matches, rel)
+						}
+					}
+					return nil
+				})
+
+				if err == nil && len(matches) > 0 {
+					// If we found exactly one match, use it
+					if len(matches) == 1 {
+						logger.Info("found unique file match for filename",
+							"filename", targetPath,
+							"fullPath", matches[0])
+						targetPath = matches[0]
+					} else {
+						// Multiple matches, prefer paths that include /handlers/ if filename suggests that
+						// This is a heuristic
+						bestMatch := ""
+						for _, match := range matches {
+							// Prefer matches in pkg/ directory
+							if strings.HasPrefix(match, "pkg/") {
+								bestMatch = match
+								break
+							}
+						}
+
+						if bestMatch != "" {
+							logger.Info("multiple matches found, using best match from pkg/ directory",
+								"filename", targetPath,
+								"fullPath", bestMatch,
+								"totalMatches", len(matches))
+							targetPath = bestMatch
+						} else {
+							// Just use the first match as fallback
+							logger.Info("multiple matches found, using first match",
+								"filename", targetPath,
+								"fullPath", matches[0],
+								"totalMatches", len(matches))
+							targetPath = matches[0]
+						}
+					}
+				}
+			}
+		}
 	}
 
 	absTargetPath := filepath.Join(absBasePath, targetPath)
