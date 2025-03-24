@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	RAG_N_RESULTS = 3
+	RAG_N_RESULTS = 8
 )
 
 type Agent struct {
@@ -294,12 +294,26 @@ func (a *Agent) AddRAGContext(prompt string) (string, error) {
 		a.logger.Info("RAG not initialized, skipping")
 		return prompt, nil
 	}
+	// Generate repomap first
+	repomap, err := a.rag.RepoMap(a.path)
+	if err != nil {
+		a.logger.Error(err, "Error generating repomap")
+		return prompt, nil
+	}
+
+	// Get RAG results
 	ragContext, err := a.rag.Query(a.path, prompt, RAG_N_RESULTS)
 	if err != nil {
 		return "", err
 	}
-	prompt = "<context>\n" + ragContext + "\n</context>\n\n" + prompt
-	return prompt, nil
+
+	// Combine repomap and RAG results
+	context := fmt.Sprintf("<repository_structure>\n%s\n</repository_structure>\n\n<context>\n%s\n</context>\n\n%s",
+		repomap,
+		ragContext,
+		prompt)
+
+	return context, nil
 }
 
 func GetPromptTemplateValues() string {

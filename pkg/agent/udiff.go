@@ -193,7 +193,6 @@ func validateTargetPath(targetPath, basePath string, logger logr.Logger) (string
 			"originalPath", targetPath,
 			"basePath", basePath)
 	}
-
 	// Join paths and get absolute paths
 	absBasePath, err := filepath.Abs(basePath)
 	if err != nil {
@@ -333,7 +332,8 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 		// Validate and get absolute target path
 		absTargetPath, err := validateTargetPath(targetPath, basePath, logger)
 		if err != nil {
-			return err
+			logger.Error(err, "failed to validate target path", "targetPath", targetPath)
+			continue
 		}
 
 		if diff.IsDeleted {
@@ -383,11 +383,28 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 		}
 
 		// Check if any hunks attempt to modify the first line of an existing file
-		for _, hunk := range diff.Hunks {
-			if hunk.StartLine <= 1 {
-				logger.Error(nil, "attempt to overwrite the first line of a file rejected",
-					"file", targetPath, "lineNumber", hunk.StartLine)
-				return fmt.Errorf("cannot apply diff that modifies the first line of an existing file: %s", targetPath)
+		// We need to ensure that the package statement is preserved
+		fileContentCheck, err := os.ReadFile(absTargetPath)
+		if err == nil {
+			lines := strings.Split(string(fileContentCheck), "\n")
+			if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "package ") {
+				// We found a package statement, make sure none of the hunks modify line 1
+				for _, hunk := range diff.Hunks {
+					if hunk.StartLine <= 1 {
+						logger.Error(nil, "attempt to overwrite the package statement rejected",
+							"file", targetPath, "lineNumber", hunk.StartLine)
+						return fmt.Errorf("cannot apply diff that modifies the package statement line in: %s", targetPath)
+					}
+				}
+			}
+		} else {
+			// If we can't read the file, we'll still check for general line 1 modification
+			for _, hunk := range diff.Hunks {
+				if hunk.StartLine <= 1 {
+					logger.Error(nil, "attempt to overwrite the first line of a file rejected",
+						"file", targetPath, "lineNumber", hunk.StartLine)
+					return fmt.Errorf("cannot apply diff that modifies the first line of an existing file: %s", targetPath)
+				}
 			}
 		}
 
@@ -421,8 +438,13 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 
 		// We have an existing file that needs modification
 		currentLines := strings.Split(string(fileContent), "\n")
-		// Remove trailing empty line if present
+
+		// Preserve trailing newline: Check if the file ends with a newline
+		endsWithNewline := false
 		if len(currentLines) > 0 && currentLines[len(currentLines)-1] == "" {
+			// File ends with a newline, remember this fact
+			endsWithNewline = true
+			// Remove the empty line for processing
 			currentLines = currentLines[:len(currentLines)-1]
 		}
 
@@ -452,12 +474,26 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 				}
 			}
 		} else {
-			// Write the updated content back to the file
-			if err := os.WriteFile(absTargetPath, []byte(strings.Join(newContent, "\n")), 0644); err != nil {
+			// Write the updated content back to the file, preserving trailing newline if it existed
+			fileContent := strings.Join(newContent, "\n")
+			if endsWithNewline {
+				fileContent += "\n"
+			}
+			if err := os.WriteFile(absTargetPath, []byte(fileContent), 0644); err != nil {
 				logger.Error(err, "failed to write file", "targetPath", targetPath)
 				return fmt.Errorf("failed to write file %s: %w", absTargetPath, err)
 			} else {
-				logger.Info("wrote file", "targetPath", targetPath)
+				// Create a detailed log message with all information under a single "content" key
+				contentMsg := fmt.Sprintf("Wrote file: %s (%d hunks applied, %d lines total)",
+					absTargetPath, len(diff.Hunks), len(newContent))
+
+				// Add hunks info to the message
+				for i, hunk := range diff.Hunks {
+					contentMsg += fmt.Sprintf("\n  Hunk %d: starting at line %d with %d lines",
+						i+1, hunk.StartLine, len(hunk.Lines))
+				}
+
+				logger.Info(contentMsg, "content", contentMsg)
 			}
 		}
 	}
@@ -475,18 +511,41 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 	// Copy the current content to avoid modifying the original
 	result := make([]string, len(currentLines))
 	copy(result, currentLines)
+	totalSkipped := 0
 
 	// Process each hunk
-	for _, hunk := range hunks {
+	for i, hunk := range hunks {
 		// First, extract the context lines from the hunk (lines that should already exist)
 		contextLines, addedLines := extractContextAndAddedLines(hunk.Lines)
+
+		logger.Info("processing hunk",
+			"hunkIndex", i,
+			"contextLineCount", len(contextLines),
+			"addedLineCount", len(addedLines))
 
 		// If there are no context lines, we can't do smart matching
 		if len(contextLines) == 0 {
 			// Fall back to line number from diff
 			logger.Info("no context lines found in hunk, using line number from diff",
 				"lineNumber", hunk.StartLine)
-			result = applyHunkAtPosition(result, hunk, hunk.StartLine-1)
+
+			// Log the lines that will be added for debugging
+			if len(addedLines) > 0 {
+				sampleLines := addedLines
+				if len(sampleLines) > 3 {
+					sampleLines = sampleLines[:3]
+				}
+				logger.Info("adding lines at position",
+					"position", hunk.StartLine-1,
+					"sampleLines", strings.Join(sampleLines, "\\n"))
+			}
+
+			var skipped int
+			result, skipped = applyHunkAtPosition(result, hunk, hunk.StartLine-1)
+			if skipped > 0 {
+				totalSkipped += skipped
+				logger.Info("skipped duplicate lines", "count", skipped)
+			}
 			continue
 		}
 
@@ -496,6 +555,7 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 			// If we can't find a match, fall back to the line number from the hunk
 			logger.Info("could not find context match for hunk, using line number from diff",
 				"error", err, "lineNumber", hunk.StartLine)
+
 			position := hunk.StartLine - 1
 			if position < 0 {
 				position = 0
@@ -503,7 +563,24 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 			if position > len(result) {
 				position = len(result)
 			}
-			result = applyHunkAtPosition(result, hunk, position)
+
+			// Log the lines that will be added for debugging
+			if len(addedLines) > 0 {
+				sampleLines := addedLines
+				if len(sampleLines) > 3 {
+					sampleLines = sampleLines[:3]
+				}
+				logger.Info("adding lines at position",
+					"position", position,
+					"sampleLines", strings.Join(sampleLines, "\\n"))
+			}
+
+			var skipped int
+			result, skipped = applyHunkAtPosition(result, hunk, position)
+			if skipped > 0 {
+				totalSkipped += skipped
+				logger.Info("skipped duplicate lines", "count", skipped)
+			}
 			continue
 		}
 
@@ -523,8 +600,28 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 		// We need to find where within the context match we should insert the new lines
 		insertPosition := findInsertPosition(result, positions[0], contextLines, addedLines)
 
+		// Log the lines that will be added for debugging
+		if len(addedLines) > 0 {
+			sampleLines := addedLines
+			if len(sampleLines) > 3 {
+				sampleLines = sampleLines[:3]
+			}
+			logger.Info("adding lines at position",
+				"position", insertPosition,
+				"sampleLines", strings.Join(sampleLines, "\\n"))
+		}
+
 		// Apply just the added lines at the calculated position
-		result = applyHunkAtPosition(result, addedHunk, insertPosition)
+		var skipped int
+		result, skipped = applyHunkAtPosition(result, addedHunk, insertPosition)
+		if skipped > 0 {
+			totalSkipped += skipped
+			logger.Info("skipped duplicate lines", "count", skipped)
+		}
+	}
+
+	if totalSkipped > 0 {
+		logger.Info("total duplicate lines skipped for all hunks", "count", totalSkipped)
 	}
 
 	return result, nil
@@ -646,7 +743,8 @@ func findInsertPosition(fileLines []string, matchPos int, contextLines []string,
 }
 
 // applyHunkAtPosition applies a hunk at the specified position in the file
-func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) []string {
+// and detects duplicate lines to prevent adding them twice
+func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) ([]string, int) {
 	// Handle out-of-bounds positions
 	if position < 0 {
 		position = 0
@@ -661,13 +759,62 @@ func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) []st
 	// Add lines before the hunk
 	result = append(result, fileLines[:position]...)
 
-	// Add the hunk's lines
-	result = append(result, hunk.Lines...)
+	// Check if any of the hunk's lines already exist in the surrounding lines of the file
+	// to prevent duplication
+	linesToAdd := make([]string, 0, len(hunk.Lines))
+	skippedCount := 0
 
-	// Add lines after the hunk
-	if position < len(fileLines) {
-		result = append(result, fileLines[position:]...)
+	for _, hunkLine := range hunk.Lines {
+		// Skip empty lines - they're common and not worth duplicate checking
+		if strings.TrimSpace(hunkLine) == "" {
+			linesToAdd = append(linesToAdd, hunkLine)
+			continue
+		}
+
+		// Check if this line already exists in the nearby lines of the file
+		isDuplicate := false
+
+		// Check both before and after the insertion point with wider range
+		// Check lines before the insertion point (within a reasonable range)
+		checkRangeBefore := 10
+		for i := 1; i <= checkRangeBefore && position-i >= 0; i++ {
+			if fileLines[position-i] == hunkLine {
+				isDuplicate = true
+				break
+			}
+		}
+
+		// If not found before, check lines after the insertion point
+		if !isDuplicate {
+			checkRangeAfter := 10
+			for i := 0; i < checkRangeAfter && position+i < len(fileLines); i++ {
+				if fileLines[position+i] == hunkLine {
+					isDuplicate = true
+					break
+				}
+			}
+		}
+
+		// Only add non-duplicate lines
+		if !isDuplicate {
+			linesToAdd = append(linesToAdd, hunkLine)
+		} else {
+			skippedCount++
+		}
 	}
 
-	return result
+	// Add only the non-duplicate lines from the hunk
+	result = append(result, linesToAdd...)
+
+	// Add lines after the hunk, only if we're not at the end of the file
+	// This prevents accidentally duplicating content at the end
+	if position < len(fileLines) {
+		// Check if there are actual lines to add from the hunk
+		// If there are no lines to add and we're at the end, don't append anything
+		if len(linesToAdd) > 0 || position < len(fileLines)-1 {
+			result = append(result, fileLines[position:]...)
+		}
+	}
+
+	return result, skippedCount
 }

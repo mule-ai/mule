@@ -1,6 +1,6 @@
 module github.com/mule-ai/mule
 
-go 1.23.6
+go 1.24
 
 require (
 	github.com/fsnotify/fsnotify v1.8.0
@@ -13,6 +13,7 @@ require (
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
+	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	go.uber.org/zap v1.27.0
 	golang.org/x/oauth2 v0.25.0
 )
