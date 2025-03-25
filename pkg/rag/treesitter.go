@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/css"
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -38,6 +39,8 @@ func ParseFile(path string) (*sitter.Tree, error) {
 		language = html.GetLanguage()
 	case ".js", ".jsx", ".mjs":
 		language = javascript.GetLanguage()
+	case ".css", ".scss", ".sass", ".less":
+		language = css.GetLanguage()
 	default:
 		return nil, fmt.Errorf("unsupported file type: %s", ext)
 	}

@@ -382,28 +382,31 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 			continue
 		}
 
-		// Check if any hunks attempt to modify the first line of an existing file
-		// We need to ensure that the package statement is preserved
-		fileContentCheck, err := os.ReadFile(absTargetPath)
-		if err == nil {
-			lines := strings.Split(string(fileContentCheck), "\n")
-			if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "package ") {
-				// We found a package statement, make sure none of the hunks modify line 1
-				for _, hunk := range diff.Hunks {
-					if hunk.StartLine <= 1 {
-						logger.Error(nil, "attempt to overwrite the package statement rejected",
-							"file", targetPath, "lineNumber", hunk.StartLine)
-						return fmt.Errorf("cannot apply diff that modifies the package statement line in: %s", targetPath)
+		// Only check for first line modification if this is not a new file
+		if !diff.IsNewFile {
+			// Check if any hunks attempt to modify the first line of an existing file
+			// We need to ensure that the package statement is preserved
+			fileContentCheck, err := os.ReadFile(absTargetPath)
+			if err == nil {
+				lines := strings.Split(string(fileContentCheck), "\n")
+				if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "package ") {
+					// We found a package statement, make sure none of the hunks modify line 1
+					for _, hunk := range diff.Hunks {
+						if hunk.StartLine <= 1 {
+							logger.Error(nil, "attempt to overwrite the package statement rejected",
+								"file", targetPath, "lineNumber", hunk.StartLine)
+							return fmt.Errorf("cannot apply diff that modifies the package statement line in: %s", targetPath)
+						}
 					}
 				}
-			}
-		} else {
-			// If we can't read the file, we'll still check for general line 1 modification
-			for _, hunk := range diff.Hunks {
-				if hunk.StartLine <= 1 {
-					logger.Error(nil, "attempt to overwrite the first line of a file rejected",
-						"file", targetPath, "lineNumber", hunk.StartLine)
-					return fmt.Errorf("cannot apply diff that modifies the first line of an existing file: %s", targetPath)
+			} else if !os.IsNotExist(err) {
+				// Only check for first line modification if we can't read the file for a reason OTHER than it not existing
+				for _, hunk := range diff.Hunks {
+					if hunk.StartLine <= 1 {
+						logger.Error(nil, "attempt to overwrite the first line of a file rejected",
+							"file", targetPath, "lineNumber", hunk.StartLine)
+						return fmt.Errorf("cannot apply diff that modifies the first line of an existing file: %s", targetPath)
+					}
 				}
 			}
 		}

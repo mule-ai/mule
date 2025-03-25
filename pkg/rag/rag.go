@@ -13,6 +13,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/philippgille/chromem-go"
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/css"
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -509,6 +510,16 @@ func (s *Store) chunkDocument(content string, path string) []chromem.Document {
 			"variable_declaration",
 			"export_statement",
 		}
+	case ".css", ".scss", ".sass", ".less":
+		nodeTypes = []string{
+			"rule_set",
+			"at_rule",
+			"keyframes",
+			"media_query",
+			"supports",
+			"import",
+			"namespace",
+		}
 	default:
 		// For unsupported file types, fall back to line-based chunking
 		return s.chunkByLines(content, path)
@@ -525,6 +536,8 @@ func (s *Store) chunkDocument(content string, path string) []chromem.Document {
 			language = html.GetLanguage()
 		case ".js", ".jsx", ".mjs":
 			language = javascript.GetLanguage()
+		case ".css", ".scss", ".sass", ".less":
+			language = css.GetLanguage()
 		}
 
 		q, err := sitter.NewQuery([]byte(queryString), language)

@@ -329,13 +329,6 @@ function scrollToLatest(event, conversationId) {
 }
 
 function createLogEntry(log) {
-    // Helper function to decode HTML entities
-    function decodeHtmlEntities(text) {
-        const textarea = document.createElement('textarea');
-        textarea.innerHTML = text;
-        return textarea.value;
-    }
-
     return `
         <div class="log-entry ${log.level}">
             <div class="log-header">
@@ -344,9 +337,9 @@ function createLogEntry(log) {
                 <span class="logger">${log.logger}</span>
                 ${log.model ? `<span class="model">${log.model}</span>` : ''}
             </div>
-            <div class="log-message">${decodeHtmlEntities(log.msg)}</div>
-            ${log.content ? `<div class="log-message">${decodeHtmlEntities(log.content)}</div>` : ''}
-            ${log.error ? `<div class="log-error">${decodeHtmlEntities(log.error)}</div>` : ''}
+            <div class="log-message">${log.msg}</div>
+            ${log.content ? `<div class="log-message">${log.content}</div>` : ''}
+            ${log.error ? `<div class="log-error">${log.error}</div>` : ''}
         </div>
     `;
 }
