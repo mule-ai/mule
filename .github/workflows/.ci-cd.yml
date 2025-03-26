@@ -50,7 +50,7 @@ jobs:
       - name: Build binary
         run: |
           cd cmd/mule
-          CGO_ENABLED=0 GOOS=linux go build -o bin/mule
+          CGO_ENABLED=1 GOOS=linux go build -o bin/mule
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
