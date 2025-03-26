@@ -382,35 +382,6 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 			continue
 		}
 
-		// Only check for first line modification if this is not a new file
-		if !diff.IsNewFile {
-			// Check if any hunks attempt to modify the first line of an existing file
-			// We need to ensure that the package statement is preserved
-			fileContentCheck, err := os.ReadFile(absTargetPath)
-			if err == nil {
-				lines := strings.Split(string(fileContentCheck), "\n")
-				if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "package ") {
-					// We found a package statement, make sure none of the hunks modify line 1
-					for _, hunk := range diff.Hunks {
-						if hunk.StartLine <= 1 {
-							logger.Error(nil, "attempt to overwrite the package statement rejected",
-								"file", targetPath, "lineNumber", hunk.StartLine)
-							return fmt.Errorf("cannot apply diff that modifies the package statement line in: %s", targetPath)
-						}
-					}
-				}
-			} else if !os.IsNotExist(err) {
-				// Only check for first line modification if we can't read the file for a reason OTHER than it not existing
-				for _, hunk := range diff.Hunks {
-					if hunk.StartLine <= 1 {
-						logger.Error(nil, "attempt to overwrite the first line of a file rejected",
-							"file", targetPath, "lineNumber", hunk.StartLine)
-						return fmt.Errorf("cannot apply diff that modifies the first line of an existing file: %s", targetPath)
-					}
-				}
-			}
-		}
-
 		// For existing files that need modification, read the current content
 		fileContent, err := os.ReadFile(absTargetPath)
 		if err != nil && !os.IsNotExist(err) {
@@ -514,117 +485,61 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 	// Copy the current content to avoid modifying the original
 	result := make([]string, len(currentLines))
 	copy(result, currentLines)
-	totalSkipped := 0
 
 	// Process each hunk
 	for i, hunk := range hunks {
-		// First, extract the context lines from the hunk (lines that should already exist)
+		// First, try direct application with minimal context
 		contextLines, addedLines := extractContextAndAddedLines(hunk.Lines)
 
-		logger.Info("processing hunk",
-			"hunkIndex", i,
-			"contextLineCount", len(contextLines),
-			"addedLineCount", len(addedLines))
-
-		// If there are no context lines, we can't do smart matching
-		if len(contextLines) == 0 {
-			// Fall back to line number from diff
-			logger.Info("no context lines found in hunk, using line number from diff",
-				"lineNumber", hunk.StartLine)
-
-			// Log the lines that will be added for debugging
-			if len(addedLines) > 0 {
-				sampleLines := addedLines
-				if len(sampleLines) > 3 {
-					sampleLines = sampleLines[:3]
+		// Try direct application first
+		if len(contextLines) > 0 {
+			// Try to find exact matches for the context
+			positions, err := findContextMatches(result, contextLines)
+			if err == nil && len(positions) > 0 {
+				// Found exact matches, try direct application
+				insertPosition := findInsertPosition(result, positions[0], contextLines, addedLines)
+				var skipped int
+				result, skipped = applyHunkAtPosition(result, hunk, insertPosition)
+				if skipped == 0 {
+					continue // Successfully applied
 				}
-				logger.Info("adding lines at position",
-					"position", hunk.StartLine-1,
-					"sampleLines", strings.Join(sampleLines, "\\n"))
 			}
-
-			var skipped int
-			result, skipped = applyHunkAtPosition(result, hunk, hunk.StartLine-1)
-			if skipped > 0 {
-				totalSkipped += skipped
-				logger.Info("skipped duplicate lines", "count", skipped)
-			}
-			continue
 		}
 
-		// Try to find the best match for the context lines
-		positions, err := findContextMatches(result, contextLines)
-		if err != nil || len(positions) == 0 {
-			// If we can't find a match, fall back to the line number from the hunk
-			logger.Info("could not find context match for hunk, using line number from diff",
-				"error", err, "lineNumber", hunk.StartLine)
-
-			position := hunk.StartLine - 1
-			if position < 0 {
-				position = 0
-			}
-			if position > len(result) {
-				position = len(result)
-			}
-
-			// Log the lines that will be added for debugging
-			if len(addedLines) > 0 {
-				sampleLines := addedLines
-				if len(sampleLines) > 3 {
-					sampleLines = sampleLines[:3]
+		// If direct application failed, try with more flexible matching
+		if len(contextLines) > 0 {
+			// Try with reduced context
+			for drop := 0; drop <= len(contextLines); drop++ {
+				reducedContext := contextLines[drop:]
+				positions, err := findContextMatches(result, reducedContext)
+				if err == nil && len(positions) > 0 {
+					insertPosition := findInsertPosition(result, positions[0], reducedContext, addedLines)
+					var skipped int
+					result, skipped = applyHunkAtPosition(result, hunk, insertPosition)
+					if skipped == 0 {
+						break // Successfully applied
+					}
 				}
-				logger.Info("adding lines at position",
-					"position", position,
-					"sampleLines", strings.Join(sampleLines, "\\n"))
 			}
-
-			var skipped int
-			result, skipped = applyHunkAtPosition(result, hunk, position)
-			if skipped > 0 {
-				totalSkipped += skipped
-				logger.Info("skipped duplicate lines", "count", skipped)
-			}
-			continue
 		}
 
-		// If we found multiple matches, log a warning but use the best one
-		if len(positions) > 1 {
-			logger.Info("multiple matches found for context lines, using best match",
-				"matchCount", len(positions), "usingPosition", positions[0])
+		// If still no success, try with just the line numbers from the diff
+		position := hunk.StartLine - 1
+		if position < 0 {
+			position = 0
+		}
+		if position > len(result) {
+			position = len(result)
 		}
 
-		// Create a hunk with just the added lines to insert at the matched position
-		addedHunk := &UDiffHunk{
-			StartLine: 0, // Not used for insertion
-			Lines:     addedLines,
-		}
-
-		// Find the insertion point based on the context match
-		// We need to find where within the context match we should insert the new lines
-		insertPosition := findInsertPosition(result, positions[0], contextLines, addedLines)
-
-		// Log the lines that will be added for debugging
-		if len(addedLines) > 0 {
-			sampleLines := addedLines
-			if len(sampleLines) > 3 {
-				sampleLines = sampleLines[:3]
-			}
-			logger.Info("adding lines at position",
-				"position", insertPosition,
-				"sampleLines", strings.Join(sampleLines, "\\n"))
-		}
-
-		// Apply just the added lines at the calculated position
 		var skipped int
-		result, skipped = applyHunkAtPosition(result, addedHunk, insertPosition)
+		result, skipped = applyHunkAtPosition(result, hunk, position)
 		if skipped > 0 {
-			totalSkipped += skipped
-			logger.Info("skipped duplicate lines", "count", skipped)
+			logger.Info("applied hunk with fallback to line numbers",
+				"hunkIndex", i,
+				"position", position,
+				"skippedLines", skipped)
 		}
-	}
-
-	if totalSkipped > 0 {
-		logger.Info("total duplicate lines skipped for all hunks", "count", totalSkipped)
 	}
 
 	return result, nil
@@ -635,32 +550,20 @@ func extractContextAndAddedLines(lines []string) ([]string, []string) {
 	var contextLines []string
 	var addedLines []string
 
-	// When parsing the hunk, we kept only context lines (unchanged) and added lines
-	// So, any lines already in the array are either context or added lines
-	// However, we need to differentiate them for smart matching
-
-	// For now, we'll assume all lines are context lines
-	// In a real diff, context lines would be marked with a space prefix and added with a + prefix
-	// But these are already parsed out in our case
-
-	// This is a naive approach, but can be improved with additional metadata during parsing
 	for _, line := range lines {
-		// For example, we might look for certain patterns to identify added lines
+		// Skip empty lines and common comment markers
 		if strings.TrimSpace(line) == "" ||
 			strings.HasPrefix(line, "//") ||
 			strings.HasPrefix(line, "/*") ||
 			strings.HasPrefix(line, " *") ||
 			strings.HasPrefix(line, "# ") {
-			// Common comment prefixes and whitespace are likely context lines
 			contextLines = append(contextLines, line)
 		} else {
-			// Assume non-comment, non-whitespace lines are the added content
 			addedLines = append(addedLines, line)
 		}
 	}
 
 	// If we couldn't identify any added lines, treat them all as added
-	// This will fall back to simpler behavior
 	if len(addedLines) == 0 {
 		return nil, lines
 	}
@@ -810,13 +713,8 @@ func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) ([]s
 	result = append(result, linesToAdd...)
 
 	// Add lines after the hunk, only if we're not at the end of the file
-	// This prevents accidentally duplicating content at the end
 	if position < len(fileLines) {
-		// Check if there are actual lines to add from the hunk
-		// If there are no lines to add and we're at the end, don't append anything
-		if len(linesToAdd) > 0 || position < len(fileLines)-1 {
-			result = append(result, fileLines[position:]...)
-		}
+		result = append(result, fileLines[position:]...)
 	}
 
 	return result, skippedCount

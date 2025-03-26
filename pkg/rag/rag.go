@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -54,6 +55,10 @@ type Store struct {
 	logger       logr.Logger
 	watchedFiles map[string]bool
 	mu           sync.RWMutex
+}
+
+type AggregatedResults struct {
+	Results map[string][]chromem.Result
 }
 
 func NewStore(logger logr.Logger) *Store {
@@ -131,8 +136,122 @@ func (s *Store) Query(path string, query string, nResults int) (string, error) {
 	return strings.Join(resultsString, "\n"), nil
 }
 
-func (s *Store) RepoMap(path string) (string, error) {
-	return s.generateRepoMap(path)
+// deduplicateResults merges overlapping results and keeps the one with the largest range
+func deduplicateResults(results []chromem.Result) []chromem.Result {
+	if len(results) <= 1 {
+		return results
+	}
+
+	// Sort results by start line
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Metadata["start_line"] < results[j].Metadata["start_line"]
+	})
+
+	var deduped []chromem.Result
+	current := results[0]
+
+	for i := 1; i < len(results); i++ {
+		next := results[i]
+		currentStart, _ := strconv.Atoi(current.Metadata["start_line"])
+		currentEnd, _ := strconv.Atoi(current.Metadata["end_line"])
+		nextStart, _ := strconv.Atoi(next.Metadata["start_line"])
+		nextEnd, _ := strconv.Atoi(next.Metadata["end_line"])
+
+		// If the next result overlaps with the current one
+		if nextStart <= currentEnd {
+			// Keep the result with the larger range
+			if nextEnd-currentStart > currentEnd-currentStart {
+				current = next
+			}
+		} else {
+			// No overlap, add current and move to next
+			deduped = append(deduped, current)
+			current = next
+		}
+	}
+	// Add the last result
+	deduped = append(deduped, current)
+
+	return deduped
+}
+
+func (s *Store) GetNResults(path string, query string, nResults int) (AggregatedResults, error) {
+	if s.Collections == nil {
+		return AggregatedResults{}, fmt.Errorf("collections not initialized")
+	}
+	collection, ok := s.Collections[path]
+	if !ok {
+		return AggregatedResults{}, fmt.Errorf("collection %s not found", path)
+	}
+	s.checkFiles(path, collection)
+	s.mu.RLock()
+	// Request more results initially to account for potential duplicates
+	// We request 2x the desired number to ensure we have enough after deduplication
+	results, err := collection.Query(s.ctx, query, nResults*2, nil, nil)
+	s.mu.RUnlock()
+	if err != nil {
+		return AggregatedResults{}, err
+	}
+	aggregatedResults := AggregatedResults{
+		Results: make(map[string][]chromem.Result),
+	}
+
+	// Group results by file path
+	for _, result := range results {
+		aggregatedResults.Results[result.Metadata["path"]] = append(aggregatedResults.Results[result.Metadata["path"]], result)
+	}
+
+	// Deduplicate results for each file
+	for filePath, fileResults := range aggregatedResults.Results {
+		aggregatedResults.Results[filePath] = deduplicateResults(fileResults)
+	}
+
+	// If we have more results than requested after deduplication, trim them
+	totalResults := 0
+	for _, fileResults := range aggregatedResults.Results {
+		totalResults += len(fileResults)
+	}
+
+	if totalResults > nResults {
+		// Sort files by number of results to prioritize files with more results
+		type fileResultCount struct {
+			path    string
+			count   int
+			results []chromem.Result
+		}
+		var fileCounts []fileResultCount
+		for path, results := range aggregatedResults.Results {
+			fileCounts = append(fileCounts, fileResultCount{path, len(results), results})
+		}
+		sort.Slice(fileCounts, func(i, j int) bool {
+			return fileCounts[i].count > fileCounts[j].count
+		})
+
+		// Reset aggregated results
+		aggregatedResults.Results = make(map[string][]chromem.Result)
+		remainingResults := nResults
+
+		// Distribute results across files while maintaining the requested total
+		for _, fc := range fileCounts {
+			if remainingResults <= 0 {
+				break
+			}
+			// Calculate how many results to take from this file
+			// Use a proportional distribution based on the original count
+			proportion := float64(fc.count) / float64(totalResults)
+			resultsToTake := int(float64(nResults) * proportion)
+			if resultsToTake < 1 {
+				resultsToTake = 1 // Ensure at least one result per file
+			}
+			if resultsToTake > remainingResults {
+				resultsToTake = remainingResults
+			}
+			aggregatedResults.Results[fc.path] = fc.results[:resultsToTake]
+			remainingResults -= resultsToTake
+		}
+	}
+
+	return aggregatedResults, nil
 }
 
 func (s *Store) Watch() {
@@ -253,13 +372,17 @@ func getFiles(dir string) ([]string, error) {
 
 func toString(result chromem.Result) string {
 	return fmt.Sprintf("File: %s\n"+
+		"Lines: %s-%s\n"+
 		"Content: %s\n",
 		result.Metadata["path"],
+		result.Metadata["start_line"],
+		result.Metadata["end_line"],
 		result.Content,
 	)
 }
 
-func (s *Store) generateRepoMap(path string) (string, error) {
+// GenerateRepoMap generates a map of the repository structure and key files
+func (s *Store) GenerateRepoMap(path string, keyFiles AggregatedResults) (string, error) {
 	files, err := getFiles(path)
 	if err != nil {
 		return "", fmt.Errorf("error getting files: %w", err)
@@ -287,44 +410,38 @@ func (s *Store) generateRepoMap(path string) (string, error) {
 			relPath = ""
 		}
 
-		// Skip empty directories and common non-code directories
-		if relPath == "" || strings.Contains(relPath, "test") || strings.Contains(relPath, "vendor") {
-			continue
-		}
-
-		// Only include directories with Go files
-		hasGoFiles := false
-		for _, file := range files {
-			if strings.HasSuffix(file, ".go") {
-				hasGoFiles = true
+		// Include directory if it contains a key file, otherwise skip empty/test/vendor directories
+		hasKeyFile := false
+		for keyFilePath := range keyFiles.Results {
+			if strings.HasPrefix(keyFilePath, dir) {
+				hasKeyFile = true
 				break
 			}
 		}
-		if !hasGoFiles {
+
+		if !hasKeyFile && (relPath == "" || strings.Contains(relPath, "test") || strings.Contains(relPath, "vendor")) {
 			continue
 		}
 
+		// Add directory
 		repomap.WriteString(fmt.Sprintf("%s/\n", relPath))
+
+		// Add only key files in this directory
+		for _, file := range files {
+			fullPath := filepath.Join(dir, file)
+			if _, ok := keyFiles.Results[fullPath]; ok {
+				repomap.WriteString(fmt.Sprintf("  %s\n", file))
+			}
+		}
 	}
 
-	// Add code structure analysis for Go files
+	// Add key files section
 	repomap.WriteString("\nKey files:\n")
 
-	// Rank files based on importance
-	type rankedFile struct {
-		path    string
-		score   float64
-		content string
-	}
-
-	var rankedFiles []rankedFile
-	for _, file := range files {
-		if !strings.HasSuffix(file, ".go") {
-			continue
-		}
+	for filePath, results := range keyFiles.Results {
 
 		// Get relative path for display
-		relPath, err := filepath.Rel(path, file)
+		relPath, err := filepath.Rel(path, filePath)
 		if err != nil {
 			continue
 		}
@@ -335,133 +452,102 @@ func (s *Store) generateRepoMap(path string) (string, error) {
 		}
 
 		// Parse the file with tree-sitter
-		tree, err := ParseFile(file)
+		tree, err := ParseFile(filePath)
 		if err != nil {
-			s.logger.Error(err, "Error parsing file", "file", file)
+			s.logger.Error(err, "Error parsing file", "file", filePath)
 			continue
 		}
 
-		// Calculate file score based on various factors
-		score := 0.0
-
-		// Add score for having a package declaration
-		if GetPackage(tree) != "" {
-			score += 1.0
+		content, err := getFileContent(relPath, tree, results)
+		if err != nil {
+			s.logger.Error(err, "Error getting file content", "file", filePath)
+			continue
 		}
-
-		// Add score for having imports
-		if len(GetImports(tree)) > 0 {
-			score += 0.5
-		}
-
-		// Add score for having types
-		if len(GetTypes(tree)) > 0 {
-			score += 0.5
-		}
-
-		// Add score for having structs
-		if len(GetStructs(tree)) > 0 {
-			score += 0.5
-		}
-
-		// Add score for having interfaces
-		if len(GetInterfaces(tree)) > 0 {
-			score += 0.5
-		}
-
-		// Add score for having functions
-		if len(GetFunctions(tree)) > 0 {
-			score += 0.5
-		}
-
-		// Generate compact file content
-		var content strings.Builder
-		content.WriteString(fmt.Sprintf("\n%s:\n", relPath))
-
-		// Get package name
-		if pkg := GetPackage(tree); pkg != "" {
-			content.WriteString(fmt.Sprintf("  pkg: %s\n", pkg))
-		}
-
-		// Get imports (limit to 3 most important)
-		imports := GetImports(tree)
-		if len(imports) > 0 {
-			content.WriteString("  imports: ")
-			if len(imports) > 3 {
-				content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(imports[:3], ", "), len(imports)-3))
-			} else {
-				content.WriteString(fmt.Sprintf("%s\n", strings.Join(imports, ", ")))
-			}
-		}
-
-		// Get types (limit to 3 most important)
-		types := GetTypes(tree)
-		if len(types) > 0 {
-			content.WriteString("  types: ")
-			if len(types) > 3 {
-				content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(types[:3], ", "), len(types)-3))
-			} else {
-				content.WriteString(fmt.Sprintf("%s\n", strings.Join(types, ", ")))
-			}
-		}
-
-		// Get structs (limit to 3 most important)
-		structs := GetStructs(tree)
-		if len(structs) > 0 {
-			content.WriteString("  structs: ")
-			if len(structs) > 3 {
-				content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(structs[:3], ", "), len(structs)-3))
-			} else {
-				content.WriteString(fmt.Sprintf("%s\n", strings.Join(structs, ", ")))
-			}
-		}
-
-		// Get interfaces (limit to 3 most important)
-		interfaces := GetInterfaces(tree)
-		if len(interfaces) > 0 {
-			content.WriteString("  interfaces: ")
-			if len(interfaces) > 3 {
-				content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(interfaces[:3], ", "), len(interfaces)-3))
-			} else {
-				content.WriteString(fmt.Sprintf("%s\n", strings.Join(interfaces, ", ")))
-			}
-		}
-
-		// Get functions (limit to 3 most important)
-		functions := GetFunctions(tree)
-		if len(functions) > 0 {
-			content.WriteString("  funcs: ")
-			if len(functions) > 3 {
-				content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(functions[:3], ", "), len(functions)-3))
-			} else {
-				content.WriteString(fmt.Sprintf("%s\n", strings.Join(functions, ", ")))
-			}
-		}
-
-		rankedFiles = append(rankedFiles, rankedFile{
-			path:    relPath,
-			score:   score,
-			content: content.String(),
-		})
-	}
-
-	// Sort files by score in descending order
-	sort.Slice(rankedFiles, func(i, j int) bool {
-		return rankedFiles[i].score > rankedFiles[j].score
-	})
-
-	// Take only the top 5 most important files
-	maxFiles := 5
-	if len(rankedFiles) > maxFiles {
-		rankedFiles = rankedFiles[:maxFiles]
-	}
-
-	// Add the top files to the repomap
-	for _, file := range rankedFiles {
-		repomap.WriteString(file.content)
+		repomap.WriteString(content)
 	}
 
 	return repomap.String(), nil
+}
+
+func getFileContent(path string, tree *sitter.Tree, results []chromem.Result) (string, error) {
+	// Generate compact file content
+	var content strings.Builder
+	content.WriteString(fmt.Sprintf("\n%s:\n", path))
+
+	// sort results by start_line
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Metadata["start_line"] < results[j].Metadata["start_line"]
+	})
+
+	// Get package name
+	if pkg := GetPackage(tree); pkg != "" {
+		content.WriteString(fmt.Sprintf("  pkg: %s\n", pkg))
+	}
+
+	// Get imports (limit to 3 most important)
+	imports := GetImports(tree)
+	if len(imports) > 0 {
+		content.WriteString("  imports: ")
+		if len(imports) > 3 {
+			content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(imports[:3], ", "), len(imports)-3))
+		} else {
+			content.WriteString(fmt.Sprintf("%s\n", strings.Join(imports, ", ")))
+		}
+	}
+
+	// Get types (limit to 3 most important)
+	types := GetTypes(tree)
+	if len(types) > 0 {
+		content.WriteString("  types: ")
+		if len(types) > 3 {
+			content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(types[:3], ", "), len(types)-3))
+		} else {
+			content.WriteString(fmt.Sprintf("%s\n", strings.Join(types, ", ")))
+		}
+	}
+
+	// Get structs (limit to 3 most important)
+	structs := GetStructs(tree)
+	if len(structs) > 0 {
+		content.WriteString("  structs: ")
+		if len(structs) > 3 {
+			content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(structs[:3], ", "), len(structs)-3))
+		} else {
+			content.WriteString(fmt.Sprintf("%s\n", strings.Join(structs, ", ")))
+		}
+	}
+
+	// Get interfaces (limit to 3 most important)
+	interfaces := GetInterfaces(tree)
+	if len(interfaces) > 0 {
+		content.WriteString("  interfaces: ")
+		if len(interfaces) > 3 {
+			content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(interfaces[:3], ", "), len(interfaces)-3))
+		} else {
+			content.WriteString(fmt.Sprintf("%s\n", strings.Join(interfaces, ", ")))
+		}
+	}
+
+	// Get functions (limit to 3 most important)
+	functions := GetFunctions(tree)
+	if len(functions) > 0 {
+		content.WriteString("  funcs: ")
+		if len(functions) > 3 {
+			content.WriteString(fmt.Sprintf("%s +%d more\n", strings.Join(functions[:3], ", "), len(functions)-3))
+		} else {
+			content.WriteString(fmt.Sprintf("%s\n", strings.Join(functions, ", ")))
+		}
+	}
+
+	for _, result := range results {
+		// Add the line number range from the key file
+		content.WriteString(fmt.Sprintf("  lines: %s-%s\n", result.Metadata["start_line"], result.Metadata["end_line"]))
+		// Add the content from the key file
+		content.WriteString("  content:\n")
+		content.WriteString(fmt.Sprintf("    %s\n", result.Content))
+	}
+
+	return content.String(), nil
 }
 
 func (s *Store) chunkDocument(content string, path string) []chromem.Document {
