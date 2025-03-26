@@ -236,17 +236,4 @@ function removeWorkflow(button) {
             workflowTitle.textContent = `Workflow ${newIndex + 1}`;
         }
     });
-    
-    // Reinitialize all workflow diagrams
-    initWorkflowDiagrams();
 }
-
-// Initialize diagrams when page loads
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize workflow diagrams
-    initWorkflowDiagrams();
-    
-    // ... existing code ...
-});
-
-// ... existing code ... 

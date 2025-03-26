@@ -183,11 +183,101 @@ func validateTargetPath(targetPath, basePath string, logger logr.Logger) (string
 	// Remove any leading slashes to prevent absolute path tricks
 	targetPath = strings.TrimPrefix(targetPath, "/")
 
+	// Check if targetPath already includes the basePath to avoid double inclusion
+	if strings.HasPrefix(targetPath, basePath) {
+		// If targetPath already has the basePath, remove it to avoid duplication
+		targetPath = strings.TrimPrefix(targetPath, basePath)
+		// Remove any leading slashes after trimming
+		targetPath = strings.TrimPrefix(targetPath, "/")
+		logger.Info("removed basePath from targetPath to avoid duplication",
+			"originalPath", targetPath,
+			"basePath", basePath)
+	}
 	// Join paths and get absolute paths
 	absBasePath, err := filepath.Abs(basePath)
 	if err != nil {
 		logger.Error(err, "failed to get absolute base path", "basePath", basePath)
 		return "", fmt.Errorf("failed to get absolute base path: %w", err)
+	}
+
+	// Check if the path is a subpath or just a filename
+	// For paths like "handlers/local.go" or just "local.go", we need to find the full path
+	if !filepath.IsAbs(targetPath) && !strings.HasPrefix(targetPath, "pkg/") {
+		// First, check if the direct path exists
+		directPath := filepath.Join(absBasePath, targetPath)
+		_, err := os.Stat(directPath)
+
+		if os.IsNotExist(err) {
+			// Path doesn't exist directly, try to find it
+			// Case 1: Try adding "pkg/" prefix if it appears to be a subpath
+			if strings.Contains(targetPath, "/") {
+				pkgPath := filepath.Join(absBasePath, "pkg", targetPath)
+				_, pkgErr := os.Stat(pkgPath)
+
+				if pkgErr == nil {
+					// Found the file in pkg/
+					logger.Info("found file by adding pkg/ prefix",
+						"originalPath", targetPath,
+						"fullPath", "pkg/"+targetPath)
+					targetPath = "pkg/" + targetPath
+				}
+			} else {
+				// Case 2: It's just a filename, try to find it anywhere
+				matches := []string{}
+
+				// Use a recursive function to find the file
+				err := filepath.Walk(absBasePath, func(path string, info os.FileInfo, err error) error {
+					if err != nil {
+						return nil // Skip errors
+					}
+
+					if !info.IsDir() && info.Name() == targetPath {
+						// Convert to relative path
+						rel, err := filepath.Rel(absBasePath, path)
+						if err == nil {
+							matches = append(matches, rel)
+						}
+					}
+					return nil
+				})
+
+				if err == nil && len(matches) > 0 {
+					// If we found exactly one match, use it
+					if len(matches) == 1 {
+						logger.Info("found unique file match for filename",
+							"filename", targetPath,
+							"fullPath", matches[0])
+						targetPath = matches[0]
+					} else {
+						// Multiple matches, prefer paths that include /handlers/ if filename suggests that
+						// This is a heuristic
+						bestMatch := ""
+						for _, match := range matches {
+							// Prefer matches in pkg/ directory
+							if strings.HasPrefix(match, "pkg/") {
+								bestMatch = match
+								break
+							}
+						}
+
+						if bestMatch != "" {
+							logger.Info("multiple matches found, using best match from pkg/ directory",
+								"filename", targetPath,
+								"fullPath", bestMatch,
+								"totalMatches", len(matches))
+							targetPath = bestMatch
+						} else {
+							// Just use the first match as fallback
+							logger.Info("multiple matches found, using first match",
+								"filename", targetPath,
+								"fullPath", matches[0],
+								"totalMatches", len(matches))
+							targetPath = matches[0]
+						}
+					}
+				}
+			}
+		}
 	}
 
 	absTargetPath := filepath.Join(absBasePath, targetPath)
@@ -242,7 +332,8 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 		// Validate and get absolute target path
 		absTargetPath, err := validateTargetPath(targetPath, basePath, logger)
 		if err != nil {
-			return err
+			logger.Error(err, "failed to validate target path", "targetPath", targetPath)
+			continue
 		}
 
 		if diff.IsDeleted {
@@ -300,6 +391,9 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 
 		// If the file doesn't exist but we're trying to modify it, treat it as a new file
 		if os.IsNotExist(err) {
+			// For non-existent files, we can allow writing to any line as it's effectively a new file
+			logger.Info("file doesn't exist, treating as a new file", "targetPath", targetPath)
+
 			// Create an empty file
 			var content strings.Builder
 			for _, hunk := range diff.Hunks {
@@ -318,8 +412,13 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 
 		// We have an existing file that needs modification
 		currentLines := strings.Split(string(fileContent), "\n")
-		// Remove trailing empty line if present
+
+		// Preserve trailing newline: Check if the file ends with a newline
+		endsWithNewline := false
 		if len(currentLines) > 0 && currentLines[len(currentLines)-1] == "" {
+			// File ends with a newline, remember this fact
+			endsWithNewline = true
+			// Remove the empty line for processing
 			currentLines = currentLines[:len(currentLines)-1]
 		}
 
@@ -349,12 +448,26 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 				}
 			}
 		} else {
-			// Write the updated content back to the file
-			if err := os.WriteFile(absTargetPath, []byte(strings.Join(newContent, "\n")), 0644); err != nil {
+			// Write the updated content back to the file, preserving trailing newline if it existed
+			fileContent := strings.Join(newContent, "\n")
+			if endsWithNewline {
+				fileContent += "\n"
+			}
+			if err := os.WriteFile(absTargetPath, []byte(fileContent), 0644); err != nil {
 				logger.Error(err, "failed to write file", "targetPath", targetPath)
 				return fmt.Errorf("failed to write file %s: %w", absTargetPath, err)
 			} else {
-				logger.Info("wrote file", "targetPath", targetPath)
+				// Create a detailed log message with all information under a single "content" key
+				contentMsg := fmt.Sprintf("Wrote file: %s (%d hunks applied, %d lines total)",
+					absTargetPath, len(diff.Hunks), len(newContent))
+
+				// Add hunks info to the message
+				for i, hunk := range diff.Hunks {
+					contentMsg += fmt.Sprintf("\n  Hunk %d: starting at line %d with %d lines",
+						i+1, hunk.StartLine, len(hunk.Lines))
+				}
+
+				logger.Info(contentMsg, "content", contentMsg)
 			}
 		}
 	}
@@ -374,54 +487,59 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 	copy(result, currentLines)
 
 	// Process each hunk
-	for _, hunk := range hunks {
-		// First, extract the context lines from the hunk (lines that should already exist)
+	for i, hunk := range hunks {
+		// First, try direct application with minimal context
 		contextLines, addedLines := extractContextAndAddedLines(hunk.Lines)
 
-		// If there are no context lines, we can't do smart matching
-		if len(contextLines) == 0 {
-			// Fall back to line number from diff
-			logger.Info("no context lines found in hunk, using line number from diff",
-				"lineNumber", hunk.StartLine)
-			result = applyHunkAtPosition(result, hunk, hunk.StartLine-1)
-			continue
-		}
-
-		// Try to find the best match for the context lines
-		positions, err := findContextMatches(result, contextLines)
-		if err != nil || len(positions) == 0 {
-			// If we can't find a match, fall back to the line number from the hunk
-			logger.Info("could not find context match for hunk, using line number from diff",
-				"error", err, "lineNumber", hunk.StartLine)
-			position := hunk.StartLine - 1
-			if position < 0 {
-				position = 0
+		// Try direct application first
+		if len(contextLines) > 0 {
+			// Try to find exact matches for the context
+			positions, err := findContextMatches(result, contextLines)
+			if err == nil && len(positions) > 0 {
+				// Found exact matches, try direct application
+				insertPosition := findInsertPosition(result, positions[0], contextLines, addedLines)
+				var skipped int
+				result, skipped = applyHunkAtPosition(result, hunk, insertPosition)
+				if skipped == 0 {
+					continue // Successfully applied
+				}
 			}
-			if position > len(result) {
-				position = len(result)
+		}
+
+		// If direct application failed, try with more flexible matching
+		if len(contextLines) > 0 {
+			// Try with reduced context
+			for drop := 0; drop <= len(contextLines); drop++ {
+				reducedContext := contextLines[drop:]
+				positions, err := findContextMatches(result, reducedContext)
+				if err == nil && len(positions) > 0 {
+					insertPosition := findInsertPosition(result, positions[0], reducedContext, addedLines)
+					var skipped int
+					result, skipped = applyHunkAtPosition(result, hunk, insertPosition)
+					if skipped == 0 {
+						break // Successfully applied
+					}
+				}
 			}
-			result = applyHunkAtPosition(result, hunk, position)
-			continue
 		}
 
-		// If we found multiple matches, log a warning but use the best one
-		if len(positions) > 1 {
-			logger.Info("multiple matches found for context lines, using best match",
-				"matchCount", len(positions), "usingPosition", positions[0])
+		// If still no success, try with just the line numbers from the diff
+		position := hunk.StartLine - 1
+		if position < 0 {
+			position = 0
+		}
+		if position > len(result) {
+			position = len(result)
 		}
 
-		// Create a hunk with just the added lines to insert at the matched position
-		addedHunk := &UDiffHunk{
-			StartLine: 0, // Not used for insertion
-			Lines:     addedLines,
+		var skipped int
+		result, skipped = applyHunkAtPosition(result, hunk, position)
+		if skipped > 0 {
+			logger.Info("applied hunk with fallback to line numbers",
+				"hunkIndex", i,
+				"position", position,
+				"skippedLines", skipped)
 		}
-
-		// Find the insertion point based on the context match
-		// We need to find where within the context match we should insert the new lines
-		insertPosition := findInsertPosition(result, positions[0], contextLines, addedLines)
-
-		// Apply just the added lines at the calculated position
-		result = applyHunkAtPosition(result, addedHunk, insertPosition)
 	}
 
 	return result, nil
@@ -432,32 +550,20 @@ func extractContextAndAddedLines(lines []string) ([]string, []string) {
 	var contextLines []string
 	var addedLines []string
 
-	// When parsing the hunk, we kept only context lines (unchanged) and added lines
-	// So, any lines already in the array are either context or added lines
-	// However, we need to differentiate them for smart matching
-
-	// For now, we'll assume all lines are context lines
-	// In a real diff, context lines would be marked with a space prefix and added with a + prefix
-	// But these are already parsed out in our case
-
-	// This is a naive approach, but can be improved with additional metadata during parsing
 	for _, line := range lines {
-		// For example, we might look for certain patterns to identify added lines
+		// Skip empty lines and common comment markers
 		if strings.TrimSpace(line) == "" ||
 			strings.HasPrefix(line, "//") ||
 			strings.HasPrefix(line, "/*") ||
 			strings.HasPrefix(line, " *") ||
 			strings.HasPrefix(line, "# ") {
-			// Common comment prefixes and whitespace are likely context lines
 			contextLines = append(contextLines, line)
 		} else {
-			// Assume non-comment, non-whitespace lines are the added content
 			addedLines = append(addedLines, line)
 		}
 	}
 
 	// If we couldn't identify any added lines, treat them all as added
-	// This will fall back to simpler behavior
 	if len(addedLines) == 0 {
 		return nil, lines
 	}
@@ -543,7 +649,8 @@ func findInsertPosition(fileLines []string, matchPos int, contextLines []string,
 }
 
 // applyHunkAtPosition applies a hunk at the specified position in the file
-func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) []string {
+// and detects duplicate lines to prevent adding them twice
+func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) ([]string, int) {
 	// Handle out-of-bounds positions
 	if position < 0 {
 		position = 0
@@ -558,13 +665,57 @@ func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) []st
 	// Add lines before the hunk
 	result = append(result, fileLines[:position]...)
 
-	// Add the hunk's lines
-	result = append(result, hunk.Lines...)
+	// Check if any of the hunk's lines already exist in the surrounding lines of the file
+	// to prevent duplication
+	linesToAdd := make([]string, 0, len(hunk.Lines))
+	skippedCount := 0
 
-	// Add lines after the hunk
+	for _, hunkLine := range hunk.Lines {
+		// Skip empty lines - they're common and not worth duplicate checking
+		if strings.TrimSpace(hunkLine) == "" {
+			linesToAdd = append(linesToAdd, hunkLine)
+			continue
+		}
+
+		// Check if this line already exists in the nearby lines of the file
+		isDuplicate := false
+
+		// Check both before and after the insertion point with wider range
+		// Check lines before the insertion point (within a reasonable range)
+		checkRangeBefore := 10
+		for i := 1; i <= checkRangeBefore && position-i >= 0; i++ {
+			if fileLines[position-i] == hunkLine {
+				isDuplicate = true
+				break
+			}
+		}
+
+		// If not found before, check lines after the insertion point
+		if !isDuplicate {
+			checkRangeAfter := 10
+			for i := 0; i < checkRangeAfter && position+i < len(fileLines); i++ {
+				if fileLines[position+i] == hunkLine {
+					isDuplicate = true
+					break
+				}
+			}
+		}
+
+		// Only add non-duplicate lines
+		if !isDuplicate {
+			linesToAdd = append(linesToAdd, hunkLine)
+		} else {
+			skippedCount++
+		}
+	}
+
+	// Add only the non-duplicate lines from the hunk
+	result = append(result, linesToAdd...)
+
+	// Add lines after the hunk, only if we're not at the end of the file
 	if position < len(fileLines) {
 		result = append(result, fileLines[position:]...)
 	}
 
-	return result
+	return result, skippedCount
 }
