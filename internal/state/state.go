@@ -35,6 +35,7 @@ type AppState struct {
 type GenAIProviders struct {
 	Ollama *genai.Provider
 	Gemini *genai.Provider
+	OpenAI *genai.Provider
 }
 
 type RemoteProviders struct {
@@ -88,6 +89,8 @@ func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) *G
 			providers.Ollama = genaiProvider
 		case genai.GEMINI:
 			providers.Gemini = genaiProvider
+		case genai.OPENAI:
+			providers.OpenAI = genaiProvider
 		}
 	}
 	return providers
@@ -109,6 +112,12 @@ func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genai
 				continue
 			}
 			agentOpts.Provider = genaiProviders.Gemini
+		case genai.OPENAI:
+			if genaiProviders.OpenAI == nil {
+				logger.Error(fmt.Errorf("openai provider not found"), "openai provider not found")
+				continue
+			}
+			agentOpts.Provider = genaiProviders.OpenAI
 		default:
 			logger.Error(fmt.Errorf("provider not found"), "provider not found")
 			continue
@@ -133,6 +142,8 @@ func initializeSystemAgents(logger logr.Logger, settingsInput settings.Settings,
 		systemAgentOpts.Provider = genaiProviders.Ollama
 	case genai.GEMINI:
 		systemAgentOpts.Provider = genaiProviders.Gemini
+	case genai.OPENAI:
+		systemAgentOpts.Provider = genaiProviders.OpenAI
 	}
 	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.CommitTemplate
 	agents[settings.CommitAgent] = agent.NewAgent(systemAgentOpts)

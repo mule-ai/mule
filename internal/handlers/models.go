@@ -33,6 +33,12 @@ func HandleModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		models = state.State.GenAI.Ollama.Models()
+	case "openai":
+		if state.State.GenAI.OpenAI == nil {
+			http.Error(w, "OpenAI provider not initialized", http.StatusInternalServerError)
+			return
+		}
+		models = state.State.GenAI.OpenAI.Models()
 	default:
 		http.Error(w, "unsupported provider", http.StatusBadRequest)
 		return

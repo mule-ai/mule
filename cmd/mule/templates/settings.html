@@ -27,6 +27,7 @@
                         <select name="aiProviders[{{$index}}].provider" class="input provider-select" onchange="handleProviderTypeChange(this)">
                             <option value="ollama" {{if eq $provider.Provider "ollama"}}selected{{end}}>Ollama</option>
                             <option value="gemini" {{if eq $provider.Provider "gemini"}}selected{{end}}>Gemini</option>
+                            <option value="openai" {{if eq $provider.Provider "openai"}}selected{{end}}>OpenAI</option>
                         </select>
                     </div>
 
@@ -69,6 +70,7 @@
                                 <option value="">Select a provider</option>
                                 <option value="ollama" {{if eq $agent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
                                 <option value="gemini" {{if eq $agent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
+                                <option value="openai" {{if eq $agent.ProviderName "openai"}}selected{{end}}>OpenAI</option>
                             </select>
                         </div>
                         <div class="form-group">
@@ -116,6 +118,7 @@
                     <option value="">Select a provider</option>
                     <option value="ollama" {{if eq .Settings.SystemAgent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
                     <option value="gemini" {{if eq .Settings.SystemAgent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
+                    <option value="openai" {{if eq .Settings.SystemAgent.ProviderName "openai"}}selected{{end}}>OpenAI</option>
                 </select>
             </div>
             <div class="form-group">
@@ -790,6 +793,7 @@ function createProviderHTML(index) {
                 <select name="aiProviders[${index}].provider" class="input provider-select" onchange="handleProviderTypeChange(this)">
                     <option value="ollama">Ollama</option>
                     <option value="gemini">Gemini</option>
+                    <option value="openai">OpenAI</option>
                 </select>
             </div>
             <div class="provider-settings">
@@ -854,6 +858,7 @@ function createAgentHTML(index) {
                         <option value="">Select a provider</option>
                         <option value="ollama">Ollama</option>
                         <option value="gemini">Gemini</option>
+                        <option value="openai">OpenAI</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -995,6 +1000,26 @@ async function loadValidationFunctions(container, selectedFunctions = []) {
 function handleProviderTypeChange(select) {
     // Currently no special handling needed for provider type changes
     // But keeping the function for future extensibility
+    
+    // Make sure API Key and Server fields are appropriately labeled for different providers
+    const provider = select.closest('.ai-provider');
+    const apiKeyLabel = provider.querySelector('.provider-settings .form-group:first-child label');
+    const serverLabel = provider.querySelector('.provider-settings .form-group:last-child label');
+    
+    // Update labels based on provider type
+    if (select.value === 'openai') {
+        apiKeyLabel.textContent = 'API Key';
+        serverLabel.textContent = 'Base URL';
+        serverLabel.nextElementSibling.placeholder = 'Enter OpenAI API URL (leave empty for default)';
+    } else if (select.value === 'gemini') {
+        apiKeyLabel.textContent = 'API Key';
+        serverLabel.textContent = 'Server';
+        serverLabel.nextElementSibling.placeholder = 'Enter server URL';
+    } else if (select.value === 'ollama') {
+        apiKeyLabel.textContent = 'API Key';
+        serverLabel.textContent = 'Server';
+        serverLabel.nextElementSibling.placeholder = 'Enter server URL';
+    }
 }
 
 async function handleAgentProviderChange(select) {
@@ -1425,6 +1450,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize drag and drop for workflow steps
     initDragAndDrop();
+    
+    // Initialize provider field labels
+    document.querySelectorAll('.ai-provider').forEach(provider => {
+        const select = provider.querySelector('.provider-select');
+        if (select) {
+            handleProviderTypeChange(select);
+        }
+    });
 
     // Initialize system agent
     const systemSection = document.getElementById('system');
