@@ -49,6 +49,199 @@ function updateWorkflowDiagram(workflowIndex) {
     });
 }
 
+
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+function showLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'block');
+
+// Handle local issue editing form submission
+document.getElementById('local-edit-form').addEventListener('submit', async (e) => {
+
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+}
+
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+}
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+function showLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'block');
+
+// Handle local issue editing form submission
+document.getElementById('local-edit-form').addEventListener('submit', async (e) => {
+
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+function showLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'block');
+
+// Handle local issue editing form submission
+document.getElementById('local-edit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+}
+
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+}
+
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+function showLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'block');
+
+// Handle local issue editing form submission
+document.getElementById('local-edit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+
+}
+
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+}
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
 function initWorkflowDiagrams() {
     const workflows = document.querySelectorAll('.workflow');
     workflows.forEach((workflow, index) => {
@@ -81,6 +274,30 @@ function addWorkflowStep(workflowIndex) {
                         .map(opt => opt.outerHTML)
                         .join('')}
                 </select>
+function showLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'block');
+}
+
+// Handle local issue editing form submission
+document.getElementById('local-edit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+}
             </div>
             <div class="form-group">
                 <label class="checkbox-item">
@@ -104,6 +321,30 @@ function addWorkflowStep(workflowIndex) {
                 <label class="label">Output Field</label>
                 <select name="workflows[${workflowIndex}].steps[${stepCount}].outputField" class="input output-field-select">
                     <option value="">Select output field</option>
+function showLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'block');
+}
+
+// Handle local issue editing form submission
+document.getElementById('local-edit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const issueNumber = document.getElementById('issue-number-to-edit').value;
+    try {
+        // Fetch issue content from backend
+        const response = await fetch(`/api/issues/local/${issueNumber}`, {
+            method: 'GET'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('issue-content').value = data.content;
+        }
+    } catch (error) {
+        console.error('Error fetching issue:', error);
+    }
+
+function hideLocalEditUI() {
+    document.querySelectorAll('.edit-local-issue').forEach(el => el.style.display = 'none');
+}
                     <option value="generatedText">Generated Text</option>
                     <option value="extractedCode">Extracted Code</option>
                     <option value="summary">Summary</option>

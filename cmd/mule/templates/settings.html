@@ -20,6 +20,19 @@
 
         <div id="providers" class="tab-content">
             <div id="aiProviders">
+    <input type="hidden" name="path" value="{{.Path}}">
+    <button type="submit">Edit Issue</button>
+</form>
+</div>
+<div class="settings-section">
+<button id="enableLocalEdit" onclick="toggleLocalEdit()">Enable Local Issue Editing</button>
+<!-- existing settings -->
+<form id="edit-issue-form">
+    <input type="number" id="issue-number" placeholder="Issue Number">
+    <input type="hidden" name="path" value="{{.Path}}">
+    <button type="submit">Edit Issue</button>
+</form>
+</div>
                 {{range $index, $provider := .Settings.AIProviders}}
                 <div class="ai-provider" data-index="{{$index}}">
                     <div class="form-group">
