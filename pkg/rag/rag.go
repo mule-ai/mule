@@ -642,6 +642,14 @@ func (s *Store) chunkDocument(content string, path string) []chromem.Document {
 
 			for _, c := range m.Captures {
 				node := c.Node
+
+				// Skip nodes with invalid byte ranges
+				if (node.StartByte() > uint32(len(content)) || node.EndByte() > uint32(len(content))) ||
+					(node.EndByte() < node.StartByte()) {
+					s.logger.Error(fmt.Errorf("invalid byte range: %d-%d", node.StartByte(), node.EndByte()), "skipping context due to invalid byte range")
+					continue
+				}
+
 				// Get the node's content
 				nodeContent := string(content[node.StartByte():node.EndByte()])
 

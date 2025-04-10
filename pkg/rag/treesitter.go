@@ -111,14 +111,15 @@ func GetFunctions(tree *sitter.Tree) []string {
 
 		var name, params, result string
 		for _, c := range m.Captures {
+			end := min(c.Node.EndByte(), uint32(len(sourceContent)))
 			switch c.Node.Type() {
 			case "identifier":
-				name = string(sourceContent[c.Node.StartByte():c.Node.EndByte()])
+				name = string(sourceContent[c.Node.StartByte():end])
 			case "parameter_list":
-				params = string(sourceContent[c.Node.StartByte():c.Node.EndByte()])
+				params = string(sourceContent[c.Node.StartByte():end])
 			default:
 				if c.Node.Parent().Type() == "function_declaration" {
-					result = string(sourceContent[c.Node.StartByte():c.Node.EndByte()])
+					result = string(sourceContent[c.Node.StartByte():end])
 				}
 			}
 		}
@@ -163,7 +164,8 @@ func GetTypes(tree *sitter.Tree) []string {
 		for _, c := range m.Captures {
 			switch c.Node.Type() {
 			case "type_identifier":
-				name = string(sourceContent[c.Node.StartByte():c.Node.EndByte()])
+				end := min(c.Node.EndByte(), uint32(len(sourceContent)))
+				name = string(sourceContent[c.Node.StartByte():end])
 			default:
 				if c.Node.Parent().Type() == "type_spec" {
 					typeDef = string(sourceContent[c.Node.StartByte():c.Node.EndByte()])
