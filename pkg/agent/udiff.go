@@ -479,8 +479,11 @@ func ApplyUDiffs(diffs []*UDiffFile, basePath string, logger logr.Logger) error 
 // rather than relying on line numbers from the diff
 func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.Logger) ([]string, error) {
 	if len(hunks) == 0 {
+		logger.Info("no hunks to apply")
 		return currentLines, nil
 	}
+
+	logger.Info("applying hunks", "totalHunks", len(hunks))
 
 	// Copy the current content to avoid modifying the original
 	result := make([]string, len(currentLines))
@@ -488,21 +491,29 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 
 	// Process each hunk
 	for i, hunk := range hunks {
+		logger.Info("processing hunk", "hunkIndex", i, "startLine", hunk.StartLine, "numLines", len(hunk.Lines))
+
 		// First, try direct application with minimal context
 		contextLines, addedLines := extractContextAndAddedLines(hunk.Lines)
+		logger.Info("extracted context", "contextLines", len(contextLines), "addedLines", len(addedLines))
 
 		// Try direct application first
 		if len(contextLines) > 0 {
 			// Try to find exact matches for the context
 			positions, err := findContextMatches(result, contextLines)
 			if err == nil && len(positions) > 0 {
+				logger.Info("found context matches", "numMatches", len(positions))
 				// Found exact matches, try direct application
 				insertPosition := findInsertPosition(result, positions[0], contextLines, addedLines)
 				var skipped int
 				result, skipped = applyHunkAtPosition(result, hunk, insertPosition)
 				if skipped == 0 {
+					logger.Info("successfully applied hunk with context matching")
 					continue // Successfully applied
 				}
+				logger.Info("context match application failed", "skippedLines", skipped)
+			} else {
+				logger.Info("no context matches found", "error", err)
 			}
 		}
 
@@ -513,12 +524,15 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 				reducedContext := contextLines[drop:]
 				positions, err := findContextMatches(result, reducedContext)
 				if err == nil && len(positions) > 0 {
+					logger.Info("found reduced context matches", "drop", drop, "numMatches", len(positions))
 					insertPosition := findInsertPosition(result, positions[0], reducedContext, addedLines)
 					var skipped int
 					result, skipped = applyHunkAtPosition(result, hunk, insertPosition)
 					if skipped == 0 {
+						logger.Info("successfully applied hunk with reduced context")
 						break // Successfully applied
 					}
+					logger.Info("reduced context match application failed", "skippedLines", skipped)
 				}
 			}
 		}
@@ -532,6 +546,7 @@ func applyHunksByContent(currentLines []string, hunks []*UDiffHunk, logger logr.
 			position = len(result)
 		}
 
+		logger.Info("falling back to line number based application", "position", position)
 		var skipped int
 		result, skipped = applyHunkAtPosition(result, hunk, position)
 		if skipped > 0 {
@@ -665,36 +680,32 @@ func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) ([]s
 	// Add lines before the hunk
 	result = append(result, fileLines[:position]...)
 
-	// Check if any of the hunk's lines already exist in the surrounding lines of the file
-	// to prevent duplication
-	linesToAdd := make([]string, 0, len(hunk.Lines))
-	skippedCount := 0
-
-	for _, hunkLine := range hunk.Lines {
-		// Skip empty lines - they're common and not worth duplicate checking
-		if strings.TrimSpace(hunkLine) == "" {
-			linesToAdd = append(linesToAdd, hunkLine)
+	// Add the hunk's lines
+	linesAdded := 0
+	for _, line := range hunk.Lines {
+		// Skip empty lines
+		if strings.TrimSpace(line) == "" {
+			result = append(result, line)
+			linesAdded++
 			continue
 		}
 
-		// Check if this line already exists in the nearby lines of the file
+		// Check if this line already exists in the nearby lines
 		isDuplicate := false
+		checkRange := 5 // Reduced range for duplicate checking
 
-		// Check both before and after the insertion point with wider range
-		// Check lines before the insertion point (within a reasonable range)
-		checkRangeBefore := 10
-		for i := 1; i <= checkRangeBefore && position-i >= 0; i++ {
-			if fileLines[position-i] == hunkLine {
+		// Check lines before
+		for i := 1; i <= checkRange && position-i >= 0; i++ {
+			if fileLines[position-i] == line {
 				isDuplicate = true
 				break
 			}
 		}
 
-		// If not found before, check lines after the insertion point
+		// Check lines after
 		if !isDuplicate {
-			checkRangeAfter := 10
-			for i := 0; i < checkRangeAfter && position+i < len(fileLines); i++ {
-				if fileLines[position+i] == hunkLine {
+			for i := 0; i < checkRange && position+i < len(fileLines); i++ {
+				if fileLines[position+i] == line {
 					isDuplicate = true
 					break
 				}
@@ -703,19 +714,15 @@ func applyHunkAtPosition(fileLines []string, hunk *UDiffHunk, position int) ([]s
 
 		// Only add non-duplicate lines
 		if !isDuplicate {
-			linesToAdd = append(linesToAdd, hunkLine)
-		} else {
-			skippedCount++
+			result = append(result, line)
+			linesAdded++
 		}
 	}
 
-	// Add only the non-duplicate lines from the hunk
-	result = append(result, linesToAdd...)
-
-	// Add lines after the hunk, only if we're not at the end of the file
+	// Add lines after the hunk
 	if position < len(fileLines) {
 		result = append(result, fileLines[position:]...)
 	}
 
-	return result, skippedCount
+	return result, linesAdded
 }

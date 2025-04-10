@@ -726,6 +726,9 @@ textarea.input {
 </style>
 
 <script>
+// Add nextAgentId counter at the top of the script
+let nextAgentId = 10; // Start at 10 since 0-9 are reserved for system
+
 // Add tab switching functionality
 function initTabs() {
     const tabs = document.querySelectorAll('.tab-button');
@@ -835,8 +838,8 @@ function reindexProviders() {
 
 // Agent management
 function createAgentHTML(index) {
-    // Calculate agent ID (start at 10 as 0-9 are reserved for system)
-    const agentID = index + 10;
+    // Use and increment nextAgentId instead of calculating from index
+    const agentID = nextAgentId++;
     
     return `
         <div class="agent" data-index="${index}" data-agent-id="${agentID}">
@@ -1438,6 +1441,15 @@ function handleDefaultWorkflowChange(checkbox) {
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize nextAgentId based on existing agents
+    const existingAgents = document.querySelectorAll('.agent');
+    existingAgents.forEach(agent => {
+        const agentId = parseInt(agent.dataset.agentId || '0', 10);
+        if (agentId >= nextAgentId) {
+            nextAgentId = agentId + 1;
+        }
+    });
+
     initTabs();
     
     // Initialize collapsible sections
