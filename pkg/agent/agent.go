@@ -28,7 +28,7 @@ type Agent struct {
 	systemPrompt   string
 	tools          []*tools.Tool
 	logger         logr.Logger
-	name           string
+	Name           string
 	path           string
 	rag            *rag.Store
 	udiffSettings  UDiffSettings
@@ -67,7 +67,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		promptTemplate: opts.PromptTemplate,
 		systemPrompt:   opts.SystemPrompt,
 		logger:         opts.Logger,
-		name:           opts.Name,
+		Name:           opts.Name,
 		// I don't like this, but it's a hack to get the path to the repository
 		path:          opts.Path,
 		rag:           opts.RAG,

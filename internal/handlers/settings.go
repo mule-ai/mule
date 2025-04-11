@@ -40,35 +40,18 @@ func HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSettingsChange(newSettings settings.Settings) error {
-	// TODO:
-	// This needs to get updated to properly recreate the appstate
-	// if the AI providers get recreated, the agents will need to be recreated
-	// therefor the agents referenced by the repositories will need to be recreated
-	/*
-		state.State.Mu.RLock()
-		oldSettings := state.State.Settings
-		state.State.Mu.RUnlock()
-
-		refreshAiProvider := oldSettings.Provider != newSettings.Provider ||
-			oldSettings.APIKey != newSettings.APIKey ||
-			oldSettings.Server != newSettings.Server
-
-		state.State.Mu.Lock()
-		if refreshAiProvider {
-			// TODO: provide the logger
-			genaiProvider, err := genai.NewProvider(newSettings.Provider, genai.ProviderOptions{
-				APIKey:  newSettings.APIKey,
-				BaseURL: newSettings.Server,
-			})
-			if err != nil {
-				return fmt.Errorf("error initializing GenAI provider: %v", err)
-			}
-			state.State.GenAI = genaiProvider
-		}
-	*/
 	state.State.Mu.Lock()
 	state.State.Settings = newSettings
 	state.State.Mu.Unlock()
+
+	// Update agents and workflows after settings are updated.
+	if err := state.State.UpdateAgents(); err != nil {
+		return err
+	}
+	if err := state.State.UpdateWorkflows(); err != nil {
+		return err
+	}
+
 	configPath, err := os.UserHomeDir()
 	if err != nil {
 		return err
