@@ -119,7 +119,7 @@ func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genai
 			}
 			agentOpts.Provider = genaiProviders.OpenAI
 		default:
-			logger.Error(fmt.Errorf("provider not found"), "provider not found")
+			logger.Error(fmt.Errorf("provider %s not found", agentOpts.ProviderName), "provider not found")
 			continue
 		}
 		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
@@ -190,4 +190,83 @@ func initializeWorkflows(settingsInput settings.Settings) map[string]struct {
 		}
 	}
 	return workflows
+}
+
+// UpdateAgents re-initializes the agents based on the new settings.
+func (s *AppState) UpdateAgents() error {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	// Re-initialize GenAI providers
+	genaiProviders := initializeGenAIProviders(s.Logger, s.Settings)
+
+	// Re-initialize system agents
+	systemAgents := initializeSystemAgents(s.Logger, s.Settings, genaiProviders)
+
+	// Re-initialize agents
+	agents := initializeAgents(s.Logger, s.Settings, genaiProviders, s.RAG)
+
+	// Merge agents
+	agents = mergeAgents(agents, systemAgents)
+
+	// Update the AppState's agents
+	s.Agents = agents
+
+	// Update any references to agents in workflows or other parts of the application.
+	for workflowName, workflow := range s.Workflows {
+		for i, step := range workflow.Steps {
+			if agent, ok := s.Agents[step.AgentID]; ok {
+				workflow.Steps[i].AgentName = agent.Name // Keep agent name updated
+			} else {
+				s.Logger.Error(fmt.Errorf("agent not found"), "agent not found", "agentID", step.AgentID)
+			}
+		}
+		s.Workflows[workflowName] = workflow
+	}
+	return nil
+}
+
+// UpdateWorkflows re-initializes the workflows based on the new settings.
+func (s *AppState) UpdateWorkflows() error {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	workflows := initializeWorkflows(s.Settings)
+	s.Workflows = workflows
+
+	// Update the scheduler with the new workflows.
+	for repoPath, repo := range s.Repositories {
+		// Remove the existing task.
+		s.Scheduler.RemoveTask(repoPath)
+
+		// Add a new task with the updated schedule and workflow.
+		defaultWorkflow := s.Workflows["default"]
+		err := s.Scheduler.AddTask(repoPath, repo.Schedule, func() {
+			err := repo.Sync(s.Agents, defaultWorkflow)
+			if err != nil {
+				s.Logger.Error(err, "Error syncing repo")
+			}
+		})
+		if err != nil {
+			s.Logger.Error(err, "Error adding task to scheduler", "repoPath", repoPath)
+		}
+	}
+	return nil
+}
+
+// ReloadSettings reloads settings, agents and workflows
+func (s *AppState) ReloadSettings(newSettings settings.Settings) error {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	s.Settings = newSettings
+
+	if err := s.UpdateAgents(); err != nil {
+		return err
+	}
+
+	if err := s.UpdateWorkflows(); err != nil {
+		return err
+	}
+
+	return nil
 }
