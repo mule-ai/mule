@@ -162,13 +162,14 @@ func GetTypes(tree *sitter.Tree) []string {
 
 		var name, typeDef string
 		for _, c := range m.Captures {
+			start := min(c.Node.StartByte(), uint32(len(sourceContent)-1))
+			end := min(c.Node.EndByte(), uint32(len(sourceContent)-1))
 			switch c.Node.Type() {
 			case "type_identifier":
-				end := min(c.Node.EndByte(), uint32(len(sourceContent)))
-				name = string(sourceContent[c.Node.StartByte():end])
+				name = string(sourceContent[start:end])
 			default:
 				if c.Node.Parent().Type() == "type_spec" {
-					typeDef = string(sourceContent[c.Node.StartByte():c.Node.EndByte()])
+					typeDef = string(sourceContent[start:end])
 				}
 			}
 		}
