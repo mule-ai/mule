@@ -119,7 +119,7 @@ func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genai
 			}
 			agentOpts.Provider = genaiProviders.OpenAI
 		default:
-			logger.Error(fmt.Errorf("provider not found"), "provider not found")
+			logger.Error(fmt.Errorf("provider %s not found", agentOpts.ProviderName), "provider not found")
 			continue
 		}
 		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
