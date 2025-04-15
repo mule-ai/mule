@@ -62,58 +62,87 @@ func main() {
 	mux := http.NewServeMux()
 
 	// API routes
-	mux.HandleFunc("/api/repositories", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handlers.HandleListRepositories(w, r)
-		case http.MethodPost:
-			handlers.HandleAddRepository(w, r)
-		case http.MethodDelete:
-			handlers.HandleDeleteRepository(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.HandleFunc("/api/repositories", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet:    handlers.HandleListRepositories,
+		http.MethodPost:   handlers.HandleAddRepository,
+		http.MethodDelete: handlers.HandleDeleteRepository,
+	}))
 
-	mux.HandleFunc("/api/repositories/clone", methodHandler(http.MethodPost, handlers.HandleCloneRepository))
-	mux.HandleFunc("/api/repositories/update", methodHandler(http.MethodPost, handlers.HandleUpdateRepository))
-	mux.HandleFunc("/api/repositories/sync", methodHandler(http.MethodPost, handlers.HandleSyncRepository))
-	mux.HandleFunc("/api/repositories/provider", methodHandler(http.MethodPost, handlers.HandleSwitchProvider))
+	mux.HandleFunc("/api/repositories/clone", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleCloneRepository,
+	}))
+	mux.HandleFunc("/api/repositories/update", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleUpdateRepository,
+	}))
+	mux.HandleFunc("/api/repositories/sync", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleSyncRepository,
+	}))
+	mux.HandleFunc("/api/repositories/provider", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleSwitchProvider,
+	}))
 
-	mux.HandleFunc("/api/models", methodHandler(http.MethodGet, handlers.HandleModels))
-	mux.HandleFunc("/api/tools", methodHandler(http.MethodGet, handlers.HandleTools))
-	mux.HandleFunc("/api/validation-functions", methodHandler(http.MethodGet, handlers.HandleValidationFunctions))
-	mux.HandleFunc("/api/template-values", methodHandler(http.MethodGet, handlers.HandleTemplateValues))
-	mux.HandleFunc("/api/workflow-output-fields", methodHandler(http.MethodGet, handlers.HandleWorkflowOutputFields))
-	mux.HandleFunc("/api/workflow-input-mappings", methodHandler(http.MethodGet, handlers.HandleWorkflowInputMappings))
+	mux.HandleFunc("/api/models", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleModels,
+	}))
+	mux.HandleFunc("/api/tools", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleTools,
+	}))
+	mux.HandleFunc("/api/validation-functions", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleValidationFunctions,
+	}))
+	mux.HandleFunc("/api/template-values", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleTemplateValues,
+	}))
+	mux.HandleFunc("/api/workflow-output-fields", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleWorkflowOutputFields,
+	}))
+	mux.HandleFunc("/api/workflow-input-mappings", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleWorkflowInputMappings,
+	}))
 
 	// GitHub API routes
-	mux.HandleFunc("/api/github/repositories", methodHandler(http.MethodGet, handlers.HandleGitHubRepositories))
-	mux.HandleFunc("/api/github/issues", methodHandler(http.MethodGet, handlers.HandleGitHubIssues))
+	mux.HandleFunc("/api/github/repositories", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleGitHubRepositories,
+	}))
+	mux.HandleFunc("/api/github/issues", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleGitHubIssues,
+	}))
 
 	// Local provider routes
-	mux.HandleFunc("/api/local/issues", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			handlers.HandleCreateLocalIssue(w, r)
-		case http.MethodDelete:
-			handlers.HandleDeleteLocalIssue(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.HandleFunc("/api/local/issues", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost:   handlers.HandleCreateLocalIssue,
+		http.MethodDelete: handlers.HandleDeleteLocalIssue,
+	}))
 
-	mux.HandleFunc("/api/local/issues/update", methodHandler(http.MethodPost, handlers.HandleUpdateLocalIssue))
-	mux.HandleFunc("/api/local/pullrequests", methodHandler(http.MethodDelete, handlers.HandleDeleteLocalPullRequest))
-	mux.HandleFunc("/api/local/comments", methodHandler(http.MethodPost, handlers.HandleAddLocalComment))
-	mux.HandleFunc("/api/local/reactions", methodHandler(http.MethodPost, handlers.HandleAddLocalReaction))
-	mux.HandleFunc("/api/local/diff", methodHandler(http.MethodGet, handlers.HandleGetLocalDiff))
-	mux.HandleFunc("/api/local/labels", methodHandler(http.MethodPost, handlers.HandleAddLocalLabel))
-	mux.HandleFunc("/api/local/issues/state", methodHandler(http.MethodPost, handlers.HandleUpdateLocalIssueState))
-	mux.HandleFunc("/api/local/pullrequests/state", methodHandler(http.MethodPost, handlers.HandleUpdateLocalPullRequestState))
+	mux.HandleFunc("/api/local/issues/update", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleUpdateLocalIssue,
+	}))
+	mux.HandleFunc("/api/local/pullrequests", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodDelete: handlers.HandleDeleteLocalPullRequest,
+	}))
+	mux.HandleFunc("/api/local/comments", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleAddLocalComment,
+	}))
+	mux.HandleFunc("/api/local/reactions", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleAddLocalReaction,
+	}))
+	mux.HandleFunc("/api/local/diff", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodGet: handlers.HandleGetLocalDiff,
+	}))
+	mux.HandleFunc("/api/local/labels", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleAddLocalLabel,
+	}))
+	mux.HandleFunc("/api/local/issues/state", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleUpdateLocalIssueState,
+	}))
+	mux.HandleFunc("/api/local/pullrequests/state", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleUpdateLocalPullRequestState,
+	}))
 
 	// Settings routes
-	mux.HandleFunc("/api/settings", methodHandler(http.MethodPost, handlers.HandleUpdateSettings))
+	mux.HandleFunc("/api/settings", methodsHandler(map[string]http.HandlerFunc{
+		http.MethodPost: handlers.HandleUpdateSettings,
+	}))
 
 	// Web routes
 	mux.HandleFunc("/", handleHome)
@@ -159,13 +188,14 @@ func main() {
 }
 
 // Helper function to handle specific HTTP methods
-func methodHandler(method string, handler http.HandlerFunc) http.HandlerFunc {
+func methodsHandler(handlers map[string]http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != method {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		if handler, ok := handlers[r.Method]; ok {
+			handler(w, r)
 			return
 		}
-		handler(w, r)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
