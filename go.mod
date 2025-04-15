@@ -8,7 +8,6 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/zapr v1.3.0
 	github.com/google/go-github/v60 v60.0.0
-	github.com/gorilla/mux v1.8.1
 	github.com/jbutlerdev/genai v0.0.0-20250320023014-e16dc3ff3d53
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/robfig/cron/v3 v3.0.1
