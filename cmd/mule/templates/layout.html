@@ -254,6 +254,7 @@
             }
         }
     </style>
+    <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
 <body>
     <nav class="navbar">
@@ -268,6 +269,30 @@
                 <a href="/settings" class="{{if eq .Page "settings"}}active{{end}}">Settings</a>
             </div>
         </div>
+       <style>
+           .htmx-indicator {
+               display: none;
+               margin-left: 0.5rem;
+           }
+           .htmx-request .htmx-indicator{
+               display: inline-block;
+           }
+           .htmx-request.htmx-indicator{
+               display: inline-block;
+           }
+           .spinner {
+               width: 16px;
+               height: 16px;
+               border: 2px solid currentColor;
+               border-top-color: transparent;
+               border-radius: 50%;
+               animation: spin 1s linear infinite;
+           }
+           @keyframes spin {
+               0% { transform: rotate(0deg); }
+               100% { transform: rotate(360deg); }
+           }
+       </style>
     </nav>
     <main class="container">
         {{if eq .Page "home"}}

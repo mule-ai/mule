@@ -1,52 +1,29 @@
 {{define "settings"}}
 <div class="card">
     <h2>Settings</h2>
-    <div class="tabs">
-        <button class="tab-button active" data-tab="general">General</button>
-        <button class="tab-button" data-tab="providers">AI Providers</button>
-        <button class="tab-button" data-tab="agents">Agents</button>
-        <button class="tab-button" data-tab="system">System Agent</button>
-        <button class="tab-button" data-tab="workflows">Workflows</button>
+    <div class="tabs" hx-target="#settings-tab-content" hx-swap="innerHTML">
+        <button class="tab-button {{if eq .CurrentTab "general"}}active{{end}}" hx-get="/settings/tabs/general" hx-push-url="/settings?tab=general">General</button>
+        <button class="tab-button {{if eq .CurrentTab "providers"}}active{{end}}" hx-get="/settings/tabs/providers" hx-push-url="/settings?tab=providers">AI Providers</button>
+        <button class="tab-button {{if eq .CurrentTab "agents"}}active{{end}}" hx-get="/settings/tabs/agents" hx-push-url="/settings?tab=agents">Agents</button>
+        <button class="tab-button {{if eq .CurrentTab "system"}}active{{end}}" hx-get="/settings/tabs/system" hx-push-url="/settings?tab=system">System Agent</button>
+        <button class="tab-button {{if eq .CurrentTab "workflows"}}active{{end}}" hx-get="/settings/tabs/workflows" hx-push-url="/settings?tab=workflows">Workflows</button>
     </div>
 
     <form id="settingsForm" onsubmit="return handleUpdateSettings(event)">
         <div id="general" class="tab-content active">
-            <div class="form-group">
-                <label class="label">GitHub Token</label>
-                <input type="password" id="githubToken" name="githubToken" class="input" value="{{.Settings.GitHubToken}}" placeholder="Enter your GitHub token">
-                <small class="help-text">Required for creating pull requests. Token should have 'repo' scope.</small>
-            </div>
+        <div id="settings-tab-content">
+            {{/* Initial content is rendered server-side, HTMX swaps this */}}
+            {{template "settings-tab-content" .}}
         </div>
 
-        <div id="providers" class="tab-content">
-            <div id="aiProviders">
-                {{range $index, $provider := .Settings.AIProviders}}
-                <div class="ai-provider" data-index="{{$index}}">
-                    <div class="form-group">
-                        <label class="label">Provider Type</label>
-                        <select name="aiProviders[{{$index}}].provider" class="input provider-select" onchange="handleProviderTypeChange(this)">
-                            <option value="ollama" {{if eq $provider.Provider "ollama"}}selected{{end}}>Ollama</option>
-                            <option value="gemini" {{if eq $provider.Provider "gemini"}}selected{{end}}>Gemini</option>
-                            <option value="openai" {{if eq $provider.Provider "openai"}}selected{{end}}>OpenAI</option>
-                        </select>
-                    </div>
-
-                    <div class="provider-settings">
-                        <div class="form-group">
-                            <label class="label">API Key</label>
-                            <input type="password" name="aiProviders[{{$index}}].apiKey" class="input" value="{{$provider.APIKey}}" placeholder="Enter API key">
-                        </div>
-                        <div class="form-group">
-                            <label class="label">Server</label>
-                            <input type="text" name="aiProviders[{{$index}}].server" class="input" value="{{$provider.Server}}" placeholder="Enter server URL">
-                        </div>
-                    </div>
-                    <button type="button" class="button secondary remove-provider" onclick="removeProvider(this)">Remove Provider</button>
-                </div>
-                {{end}}
-            </div>
-            <button type="button" class="button secondary" onclick="addProvider()">Add AI Provider</button>
-        </div>
+        {{/* OLD Content - Will be moved into settings-tab-content template below */}}
+        <!--
+        <div id="general" class="tab-content active"> ... </div>
+        <div id="providers" class="tab-content"> ... </div>
+        <div id="agents" class="tab-content"> ... </div>
+        <div id="system" class="tab-content"> ... </div>
+        <div id="workflows" class="tab-content"> ... </div>
+        -->
 
         <div id="agents" class="tab-content">
             <div id="agents">
