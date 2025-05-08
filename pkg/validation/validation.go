@@ -23,7 +23,7 @@ func Run(in *ValidationInput) (string, error) {
 	for _, validation := range in.Validations {
 		out, err := validation(in.Path)
 		if err != nil {
-			in.Logger.Error(err, "validation failed", "output", out)
+			in.Logger.Error(err, "validation failed\n\n"+out)
 			return out, fmt.Errorf("validation failed")
 		}
 	}

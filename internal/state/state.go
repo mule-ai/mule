@@ -22,7 +22,7 @@ type AppState struct {
 	Scheduler    *scheduler.Scheduler
 	Mu           sync.RWMutex
 	Logger       logr.Logger
-	GenAI        *GenAIProviders
+	GenAI        map[string]*genai.Provider
 	Remote       *RemoteProviders
 	Agents       map[int]*agent.Agent
 	RAG          *rag.Store
@@ -30,12 +30,6 @@ type AppState struct {
 		Steps               []agent.WorkflowStep
 		ValidationFunctions []string
 	}
-}
-
-type GenAIProviders struct {
-	Ollama *genai.Provider
-	Gemini *genai.Provider
-	OpenAI *genai.Provider
 }
 
 type RemoteProviders struct {
@@ -72,85 +66,71 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	}
 }
 
-func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) *GenAIProviders {
-	providers := &GenAIProviders{}
-	for _, provider := range settings.AIProviders {
-		genaiProvider, err := genai.NewProviderWithLog(provider.Provider, genai.ProviderOptions{
-			APIKey:  provider.APIKey,
-			BaseURL: provider.Server,
-			Log:     logger.WithName(provider.Provider),
+func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) map[string]*genai.Provider {
+	providers := make(map[string]*genai.Provider)
+	for _, providerConfig := range settings.AIProviders {
+		genaiProvider, err := genai.NewProviderWithLog(providerConfig.Provider, genai.ProviderOptions{
+			APIKey:  providerConfig.APIKey,
+			BaseURL: providerConfig.Server,
+			Log:     logger.WithName(providerConfig.Provider),
 		})
 		if err != nil {
-			logger.Error(err, "Error creating provider")
+			logger.Error(err, "Error creating provider", "providerName", providerConfig.Name, "providerType", providerConfig.Provider)
 			continue
 		}
-		switch provider.Provider {
-		case genai.OLLAMA:
-			providers.Ollama = genaiProvider
-		case genai.GEMINI:
-			providers.Gemini = genaiProvider
-		case genai.OPENAI:
-			providers.OpenAI = genaiProvider
+		if providerConfig.Name == "" {
+			logger.Error(fmt.Errorf("provider name cannot be empty"), "Error initializing provider", "providerType", providerConfig.Provider)
+			continue
 		}
+		providers[providerConfig.Name] = genaiProvider
 	}
 	return providers
 }
 
-func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders, rag *rag.Store) map[int]*agent.Agent {
+func initializeAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders map[string]*genai.Provider, rag *rag.Store) map[int]*agent.Agent {
 	agents := make(map[int]*agent.Agent)
 	for _, agentOpts := range settingsInput.Agents {
-		switch agentOpts.ProviderName {
-		case genai.OLLAMA:
-			if genaiProviders.Ollama == nil {
-				logger.Error(fmt.Errorf("ollama provider not found"), "ollama provider not found")
-				continue
-			}
-			agentOpts.Provider = genaiProviders.Ollama
-		case genai.GEMINI:
-			if genaiProviders.Gemini == nil {
-				logger.Error(fmt.Errorf("gemini provider not found"), "gemini provider not found")
-				continue
-			}
-			agentOpts.Provider = genaiProviders.Gemini
-		case genai.OPENAI:
-			if genaiProviders.OpenAI == nil {
-				logger.Error(fmt.Errorf("openai provider not found"), "openai provider not found")
-				continue
-			}
-			agentOpts.Provider = genaiProviders.OpenAI
-		default:
-			logger.Error(fmt.Errorf("provider %s not found", agentOpts.ProviderName), "provider not found")
+		if provider, ok := genaiProviders[agentOpts.ProviderName]; ok {
+			agentOpts.Provider = provider
+		} else {
+			logger.Error(fmt.Errorf("provider instance not found for name: %s", agentOpts.ProviderName), "provider not found")
 			continue
 		}
-		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model)
+		agentOpts.Logger = logger.WithName("agent").WithValues("model", agentOpts.Model, "providerName", agentOpts.ProviderName)
 		agentOpts.RAG = rag
 		agents[agentOpts.ID] = agent.NewAgent(agentOpts)
 	}
 	return agents
 }
 
-func initializeSystemAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders *GenAIProviders) map[int]*agent.Agent {
+func initializeSystemAgents(logger logr.Logger, settingsInput settings.Settings, genaiProviders map[string]*genai.Provider) map[int]*agent.Agent {
 	agents := make(map[int]*agent.Agent)
-	systemAgentOpts := agent.AgentOptions{
+
+	providerInstance, ok := genaiProviders[settingsInput.SystemAgent.ProviderName]
+	if !ok {
+		logger.Error(fmt.Errorf("system agent provider instance not found for name: %s", settingsInput.SystemAgent.ProviderName), "system agent provider not found")
+	}
+
+	systemAgentOptsBase := agent.AgentOptions{
 		ProviderName: settingsInput.SystemAgent.ProviderName,
+		Provider:     providerInstance,
 		Model:        settingsInput.SystemAgent.Model,
 		SystemPrompt: settingsInput.SystemAgent.SystemPrompt,
-		Logger:       logger.WithName("system-agent"),
+		Logger:       logger.WithName("system-agent").WithValues("providerName", settingsInput.SystemAgent.ProviderName),
 	}
-	switch settingsInput.SystemAgent.ProviderName {
-	case genai.OLLAMA:
-		systemAgentOpts.Provider = genaiProviders.Ollama
-	case genai.GEMINI:
-		systemAgentOpts.Provider = genaiProviders.Gemini
-	case genai.OPENAI:
-		systemAgentOpts.Provider = genaiProviders.OpenAI
-	}
-	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.CommitTemplate
-	agents[settings.CommitAgent] = agent.NewAgent(systemAgentOpts)
-	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRTitleTemplate
-	agents[settings.PRTitleAgent] = agent.NewAgent(systemAgentOpts)
-	systemAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRBodyTemplate
-	agents[settings.PRBodyAgent] = agent.NewAgent(systemAgentOpts)
+
+	commitAgentOpts := systemAgentOptsBase
+	commitAgentOpts.PromptTemplate = settingsInput.SystemAgent.CommitTemplate
+	agents[settings.CommitAgent] = agent.NewAgent(commitAgentOpts)
+
+	prTitleAgentOpts := systemAgentOptsBase
+	prTitleAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRTitleTemplate
+	agents[settings.PRTitleAgent] = agent.NewAgent(prTitleAgentOpts)
+
+	prBodyAgentOpts := systemAgentOptsBase
+	prBodyAgentOpts.PromptTemplate = settingsInput.SystemAgent.PRBodyTemplate
+	agents[settings.PRBodyAgent] = agent.NewAgent(prBodyAgentOpts)
+
 	return agents
 }
 
@@ -216,7 +196,7 @@ func (s *AppState) UpdateAgents() error {
 	for workflowName, workflow := range s.Workflows {
 		for i, step := range workflow.Steps {
 			if agent, ok := s.Agents[step.AgentID]; ok {
-				workflow.Steps[i].AgentName = agent.Name // Keep agent name updated
+				workflow.Steps[i].AgentName = agent.Name
 			} else {
 				s.Logger.Error(fmt.Errorf("agent not found"), "agent not found", "agentID", step.AgentID)
 			}
@@ -236,10 +216,8 @@ func (s *AppState) UpdateWorkflows() error {
 
 	// Update the scheduler with the new workflows.
 	for repoPath, repo := range s.Repositories {
-		// Remove the existing task.
 		s.Scheduler.RemoveTask(repoPath)
 
-		// Add a new task with the updated schedule and workflow.
 		defaultWorkflow := s.Workflows["default"]
 		err := s.Scheduler.AddTask(repoPath, repo.Schedule, func() {
 			err := repo.Sync(s.Agents, defaultWorkflow)

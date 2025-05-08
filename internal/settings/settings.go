@@ -20,6 +20,7 @@ type Settings struct {
 }
 
 type AIProviderSettings struct {
+	Name     string `json:"name"`
 	Provider string `json:"provider"`
 	APIKey   string `json:"apiKey"`
 	Server   string `json:"server"`
