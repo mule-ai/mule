@@ -22,24 +22,15 @@ type AppState struct {
 	Scheduler    *scheduler.Scheduler
 	Mu           sync.RWMutex
 	Logger       logr.Logger
-	// GenAI        *GenAIProviders
-	GenAI     map[string]*genai.Provider
-	Remote    *RemoteProviders
-	Agents    map[int]*agent.Agent
-	RAG       *rag.Store
-	Workflows map[string]struct {
+	GenAI        map[string]*genai.Provider
+	Remote       *RemoteProviders
+	Agents       map[int]*agent.Agent
+	RAG          *rag.Store
+	Workflows    map[string]struct {
 		Steps               []agent.WorkflowStep
 		ValidationFunctions []string
 	}
 }
-
-/*
-type GenAIProviders struct {
-	Ollama *genai.Provider
-	Gemini *genai.Provider
-	OpenAI *genai.Provider
-}
-*/
 
 type RemoteProviders struct {
 	GitHub remote.Provider
@@ -75,31 +66,6 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	}
 }
 
-/*
-	func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) *GenAIProviders {
-		providers := &GenAIProviders{}
-		for _, provider := range settings.AIProviders {
-			genaiProvider, err := genai.NewProviderWithLog(provider.Provider, genai.ProviderOptions{
-				APIKey:  provider.APIKey,
-				BaseURL: provider.Server,
-				Log:     logger.WithName(provider.Provider),
-			})
-			if err != nil {
-				logger.Error(err, "Error creating provider")
-				continue
-			}
-			switch provider.Provider {
-			case genai.OLLAMA:
-				providers.Ollama = genaiProvider
-			case genai.GEMINI:
-				providers.Gemini = genaiProvider
-			case genai.OPENAI:
-				providers.OpenAI = genaiProvider
-			}
-		}
-		return providers
-	}
-*/
 func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) map[string]*genai.Provider {
 	providers := make(map[string]*genai.Provider)
 	for _, providerConfig := range settings.AIProviders {
