@@ -23,8 +23,12 @@
                 {{range $index, $provider := .Settings.AIProviders}}
                 <div class="ai-provider" data-index="{{$index}}">
                     <div class="form-group">
+                        <label class="label">Name</label>
+                        <input type="text" name="aiProviders[{{$index}}].name" class="input provider-name-input" value="{{$provider.Name}}" placeholder="Enter a unique name for this provider" onchange="updateAgentProviderDropdowns()">
+                    </div>
+                    <div class="form-group">
                         <label class="label">Provider Type</label>
-                        <select name="aiProviders[{{$index}}].provider" class="input provider-select" onchange="handleProviderTypeChange(this)">
+                        <select name="aiProviders[{{$index}}].provider" class="input provider-type-select" onchange="handleProviderTypeChange(this)">
                             <option value="ollama" {{if eq $provider.Provider "ollama"}}selected{{end}}>Ollama</option>
                             <option value="gemini" {{if eq $provider.Provider "gemini"}}selected{{end}}>Gemini</option>
                             <option value="openai" {{if eq $provider.Provider "openai"}}selected{{end}}>OpenAI</option>
@@ -66,16 +70,16 @@
                         <input type="hidden" name="agents[{{$index}}].id" value="{{$agent.ID}}">
                         <div class="form-group">
                             <label class="label">Provider</label>
-                            <select name="agents[{{$index}}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
+                            <select name="agents[{{$index}}].providerName" class="input agent-provider-select"
+                                    data-provider-name="{{$agent.ProviderName}}"
+                                    onchange="handleAgentProviderChange(this)">
                                 <option value="">Select a provider</option>
-                                <option value="ollama" {{if eq $agent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
-                                <option value="gemini" {{if eq $agent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
-                                <option value="openai" {{if eq $agent.ProviderName "openai"}}selected{{end}}>OpenAI</option>
+                                {{/* Options will be populated by JavaScript */}}
                             </select>
                         </div>
                         <div class="form-group">
                             <label class="label">Model</label>
-                            <select name="agents[{{$index}}].model" class="input model-select" data-provider="{{$agent.ProviderName}}" data-model="{{$agent.Model}}">
+                            <select name="agents[{{$index}}].model" class="input model-select" data-provider-name="{{$agent.ProviderName}}" data-model="{{$agent.Model}}">
                                 <option value="{{$agent.Model}}" selected>{{$agent.Model}}</option>
                             </select>
                         </div>
@@ -114,16 +118,16 @@
         <div id="system" class="tab-content">
             <div class="form-group">
                 <label class="label">Provider</label>
-                <select name="systemAgent.providerName" class="input provider-select" onchange="handleSystemAgentProviderChange(this)">
+                <select name="systemAgent.providerName" class="input agent-provider-select system-agent-provider-select"
+                        data-provider-name="{{.Settings.SystemAgent.ProviderName}}"
+                        onchange="handleSystemAgentProviderChange(this)">
                     <option value="">Select a provider</option>
-                    <option value="ollama" {{if eq .Settings.SystemAgent.ProviderName "ollama"}}selected{{end}}>Ollama</option>
-                    <option value="gemini" {{if eq .Settings.SystemAgent.ProviderName "gemini"}}selected{{end}}>Gemini</option>
-                    <option value="openai" {{if eq .Settings.SystemAgent.ProviderName "openai"}}selected{{end}}>OpenAI</option>
+                    {{/* Options will be populated by JavaScript */}}
                 </select>
             </div>
             <div class="form-group">
                 <label class="label">Model</label>
-                <select name="systemAgent.model" class="input model-select" data-provider="{{.Settings.SystemAgent.ProviderName}}" data-model="{{.Settings.SystemAgent.Model}}">
+                <select name="systemAgent.model" class="input model-select" data-provider-name="{{.Settings.SystemAgent.ProviderName}}" data-model="{{.Settings.SystemAgent.Model}}">
                     <option value="{{.Settings.SystemAgent.Model}}" selected>{{.Settings.SystemAgent.Model}}</option>
                 </select>
             </div>
@@ -199,7 +203,7 @@
                                         <input type="hidden" name="workflows[{{$index}}].steps[{{$stepIndex}}].agentID" value="{{$step.AgentID}}">
                                         <div class="form-group">
                                             <label class="label">Agent</label>
-                                            <select name="workflows[{{$index}}].steps[{{$stepIndex}}].agentName" class="input agent-select" onchange="updateStepAgentName(this)">
+                                            <select name="workflows[{{$index}}].steps[{{$stepIndex}}].agentName" class="input agent-select workflow-agent-select" onchange="updateStepAgentName(this)">
                                                 <option value="">Select an agent</option>
                                                 {{range $agentIndex, $agent := $.Settings.Agents}}
                                                 <option value="{{$agent.Name}}" data-agent-id="{{$agent.ID}}" {{if eq $step.AgentName $agent.Name}}selected{{end}}>{{$agent.Name}}</option>
@@ -729,6 +733,82 @@ textarea.input {
 // Add nextAgentId counter at the top of the script
 let nextAgentId = 10; // Start at 10 since 0-9 are reserved for system
 
+// Function to update all agent provider dropdowns
+function updateAgentProviderDropdowns() {
+    const aiProviders = document.querySelectorAll('.ai-provider');
+    let providerOptionsHTML = '<option value="">Select a provider</option>';
+    const availableProviderNames = [];
+
+    aiProviders.forEach(providerEl => {
+        const nameInput = providerEl.querySelector('.provider-name-input');
+        const typeSelect = providerEl.querySelector('.provider-type-select');
+        if (nameInput && nameInput.value && typeSelect) {
+            availableProviderNames.push(nameInput.value);
+            providerOptionsHTML += `<option value="${nameInput.value}">${nameInput.value} (${typeSelect.value})</option>`;
+        }
+    });
+
+    // Update regular agent provider dropdowns
+    document.querySelectorAll('div#agents .agent .agent-provider-select').forEach(select => {
+        const initiallySavedProvider = select.dataset.providerName;
+        const currentUIValue = select.value;
+
+        select.innerHTML = providerOptionsHTML;
+
+        let valueToSet = "";
+        if (currentUIValue && availableProviderNames.includes(currentUIValue)) {
+            valueToSet = currentUIValue;
+        } else if (initiallySavedProvider && availableProviderNames.includes(initiallySavedProvider)) {
+            valueToSet = initiallySavedProvider;
+        }
+        select.value = valueToSet;
+
+        if (select.value) {
+            handleAgentProviderChange(select);
+        } else {
+            const agentDiv = select.closest('.agent');
+            if (agentDiv) {
+                const modelSelect = agentDiv.querySelector('.model-select');
+                if (modelSelect) {
+                    modelSelect.innerHTML = '<option value="">Select a provider first</option>';
+                    modelSelect.dataset.providerName = "";
+                }
+            }
+        }
+    });
+
+    // Update System Agent provider dropdown
+    const systemProviderSelect = document.querySelector('#system .system-agent-provider-select');
+    if (systemProviderSelect) {
+        const initiallySavedSystemProvider = systemProviderSelect.dataset.providerName;
+        const currentUISystemValue = systemProviderSelect.value;
+
+        systemProviderSelect.innerHTML = providerOptionsHTML;
+
+        let systemValueToSet = "";
+        if (currentUISystemValue && availableProviderNames.includes(currentUISystemValue)) {
+            systemValueToSet = currentUISystemValue;
+        } else if (initiallySavedSystemProvider && availableProviderNames.includes(initiallySavedSystemProvider)) {
+            systemValueToSet = initiallySavedSystemProvider;
+        }
+        systemProviderSelect.value = systemValueToSet;
+        
+        if (systemProviderSelect.value) {
+            handleSystemAgentProviderChange(systemProviderSelect);
+        } else {
+            const systemDiv = systemProviderSelect.closest('#system');
+            if (systemDiv) {
+                const modelSelect = systemDiv.querySelector('.model-select');
+                if (modelSelect) {
+                    modelSelect.innerHTML = '<option value="">Select a provider first</option>';
+                    modelSelect.dataset.providerName = "";
+                }
+            }
+        }
+    }
+    updateWorkflowAgentSelects();
+}
+
 // Add tab switching functionality
 function initTabs() {
     const tabs = document.querySelectorAll('.tab-button');
@@ -792,8 +872,12 @@ function createProviderHTML(index) {
     return `
         <div class="ai-provider" data-index="${index}">
             <div class="form-group">
+                <label class="label">Name</label>
+                <input type="text" name="aiProviders[${index}].name" class="input provider-name-input" placeholder="Enter a unique name" onchange="updateAgentProviderDropdowns()">
+            </div>
+            <div class="form-group">
                 <label class="label">Provider Type</label>
-                <select name="aiProviders[${index}].provider" class="input provider-select" onchange="handleProviderTypeChange(this)">
+                <select name="aiProviders[${index}].provider" class="input provider-type-select" onchange="handleProviderTypeChange(this)">
                     <option value="ollama">Ollama</option>
                     <option value="gemini">Gemini</option>
                     <option value="openai">OpenAI</option>
@@ -818,11 +902,13 @@ function addProvider() {
     const providers = document.getElementById('aiProviders');
     const index = providers.children.length;
     providers.insertAdjacentHTML('beforeend', createProviderHTML(index));
+    updateAgentProviderDropdowns(); // Update dropdowns when a new provider is added
 }
 
 function removeProvider(button) {
     button.closest('.ai-provider').remove();
     reindexProviders();
+    updateAgentProviderDropdowns(); // Update dropdowns when a provider is removed
 }
 
 function reindexProviders() {
@@ -857,16 +943,16 @@ function createAgentHTML(index) {
                 <input type="hidden" name="agents[${index}].id" value="${agentID}">
                 <div class="form-group">
                     <label class="label">Provider</label>
-                    <select name="agents[${index}].providerName" class="input provider-select" onchange="handleAgentProviderChange(this)">
+                    <select name="agents[${index}].providerName" class="input agent-provider-select"
+                            data-provider-name=""
+                            onchange="handleAgentProviderChange(this)">
                         <option value="">Select a provider</option>
-                        <option value="ollama">Ollama</option>
-                        <option value="gemini">Gemini</option>
-                        <option value="openai">OpenAI</option>
+                        {{/* Options will be populated by JavaScript */}}
                     </select>
                 </div>
                 <div class="form-group">
                     <label class="label">Model</label>
-                    <select name="agents[${index}].model" class="input model-select" data-provider="">
+                    <select name="agents[${index}].model" class="input model-select" data-provider-name="" data-model="">
                         <option value="">Select a provider first</option>
                     </select>
                 </div>
@@ -915,6 +1001,9 @@ async function addAgent() {
     const nameInput = newAgent.querySelector('.agent-name-input');
     updateAgentNameDisplay(nameInput);
     
+    // Populate provider dropdown for the new agent
+    updateAgentProviderDropdowns();
+    
     // Ensure the new agent is expanded by default
     const content = newAgent.querySelector('.agent-content');
     content.classList.remove('collapsed');
@@ -940,21 +1029,35 @@ function reindexAgents() {
 }
 
 // API interactions
-async function loadModels(provider, modelSelect) {
+async function loadModels(providerName, modelSelect) {
     const currentModel = modelSelect.dataset.model;
+    if (!providerName) {
+        modelSelect.innerHTML = '<option value="">Select a provider first</option>';
+        return;
+    }
     try {
-        const response = await fetch(`/api/models?provider=${provider}`);
+        const response = await fetch(`/api/models?provider=${encodeURIComponent(providerName)}`);
         if (!response.ok) {
             throw new Error(await response.text());
         }
         const models = await response.json();
-        modelSelect.innerHTML = models.map(model => 
-            `<option value="${model}" ${model === currentModel ? 'selected' : ''}>${model}</option>`
-        ).join('');
+        if (models && models.length > 0) {
+            modelSelect.innerHTML = models.map(model => 
+                `<option value="${model}" ${model === currentModel ? 'selected' : ''}>${model}</option>`
+            ).join('');
+            if (currentModel && models.includes(currentModel)) {
+                modelSelect.value = currentModel;
+            } else if (models.length > 0 && !currentModel) {
+                // If no current model was set but models exist, optionally select the first one
+                // modelSelect.value = models[0]; // Or leave as is, letting the <option selected> handle it
+            }
+        } else {
+            modelSelect.innerHTML = '<option value="">No models found for this provider</option>';
+        }
     } catch (error) {
         console.error('Error loading models:', error);
         if (currentModel) {
-            modelSelect.innerHTML = `<option value="${currentModel}" selected>${currentModel}</option>`;
+            modelSelect.innerHTML = `<option value="${currentModel}" selected>${currentModel} (loading failed)</option>`;
         } else {
             modelSelect.innerHTML = '<option value="">Error loading models</option>';
         }
@@ -1001,10 +1104,10 @@ async function loadValidationFunctions(container, selectedFunctions = []) {
 
 // Event handlers
 function handleProviderTypeChange(select) {
-    // Currently no special handling needed for provider type changes
-    // But keeping the function for future extensibility
-    
-    // Make sure API Key and Server fields are appropriately labeled for different providers
+    const providerDiv = select.closest('.ai-provider');
+    const nameInput = providerDiv.querySelector('.provider-name-input');
+    updateAgentProviderDropdowns(); // Update agent dropdowns when provider type (and potentially name) changes
+
     const provider = select.closest('.ai-provider');
     const apiKeyLabel = provider.querySelector('.provider-settings .form-group:first-child label');
     const serverLabel = provider.querySelector('.provider-settings .form-group:last-child label');
@@ -1028,14 +1131,14 @@ function handleProviderTypeChange(select) {
 async function handleAgentProviderChange(select) {
     const agent = select.closest('.agent');
     const modelSelect = agent.querySelector('.model-select');
-    const provider = select.value;
+    const providerName = select.value; 
     
-    modelSelect.dataset.provider = provider;
-    modelSelect.dataset.model = ''; // Clear the model when provider changes
+    modelSelect.dataset.providerName = providerName; 
+    // DO NOT CLEAR modelSelect.dataset.model HERE. It holds the Go template's saved model.
     modelSelect.innerHTML = '<option value="">Loading models...</option>';
     
-    if (provider) {
-        await loadModels(provider, modelSelect);
+    if (providerName) {
+        await loadModels(providerName, modelSelect);
     } else {
         modelSelect.innerHTML = '<option value="">Select a provider first</option>';
     }
@@ -1062,9 +1165,10 @@ async function handleUpdateSettings(event) {
     };
 
     // Collect AI providers
-    const providers = document.querySelectorAll('.ai-provider');
-    providers.forEach((provider, index) => {
+    const providerElements = document.querySelectorAll('.ai-provider');
+    providerElements.forEach((providerEl, index) => {
         settings.aiProviders.push({
+            name: formData.get(`aiProviders[${index}].name`), // Get the name
             provider: formData.get(`aiProviders[${index}].provider`),
             apiKey: formData.get(`aiProviders[${index}].apiKey`),
             server: formData.get(`aiProviders[${index}].server`)
@@ -1198,14 +1302,14 @@ function updateAgentNameDisplay(input) {
 async function handleSystemAgentProviderChange(select) {
     const systemSection = document.getElementById('system');
     const modelSelect = systemSection.querySelector('.model-select');
-    const provider = select.value;
+    const providerName = select.value; 
     
-    modelSelect.dataset.provider = provider;
-    modelSelect.dataset.model = ''; // Clear the model when provider changes
+    modelSelect.dataset.providerName = providerName; 
+    // DO NOT CLEAR modelSelect.dataset.model HERE.
     modelSelect.innerHTML = '<option value="">Loading models...</option>';
     
-    if (provider) {
-        await loadModels(provider, modelSelect);
+    if (providerName) {
+        await loadModels(providerName, modelSelect);
     } else {
         modelSelect.innerHTML = '<option value="">Select a provider first</option>';
     }
@@ -1272,13 +1376,13 @@ function createWorkflowStepHTML(workflowIndex, stepIndex) {
             </div>
             <div class="workflow-step-content">
                 <input type="hidden" name="workflows[${workflowIndex}].steps[${stepIndex}].id" value="${id}">
+                <input type="hidden" name="workflows[${workflowIndex}].steps[${stepIndex}].agentID" value="0">
                 <div class="form-group">
                     <label class="label">Agent</label>
-                    <select name="workflows[${workflowIndex}].steps[${stepIndex}].agentName" class="input agent-select" onchange="updateStepAgentName(this)">
+                    <select name="workflows[${workflowIndex}].steps[${stepIndex}].agentName" class="input agent-select workflow-agent-select" onchange="updateStepAgentName(this)">
                         <option value="">Select an agent</option>
-                        ${getAgentOptions()}
+                        {/* Options populated by updateWorkflowAgentSelects */}
                     </select>
-                    <input type="hidden" name="workflows[${workflowIndex}].steps[${stepIndex}].agentID" value="0">
                 </div>
                 <div class="form-group">
                     <label class="label">Output Type</label>
@@ -1299,10 +1403,10 @@ function getAgentOptions() {
     
     agents.forEach((agent) => {
         const nameInput = agent.querySelector('.agent-name-input');
-        const agentID = agent.dataset.agentId;
-        if (nameInput && nameInput.value && agentID) {
+        const agentId = agent.dataset.agentId;
+        if (nameInput && nameInput.value && agentId) {
             // Use the agent ID from the data attribute
-            options += `<option value="${nameInput.value}" data-agent-id="${agentID}">${nameInput.value}</option>`;
+            options += `<option value="${nameInput.value}" data-agent-id="${agentId}">${nameInput.value}</option>`;
         }
     });
     
@@ -1321,6 +1425,8 @@ async function addWorkflow() {
     
     // Add first step automatically
     addWorkflowStep(index);
+    // Populate agent dropdown for the new step
+    updateWorkflowAgentSelects();
 }
 
 function removeWorkflow(button) {
@@ -1380,9 +1486,8 @@ async function addWorkflowStep(workflowIndex) {
     stepsContainer.insertAdjacentHTML('beforeend', createWorkflowStepHTML(workflowIndex, stepIndex));
     const newStep = stepsContainer.lastElementChild;
     
-    // Initialize the agent select
-    const agentSelect = newStep.querySelector('.agent-select');
-    updateStepAgentName(agentSelect);
+    // Initialize the agent select for the new step
+    updateWorkflowAgentSelects(); 
 }
 
 function removeWorkflowStep(button) {
@@ -1403,7 +1508,7 @@ function reindexWorkflowSteps(workflowIndex) {
         // Update step number
         const stepNumber = step.querySelector('.step-number');
         if (stepNumber) {
-            stepNumber.textContent = stepIndex + 1;
+            stepNumber.textContent = index + 1;
         }
         
         // Update all input names in this step
@@ -1439,6 +1544,47 @@ function handleDefaultWorkflowChange(checkbox) {
     }
 }
 
+// Function to update all workflow agent select dropdowns
+function updateWorkflowAgentSelects() {
+    const agentElements = document.querySelectorAll('.agent');
+    let agentOptionsHTML = '<option value="">Select an agent</option>';
+    const availableAgents = [];
+
+    agentElements.forEach(agentEl => {
+        const nameInput = agentEl.querySelector('.agent-name-input');
+        const agentId = agentEl.dataset.agentId;
+        if (nameInput && nameInput.value && agentId) {
+            availableAgents.push({ id: agentId, name: nameInput.value });
+            agentOptionsHTML += `<option value="${nameInput.value}" data-agent-id="${agentId}">${nameInput.value}</option>`;
+        }
+    });
+    
+    document.querySelectorAll('.workflow-agent-select').forEach(select => {
+        const currentValue = select.value;
+        const currentAgentId = select.closest('.workflow-step-content').querySelector('input[name$=".agentID"]')?.value;
+        
+        select.innerHTML = agentOptionsHTML;
+        
+        // Try to reselect based on name first, then ID
+        let selected = false;
+        if (currentValue && availableAgents.some(ag => ag.name === currentValue)) {
+            select.value = currentValue;
+            selected = true;
+        } else if (currentAgentId && availableAgents.some(ag => ag.id === currentAgentId)) {
+            const agentToSelect = availableAgents.find(ag => ag.id === currentAgentId);
+            if (agentToSelect) {
+                select.value = agentToSelect.name;
+                selected = true;
+            }
+        }
+        
+        if (!selected) {
+            select.value = ""; // Reset if agent no longer exists or ID/name mismatch
+        }
+        updateStepAgentName(select); // Update display and hidden ID field
+    });
+}
+
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize nextAgentId based on existing agents
@@ -1463,9 +1609,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize drag and drop for workflow steps
     initDragAndDrop();
     
+    // Populate initial provider dropdowns for agents and system agent
+    updateAgentProviderDropdowns();
+    // Populate initial agent dropdowns for workflows
+    updateWorkflowAgentSelects();
+
     // Initialize provider field labels
     document.querySelectorAll('.ai-provider').forEach(provider => {
-        const select = provider.querySelector('.provider-select');
+        const select = provider.querySelector('.provider-type-select');
         if (select) {
             handleProviderTypeChange(select);
         }
@@ -1474,9 +1625,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize system agent
     const systemSection = document.getElementById('system');
     const systemModelSelect = systemSection.querySelector('.model-select');
-    const systemProvider = systemModelSelect.dataset.provider;
-    if (systemProvider) {
-        loadModels(systemProvider, systemModelSelect);
+    const systemProviderSelect = systemSection.querySelector('.system-agent-provider-select');
+    const systemProviderName = systemProviderSelect.value; // This should be the custom name selected
+
+    if (systemProviderName) {
+        loadModels(systemProviderName, systemModelSelect);
+    } else {
+        if (systemModelSelect) systemModelSelect.innerHTML = '<option value="">Select a provider first</option>';
     }
 
     // Load template values for system agent templates
@@ -1498,9 +1653,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.agent').forEach(agent => {
         // Load models for the provider
         const modelSelect = agent.querySelector('.model-select');
-        const provider = modelSelect.dataset.provider;
-        if (provider) {
-            loadModels(provider, modelSelect);
+        const providerSelect = agent.querySelector('.agent-provider-select');
+        const providerName = providerSelect.value; // This should be the custom name
+
+        if (providerName) {
+            loadModels(providerName, modelSelect);
+        } else {
+            if (modelSelect) modelSelect.innerHTML = '<option value="">Select a provider first</option>';
         }
 
         // Load tools and validation functions
@@ -1517,6 +1676,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('agents').addEventListener('DOMNodeInserted', (event) => {
         if (event.target.classList && event.target.classList.contains('agent')) {
             loadAgentExtras(event.target);
+            // Make sure newly added agents also get their provider dropdowns populated
+            // updateAgentProviderDropdowns(); // This might be redundant if addAgent calls it
         }
     });
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/google/uuid"
 	"github.com/mule-ai/mule/pkg/validation"
 )
 
@@ -83,20 +84,22 @@ func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInp
 			prevResult = &result
 		}
 
+		// Create a new logger for the validation
+		validationLogger := ctx.Logger.WithName("validation").WithValues("id", uuid.New().String())
 		// Run validations after the final step if they exist at the workflow level
 		prevResult.Content, err = validation.Run(&validation.ValidationInput{
 			Validations: validations,
-			Logger:      ctx.Logger,
+			Logger:      validationLogger,
 			Path:        ctx.Path,
 		})
 
 		if err != nil {
 			errString := fmt.Sprintf("Validation attempt %d out of %d failed, retrying: %s", i, numValidationAttempts, err)
-			ctx.Logger.Error(err, errString, "output", prevResult.Content)
+			validationLogger.Error(err, errString, "output", prevResult.Content)
 			continue
 		}
 		validationFailed = false
-		ctx.Logger.Info("Validation Succeeded")
+		validationLogger.Info("Validation Succeeded")
 		break
 	}
 	if validationFailed {
