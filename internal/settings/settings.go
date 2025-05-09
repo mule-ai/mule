@@ -27,12 +27,17 @@ type AIProviderSettings struct {
 }
 
 type SystemAgentSettings struct {
-	ProviderName    string `json:"providerName"`
-	Model           string `json:"model"`
-	CommitTemplate  string `json:"commitTemplate"`
-	PRTitleTemplate string `json:"prTitleTemplate"`
-	PRBodyTemplate  string `json:"prBodyTemplate"`
-	SystemPrompt    string `json:"systemPrompt"`
+	ProviderName     string  `json:"providerName"`
+	Model            string  `json:"model"`
+	Temperature      float32 `json:"temperature"`
+	TopP             float32 `json:"topP"`
+	TopK             int     `json:"topK"`
+	FrequencyPenalty float32 `json:"frequencyPenalty"`
+	PresencePenalty  float32 `json:"presencePenalty"`
+	CommitTemplate   string  `json:"commitTemplate"`
+	PRTitleTemplate  string  `json:"prTitleTemplate"`
+	PRBodyTemplate   string  `json:"prBodyTemplate"`
+	SystemPrompt     string  `json:"systemPrompt"`
 }
 
 type WorkflowSettings struct {
