@@ -16,4 +16,6 @@ This project follows a modular architecture with distinct packages handling spec
    - [internal/handlers](internal-handlers.md)
    - [internal/scheduler](internal-scheduler.md)
    - [pkg/agent](pkg-agent.md)
+   - [pkg/repository](pkg-repository.md)
    - [pkg/remote](pkg-remote.md)
+   - [pkg/validation](pkg-validation.md)
