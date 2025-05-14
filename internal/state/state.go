@@ -9,6 +9,7 @@ import (
 	"github.com/mule-ai/mule/internal/scheduler"
 	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/integration"
 	"github.com/mule-ai/mule/pkg/rag"
 	"github.com/mule-ai/mule/pkg/remote"
 	"github.com/mule-ai/mule/pkg/repository"
@@ -26,10 +27,8 @@ type AppState struct {
 	Remote       *RemoteProviders
 	Agents       map[int]*agent.Agent
 	RAG          *rag.Store
-	Workflows    map[string]struct {
-		Steps               []agent.WorkflowStep
-		ValidationFunctions []string
-	}
+	Workflows    map[string]*agent.Workflow
+	Integrations map[string]integration.Integration
 }
 
 type RemoteProviders struct {
@@ -43,7 +42,8 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
-	workflows := initializeWorkflows(settings)
+	integrations := integration.LoadIntegrations(settings.Integration, logger)
+	workflows := initializeWorkflows(settings, agents, logger, integrations)
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
 		Settings:     settings,
@@ -60,9 +60,10 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 				Path: "/",
 			}),
 		},
-		Agents:    agents,
-		RAG:       rag,
-		Workflows: workflows,
+		Agents:       agents,
+		RAG:          rag,
+		Workflows:    workflows,
+		Integrations: integrations,
 	}
 }
 
@@ -141,34 +142,20 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 	return agents
 }
 
-func initializeWorkflows(settingsInput settings.Settings) map[string]struct {
-	Steps               []agent.WorkflowStep
-	ValidationFunctions []string
-} {
-	workflows := make(map[string]struct {
-		Steps               []agent.WorkflowStep
-		ValidationFunctions []string
-	})
+func initializeWorkflows(settingsInput settings.Settings, agents map[int]*agent.Agent, logger logr.Logger, integrations map[string]integration.Integration) map[string]*agent.Workflow {
+	workflows := make(map[string]*agent.Workflow)
 
 	for _, workflow := range settingsInput.Workflows {
-		workflows[workflow.Name] = struct {
-			Steps               []agent.WorkflowStep
-			ValidationFunctions []string
-		}{
-			Steps:               workflow.Steps,
-			ValidationFunctions: workflow.ValidationFunctions,
-		}
-
+		workflows[workflow.Name] = agent.NewWorkflow(workflow, agents, logger.WithName("workflow").WithValues("name", workflow.Name))
 		if workflow.IsDefault {
-			workflows["default"] = struct {
-				Steps               []agent.WorkflowStep
-				ValidationFunctions []string
-			}{
-				Steps:               workflow.Steps,
-				ValidationFunctions: workflow.ValidationFunctions,
-			}
+			workflows["default"] = workflows[workflow.Name]
+		}
+		err := workflows[workflow.Name].RegisterTriggers(integrations)
+		if err != nil {
+			logger.Error(err, "Error registering triggers for workflow", "workflowName", workflow.Name)
 		}
 	}
+
 	return workflows
 }
 
@@ -211,7 +198,7 @@ func (s *AppState) UpdateWorkflows() error {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	workflows := initializeWorkflows(s.Settings)
+	workflows := initializeWorkflows(s.Settings, s.Agents, s.Logger, s.Integrations)
 	s.Workflows = workflows
 
 	// Update the scheduler with the new workflows.

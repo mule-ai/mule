@@ -12,6 +12,7 @@ import (
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/javascript"
+	markdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
 )
 
 // sourceContent holds the current file's content for tree-sitter operations
@@ -41,6 +42,8 @@ func ParseFile(path string) (*sitter.Tree, error) {
 		language = javascript.GetLanguage()
 	case ".css", ".scss", ".sass", ".less":
 		language = css.GetLanguage()
+	case ".md", ".markdown":
+		language = markdown.GetLanguage()
 	default:
 		return nil, fmt.Errorf("unsupported file type: %s", ext)
 	}

@@ -2,6 +2,8 @@ package settings
 
 import (
 	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/integration"
+	"github.com/mule-ai/mule/pkg/integration/matrix"
 )
 
 var DefaultSettings = Settings{
@@ -51,7 +53,7 @@ var DefaultSettings = Settings{
 		PRBodyTemplate:  "You were given the following issue to complete:\n\n{{ .IssueTitle }}\n{{ .IssueBody }}\n\nGenerate a detailed pull request description for the following changes:\n\n{{ .Diff }}\n\nThe description should include:\n1. A summary of the changes\n2. The motivation for the changes\n3. Any potential impact or breaking changes\n4. Testing instructions if applicable\n\nFormat the response in markdown, but do not put it in a code block.\nDo not include any other text in the response.\nDo not include any placeholders in the response. It is expected to be a complete description.",
 		SystemPrompt:    "",
 	},
-	Workflows: []WorkflowSettings{
+	Workflows: []agent.WorkflowSettings{
 		{
 			ID:          "workflow_code_generation",
 			Name:        "Code Generation",
@@ -78,6 +80,11 @@ var DefaultSettings = Settings{
 				"goTest",
 				"getDeps",
 			},
+		},
+	},
+	Integration: integration.Settings{
+		Matrix: &matrix.Config{
+			Enabled: false,
 		},
 	},
 }

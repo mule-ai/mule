@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+crypto*
 
 # Test binary, built with `go test -c`
 *.test
@@ -53,3 +54,4 @@ temp/
 config.yaml
 config.json
 config.yml
+**/.claude/settings.local.json
