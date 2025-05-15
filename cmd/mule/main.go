@@ -59,43 +59,6 @@ func main() {
 
 	state.State = appState
 
-	/*
-		integrations := integration.LoadIntegrations(appState.Settings.Integration, l)
-		if len(integrations) < 1 {
-			l.Error(errors.New("no integrations found"), "No integrations found")
-			return
-		}
-
-		// initialize integration listeners
-		for _, loadedIntegration := range integrations {
-			go func(i integration.Integration) {
-				for message := range i.GetChannel() {
-					l.Info("Received message", "message", message)
-					err := i.Send("Mule received your message")
-					if err != nil {
-						l.Error(err, "Error sending message")
-					}
-					// get system agent from state and generate response
-					msgStrPtr := message.(*string)
-					systemAgent := state.State.Agents[0]
-					systemAgent.SetPromptTemplate(*msgStrPtr)
-					systemAgent.SetSystemPrompt("You are mule, a helpful assistant that can answer questions and help with tasks." +
-						"You will usually be addressed directly as @mule:matrix.butler.ooo, do not view this as a direct message and do not introduce yourself." +
-						"Provide the user only with comprehensive answers and helpful suggestions.")
-					response, err := systemAgent.Generate("", agent.PromptInput{})
-					if err != nil {
-						l.Error(err, "Error generating response")
-						return
-					}
-					err = i.Send(response)
-					if err != nil {
-						l.Error(err, "Error sending response")
-					}
-				}
-			}(loadedIntegration)
-		}
-	*/
-
 	mux := http.NewServeMux()
 
 	// API routes
