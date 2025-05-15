@@ -57,6 +57,7 @@ type PromptInput struct {
 	IsPRComment       bool   `json:"isPRComment"`
 	PRComment         string `json:"prComment"`
 	PRCommentDiffHunk string `json:"prCommentDiffHunk"`
+	Message           string `json:"message"`
 }
 
 func NewAgent(opts AgentOptions) *Agent {
@@ -296,6 +297,10 @@ func (a *Agent) AddRAGContext(prompt string) (string, error) {
 	}
 
 	// Get key files first
+	if a.path == "" {
+		a.logger.Info("No path set, skipping RAG")
+		return prompt, nil
+	}
 	keyFiles, err := a.rag.GetNResults(a.path, prompt, RAG_N_RESULTS)
 	if err != nil {
 		return "", err

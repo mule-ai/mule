@@ -207,10 +207,7 @@ func (r *Repository) Fetch() error {
 	return nil
 }
 
-func (r *Repository) Sync(agents map[int]*agent.Agent, workflow struct {
-	Steps               []agent.WorkflowStep
-	ValidationFunctions []string
-}) error {
+func (r *Repository) Sync(agents map[int]*agent.Agent, workflow *agent.Workflow) error {
 	r.Logger.Info("Syncing repository")
 	if len(agents) == 0 {
 		return fmt.Errorf("no agents provided")
@@ -382,10 +379,7 @@ func (r *Repository) getChanges() (*Changes, error) {
 	}, nil
 }
 
-func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, workflow struct {
-	Steps               []agent.WorkflowStep
-	ValidationFunctions []string
-}, issue *Issue) (bool, error) {
+func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, workflow *agent.Workflow, issue *Issue) (bool, error) {
 	prompt := ""
 	var unresolvedCommentId int64
 	var promptInput agent.PromptInput

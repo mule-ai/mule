@@ -2,6 +2,7 @@ package settings
 
 import (
 	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/integration"
 )
 
 const (
@@ -12,11 +13,18 @@ const (
 )
 
 type Settings struct {
-	GitHubToken string               `json:"githubToken"`
-	AIProviders []AIProviderSettings `json:"aiProviders"`
-	Agents      []agent.AgentOptions `json:"agents"`
-	SystemAgent SystemAgentSettings  `json:"systemAgent"`
-	Workflows   []WorkflowSettings   `json:"workflows"`
+	GitHubToken string                   `json:"githubToken"`
+	AIProviders []AIProviderSettings     `json:"aiProviders"`
+	Agents      []agent.AgentOptions     `json:"agents"`
+	SystemAgent SystemAgentSettings      `json:"systemAgent"`
+	Workflows   []agent.WorkflowSettings `json:"workflows"`
+	Integration integration.Settings     `json:"integration"`
+}
+
+type TriggerSettings struct {
+	Integration string `json:"integration"`
+	Event       string `json:"event"`
+	Data        any    `json:"data"`
 }
 
 type AIProviderSettings struct {
@@ -33,13 +41,4 @@ type SystemAgentSettings struct {
 	PRTitleTemplate string `json:"prTitleTemplate"`
 	PRBodyTemplate  string `json:"prBodyTemplate"`
 	SystemPrompt    string `json:"systemPrompt"`
-}
-
-type WorkflowSettings struct {
-	ID                  string               `json:"id"`
-	Name                string               `json:"name"`
-	Description         string               `json:"description"`
-	IsDefault           bool                 `json:"isDefault"`
-	Steps               []agent.WorkflowStep `json:"steps"`
-	ValidationFunctions []string             `json:"validationFunctions"`
 }
