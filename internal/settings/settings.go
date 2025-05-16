@@ -13,12 +13,18 @@ const (
 )
 
 type Settings struct {
+	Environment []EnvironmentVariable    `json:"environment"`
 	GitHubToken string                   `json:"githubToken"`
 	AIProviders []AIProviderSettings     `json:"aiProviders"`
 	Agents      []agent.AgentOptions     `json:"agents"`
 	SystemAgent SystemAgentSettings      `json:"systemAgent"`
 	Workflows   []agent.WorkflowSettings `json:"workflows"`
 	Integration integration.Settings     `json:"integration"`
+}
+
+type EnvironmentVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 type TriggerSettings struct {
