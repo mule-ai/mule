@@ -23,6 +23,7 @@ type Workflow struct {
 	outputChannels      []chan any
 	agentMap            map[int]*Agent
 	logger              logr.Logger
+	integrations        map[string]integration.Integration
 }
 
 type WorkflowSettings struct {
@@ -38,16 +39,18 @@ type WorkflowSettings struct {
 
 // WorkflowStep represents a step in a workflow
 type WorkflowStep struct {
-	ID          string `json:"id"`
-	AgentID     int    `json:"agentID"`
-	AgentName   string `json:"agentName"`
-	OutputField string `json:"outputField"`
+	ID          string                `json:"id"`
+	AgentID     int                   `json:"agentID,omitempty"`
+	AgentName   string                `json:"agentName,omitempty"`
+	OutputField string                `json:"outputField"`
+	Integration types.TriggerSettings `json:"integration,omitempty"`
 }
 
 // WorkflowResult represents the result of a workflow step execution
 type WorkflowResult struct {
 	AgentID     int
 	OutputField string
+	Integration string
 	Content     string
 	StepID      string
 	Error       error
@@ -62,7 +65,7 @@ type WorkflowContext struct {
 	ValidationFunctions []string
 }
 
-func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, logger logr.Logger) *Workflow {
+func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integrations map[string]integration.Integration, logger logr.Logger) *Workflow {
 	w := &Workflow{
 		settings:            settings,
 		Steps:               settings.Steps,
@@ -71,6 +74,14 @@ func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, logger logr
 		outputChannels:      make([]chan any, len(settings.Outputs)),
 		agentMap:            agentMap,
 		logger:              logger,
+		integrations:        integrations,
+	}
+
+	for _, step := range w.Steps {
+		if step.Integration.Integration == "" && step.AgentID == 0 {
+			w.logger.Error(fmt.Errorf("step %s has no integration or agentID", step.ID), "Step has no integration or agentID")
+			panic(fmt.Errorf("step %s has no integration or agentID", step.ID))
+		}
 	}
 
 	go func() {
@@ -105,7 +116,7 @@ func (w *Workflow) RegisterTriggers(integrations map[string]integration.Integrat
 }
 
 func (w *Workflow) Execute(data string) {
-	results, err := ExecuteWorkflow(w.Steps, w.agentMap, PromptInput{
+	results, err := w.ExecuteWorkflow(w.Steps, w.agentMap, PromptInput{
 		Message: data,
 	}, "", w.logger, w.ValidationFunctions)
 	if err != nil {
@@ -126,7 +137,7 @@ func (w *Workflow) Execute(data string) {
 }
 
 // ExecuteWorkflow runs a workflow defined by the given steps using the provided agents
-func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInput PromptInput, path string, logger logr.Logger, validationFunctions []string) (map[string]WorkflowResult, error) {
+func (w *Workflow) ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInput PromptInput, path string, logger logr.Logger, validationFunctions []string) (map[string]WorkflowResult, error) {
 	if len(workflow) == 0 {
 		return nil, errors.New("workflow has no steps")
 	}
@@ -160,7 +171,7 @@ func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInp
 		// Execute steps in sequence
 		for _, step := range workflow {
 			// Execute the step
-			result, err := executeWorkflowStep(step, agentMap, ctx, &prevResult)
+			result, err := w.executeWorkflowStep(step, agentMap, ctx, &prevResult)
 			if err != nil {
 				return ctx.Results, err
 			}
@@ -199,13 +210,33 @@ func ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Agent, promptInp
 }
 
 // executeWorkflowStep executes a single step in the workflow
-func executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agent, ctx *WorkflowContext, prevResult *WorkflowResult) (WorkflowResult, error) {
+func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agent, ctx *WorkflowContext, prevResult *WorkflowResult) (WorkflowResult, error) {
 	result := WorkflowResult{
 		AgentID:     step.AgentID,
+		Integration: step.Integration.Integration,
 		OutputField: step.OutputField,
 		StepID:      step.ID,
 	}
 
+	/*
+		TODO: Break this into multiple functions
+	*/
+
+	if step.Integration.Integration != "" {
+		// Get the integration for this step
+		integration, exists := w.integrations[step.Integration.Integration]
+		if !exists {
+			result.Error = fmt.Errorf("integration with ID %s not found", step.Integration.Integration)
+			return result, result.Error
+		}
+		response, err := integration.Call(step.Integration.Event, step.Integration.Data)
+		if err != nil {
+			result.Error = fmt.Errorf("error calling integration: %w", err)
+			return result, result.Error
+		}
+		result.Content = response.(string)
+		return result, nil
+	}
 	// Get the agent for this step
 	agent, exists := agentMap[step.AgentID]
 	if !exists {

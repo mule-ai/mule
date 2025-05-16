@@ -380,45 +380,49 @@ func (r *Repository) getChanges() (*Changes, error) {
 }
 
 func (r *Repository) generateFromIssue(agents map[int]*agent.Agent, workflow *agent.Workflow, issue *Issue) (bool, error) {
-	prompt := ""
+	// prompt := ""
 	var unresolvedCommentId int64
-	var promptInput agent.PromptInput
-	// if issue has not PR, send issue prompt
-	if !issue.PrExists() {
-		promptInput = agent.PromptInput{
-			IssueTitle:  issue.Title,
-			IssueBody:   issue.Body,
-			Commits:     "",
-			Diff:        "",
-			PRComment:   prompt,
-			IsPRComment: false,
-		}
-	} else {
-		// if issue has PR, send PR comment prompt
-		pr, hasUnresolvedComments := issue.PRHasUnresolvedComments()
-		unresolvedComment := pr.FirstUnresolvedComment()
-		if hasUnresolvedComments {
-			unresolvedCommentId = unresolvedComment.ID
+	/*
+		var promptInput agent.PromptInput
+		// if issue has not PR, send issue prompt
+		if !issue.PrExists() {
 			promptInput = agent.PromptInput{
-				IssueTitle:        issue.Title,
-				IssueBody:         issue.Body,
-				Commits:           "",
-				Diff:              pr.Diff,
-				PRComment:         unresolvedComment.Body,
-				PRCommentDiffHunk: unresolvedComment.DiffHunk,
-				IsPRComment:       true,
+				IssueTitle:  issue.Title,
+				IssueBody:   issue.Body,
+				Commits:     "",
+				Diff:        "",
+				PRComment:   prompt,
+				IsPRComment: false,
 			}
 		} else {
-			return false, fmt.Errorf("expected PR with unresolved comments, but none found")
+			// if issue has PR, send PR comment prompt
+			pr, hasUnresolvedComments := issue.PRHasUnresolvedComments()
+			unresolvedComment := pr.FirstUnresolvedComment()
+			if hasUnresolvedComments {
+				unresolvedCommentId = unresolvedComment.ID
+				promptInput = agent.PromptInput{
+					IssueTitle:        issue.Title,
+					IssueBody:         issue.Body,
+					Commits:           "",
+					Diff:              pr.Diff,
+					PRComment:         unresolvedComment.Body,
+					PRCommentDiffHunk: unresolvedComment.DiffHunk,
+					IsPRComment:       true,
+				}
+			} else {
+				return false, fmt.Errorf("expected PR with unresolved comments, but none found")
+			}
 		}
-	}
+	*/
 
-	// err := agent.RunWorkflow(agents, promptInput, r.Path)
-	_, err := agent.ExecuteWorkflow(workflow.Steps, agents, promptInput, r.Path, r.Logger, workflow.ValidationFunctions)
-	if err != nil {
-		r.Logger.Error(err, "Error running agent")
-		return false, err
-	}
+	/*
+		// err := agent.RunWorkflow(agents, promptInput, r.Path)
+		_, err := agent.ExecuteWorkflow(workflow.Steps, agents, promptInput, r.Path, r.Logger, workflow.ValidationFunctions)
+		if err != nil {
+			r.Logger.Error(err, "Error running agent")
+			return false, err
+		}
+	*/
 
 	// If we're handling a PR comment, commit and push to the existing branch
 	if unresolvedCommentId != 0 {

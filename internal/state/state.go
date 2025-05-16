@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -38,6 +39,7 @@ type RemoteProviders struct {
 
 func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	rag := rag.NewStore(logger.WithName("rag"))
+	initializeEnvironmentVariables(settings.Environment)
 	genaiProviders := initializeGenAIProviders(logger, settings)
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders, rag)
@@ -64,6 +66,12 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 		RAG:          rag,
 		Workflows:    workflows,
 		Integrations: integrations,
+	}
+}
+
+func initializeEnvironmentVariables(environmentVariables []settings.EnvironmentVariable) {
+	for _, environmentVariable := range environmentVariables {
+		os.Setenv(environmentVariable.Name, environmentVariable.Value)
 	}
 }
 
@@ -146,7 +154,7 @@ func initializeWorkflows(settingsInput settings.Settings, agents map[int]*agent.
 	workflows := make(map[string]*agent.Workflow)
 
 	for _, workflow := range settingsInput.Workflows {
-		workflows[workflow.Name] = agent.NewWorkflow(workflow, agents, logger.WithName("workflow").WithValues("name", workflow.Name))
+		workflows[workflow.Name] = agent.NewWorkflow(workflow, agents, integrations, logger.WithName("workflow").WithValues("name", workflow.Name))
 		if workflow.IsDefault {
 			workflows["default"] = workflows[workflow.Name]
 		}

@@ -36,7 +36,7 @@ type Matrix struct {
 	channel               chan any
 	cryptoHelper          *cryptohelper.CryptoHelper
 	requestedSessionMutex sync.Mutex
-	requestedSessions     map[string]time.Time // SessionID -> request time
+	requestedSessions     map[string]time.Time
 	mentionRegex          *regexp.Regexp
 	slashCommandRegex     *regexp.Regexp
 	triggers              map[string]chan any
@@ -46,11 +46,6 @@ var (
 	events = map[string]any{
 		"newMessage":   struct{}{},
 		"slashCommand": struct{}{},
-		"testAction":   struct{}{},
-	}
-
-	slashCommands = map[string]string{
-		"test": "testAction",
 	}
 )
 
@@ -67,6 +62,10 @@ func New(config *Config, l logr.Logger) *Matrix {
 	m.init()
 	go m.receiveTriggers()
 	return m
+}
+
+func (m *Matrix) Call(name string, data any) (any, error) {
+	return nil, nil
 }
 
 func (m *Matrix) Name() string {
@@ -112,7 +111,12 @@ func (m *Matrix) RegisterTrigger(trigger string, data any, channel chan any) {
 		m.l.Error(fmt.Errorf("trigger not found"), "Trigger not found")
 		return
 	}
-	m.triggers[trigger] = channel
+	dataStr, ok := data.(string)
+	if !ok {
+		m.l.Error(fmt.Errorf("data is not a string"), "Data is not a string")
+		return
+	}
+	m.triggers[trigger+dataStr] = channel
 }
 
 func (m *Matrix) init() {
@@ -619,15 +623,26 @@ func (m *Matrix) messageReceived(message string) {
 	// check for slash commands
 	slashCommand := m.slashCommandRegex.FindStringSubmatch(message)
 	if len(slashCommand) > 1 {
-		command := slashCommand[1]
-		// validate command
-		if _, ok := slashCommands[command]; !ok {
-			m.l.Info("Invalid slash command", "command", command)
-			// if not valid slash command found, ignore it
-		} else {
-			m.l.Info("Slash command received", "command", command)
-			m.triggers[slashCommands[command]] <- message
+		for key := range m.triggers {
+			cmd := strings.TrimPrefix(key, "slashCommand")
+			if strings.Contains(message, cmd) {
+				m.l.Info("Slash command received", "command", cmd)
+				m.triggers[key] <- message
+				return
+			}
 		}
+		m.l.Info("Slash command recognized with no trigger")
+		/*
+			command := slashCommand[1]
+			// validate command
+			if _, ok := slashCommands[command]; !ok {
+				m.l.Info("Invalid slash command", "command", command)
+				// if not valid slash command found, ignore it
+			} else {
+				m.l.Info("Slash command received", "command", command)
+				m.triggers[slashCommands[command]] <- message
+			}
+		*/
 		return
 	}
 	select {
