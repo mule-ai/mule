@@ -80,10 +80,7 @@ func NewStore(logger logr.Logger) *Store {
 }
 
 func (s *Store) NewCollection(name string) error {
-	collection, err := s.DB.CreateCollection(name, nil, chromem.NewEmbeddingFuncOllama("nomic-embed-text", "http://10.10.199.29:11434/api"))
-	if err != nil {
-		return err
-	}
+	collection := s.DB.GetCollection(name, chromem.NewEmbeddingFuncOpenAICompat("https://10.10.199.29:8080/v1", "api-key", "text-embedding-nomic-embed-text-v1.5", nil))
 	s.Collections[name] = collection
 	return nil
 }

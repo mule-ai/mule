@@ -3,6 +3,7 @@ module github.com/mule-ai/mule
 go 1.24.0
 
 require (
+	github.com/bwmarrin/discordgo v0.28.1
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/go-git/go-git/v5 v5.14.0
 	github.com/go-logr/logr v1.4.2
@@ -10,7 +11,7 @@ require (
 	github.com/gomarkdown/markdown v0.0.0-20250311123330-531bef5e742b
 	github.com/google/go-github/v60 v60.0.0
 	github.com/google/uuid v1.6.0
-	github.com/jbutlerdev/genai v0.0.0-20250320023014-e16dc3ff3d53
+	github.com/jbutlerdev/genai v0.0.0-20250516005909-fbf8b73845cc
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
@@ -44,12 +45,14 @@ require (
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
+	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-sqlite3 v1.14.27 // indirect
 	github.com/ollama/ollama v0.6.2 // indirect
+	github.com/openai/openai-go v0.1.0-beta.2 // indirect
 	github.com/petermattis/goid v0.0.0-20250319124200-ccd6737f222a // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect

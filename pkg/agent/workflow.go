@@ -123,9 +123,9 @@ func (w *Workflow) Execute(data string) {
 		w.logger.Error(err, "Error executing workflow")
 	}
 	finalResult, ok := results["final"]
-	if !ok {
+	if !ok || finalResult.Error != nil || finalResult.Content == "" {
 		w.logger.Error(fmt.Errorf("final result not found"), "Final result not found")
-		return
+		finalResult.Content = "An error occurred while executing the workflow, please try again."
 	}
 	for i := range w.settings.Outputs {
 		w.outputChannels[i] <- &types.TriggerSettings{
