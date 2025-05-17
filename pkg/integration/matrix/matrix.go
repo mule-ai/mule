@@ -19,14 +19,15 @@ import (
 )
 
 type Config struct {
-	Enabled     bool   `json:"enabled,omitempty"`
-	HomeServer  string `json:"homeServer,omitempty"`
-	UserID      string `json:"userId,omitempty"`
-	AccessToken string `json:"accessToken,omitempty"`
-	DeviceID    string `json:"deviceId,omitempty"`
-	RecoveryKey string `json:"recoveryKey,omitempty"`
-	PickleKey   string `json:"pickleKey,omitempty"`
-	RoomID      string `json:"roomId,omitempty"`
+	Enabled          bool   `json:"enabled,omitempty"`
+	MessageOnConnect bool   `json:"messageOnConnect,omitempty"`
+	HomeServer       string `json:"homeServer,omitempty"`
+	UserID           string `json:"userId,omitempty"`
+	AccessToken      string `json:"accessToken,omitempty"`
+	DeviceID         string `json:"deviceId,omitempty"`
+	RecoveryKey      string `json:"recoveryKey,omitempty"`
+	PickleKey        string `json:"pickleKey,omitempty"`
+	RoomID           string `json:"roomId,omitempty"`
 }
 
 type Matrix struct {
@@ -498,9 +499,11 @@ func (m *Matrix) connect() error {
 	m.l.Info("Key verification successful.")
 
 	// Send test message
-	err = m.sendMessage("Hello world from Mule!")
-	if err != nil {
-		return fmt.Errorf("failed to send test message: %w", err)
+	if m.config.MessageOnConnect {
+		err = m.sendMessage("Hello world from Mule!")
+		if err != nil {
+			return fmt.Errorf("failed to send test message: %w", err)
+		}
 	}
 
 	return nil
@@ -631,19 +634,7 @@ func (m *Matrix) messageReceived(message string) {
 				return
 			}
 		}
-		m.l.Info("Slash command recognized with no trigger")
-		/*
-			command := slashCommand[1]
-			// validate command
-			if _, ok := slashCommands[command]; !ok {
-				m.l.Info("Invalid slash command", "command", command)
-				// if not valid slash command found, ignore it
-			} else {
-				m.l.Info("Slash command received", "command", command)
-				m.triggers[slashCommands[command]] <- message
-			}
-		*/
-		return
+		m.l.Info("Slash command recognized with no trigger, processing as chat message")
 	}
 	select {
 	case m.triggers["newMessage"] <- message:
