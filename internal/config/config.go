@@ -1,23 +1,28 @@
 package config
 
 import (
-	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/go-logr/logr"
-	"github.com/mule-ai/mule/internal/scheduler"
+	"github.com/mitchellh/mapstructure"
 	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/internal/state"
 	"github.com/mule-ai/mule/pkg/remote"
 	"github.com/mule-ai/mule/pkg/repository"
+	"github.com/spf13/viper"
 )
 
-const ConfigPath = ".config/mule/config.json"
+const DefaultConfigFileName = "config"
+const DefaultConfigType = "yaml"
+const DefaultConfigDir = ".config/mule"
+const DefaultGeneratedConfigFileName = "config-default.yaml"
 
 type Config struct {
-	Repositories map[string]*repository.Repository `json:"repositories"`
-	Settings     settings.Settings                 `json:"settings"`
+	Repositories map[string]*repository.Repository `yaml:"repositories" mapstructure:"repositories"`
+	Settings     settings.Settings                 `yaml:"settings" mapstructure:"settings"`
 }
 
 func GetHomeConfigPath() (string, error) {
@@ -25,44 +30,113 @@ func GetHomeConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(homeDir, ConfigPath), nil
+	return filepath.Join(homeDir, DefaultConfigDir, DefaultConfigFileName+"."+DefaultConfigType), nil
+}
+
+func manageDefaultConfigFile(configDirPath string, l logr.Logger) error {
+	defaultConfigFilePath := filepath.Join(configDirPath, DefaultGeneratedConfigFileName)
+	defaultConfig := Config{
+		Repositories: make(map[string]*repository.Repository),
+		Settings:     settings.DefaultSettings,
+	}
+	v := viper.New()
+	v.Set("repositories", defaultConfig.Repositories)
+	v.Set("settings", defaultConfig.Settings)
+	if err := os.MkdirAll(filepath.Dir(defaultConfigFilePath), 0755); err != nil {
+		return fmt.Errorf("error creating directory for default config %s: %w", defaultConfigFilePath, err)
+	}
+	if err := v.WriteConfigAs(defaultConfigFilePath); err != nil {
+		return fmt.Errorf("error writing default config file %s with viper: %w", defaultConfigFilePath, err)
+	}
+	l.Info("Ensured default configuration is written using viper", "path", defaultConfigFilePath)
+	return nil
 }
 
 func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Create default state if config doesn't exist
-			appState := &state.AppState{
-				Repositories: make(map[string]*repository.Repository),
-				Settings:     settings.DefaultSettings,
-				Scheduler:    scheduler.NewScheduler(l),
-			}
-			state.State = appState
-			return appState, SaveConfig(path)
+	configDirPath := filepath.Dir(path)
+	defaultGeneratedConfigPath := filepath.Join(configDirPath, DefaultGeneratedConfigFileName)
+
+	if err := manageDefaultConfigFile(configDirPath, l); err != nil {
+		return nil, fmt.Errorf("failed to manage default config file at %s: %w", configDirPath, err)
+	}
+
+	mainViper := viper.New()
+	mainViper.SetConfigType(DefaultConfigType)
+
+	// Layer 1: Load config-default.yaml
+	mainViper.SetConfigFile(defaultGeneratedConfigPath)
+	if err := mainViper.ReadInConfig(); err != nil {
+		// This is critical because manageDefaultConfigFile should have created it.
+		return nil, fmt.Errorf("critical: failed to read generated default config file %s: %w", defaultGeneratedConfigPath, err)
+	}
+	l.Info("Loaded default config", "path", defaultGeneratedConfigPath)
+
+	// Layer 2: Main user config file (e.g., config.yaml from `path` argument)
+	// MergeInConfig will not error if the file doesn't exist, which is desired.
+	if _, err := os.Stat(path); err == nil {
+		mainViper.SetConfigFile(path)
+		if err := mainViper.MergeInConfig(); err != nil {
+			l.Error(err, "Error merging main user config file, continuing with defaults/overrides.", "path", path)
+		} else {
+			l.Info("Merged main user config", "path", path)
 		}
-		return nil, err
+	} else if !os.IsNotExist(err) {
+		// Log if there's an error other than file not existing
+		l.Error(err, "Error checking main user config file, continuing with defaults/overrides.", "path", path)
 	}
 
-	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
+	// Layer 3: Override files
+	overrideFiles, err := filepath.Glob(filepath.Join(configDirPath, "config-override*.yaml"))
+	if err != nil {
+		l.Error(err, "Error globbing for override files, proceeding without them.", "pattern", filepath.Join(configDirPath, "config-override*.yaml"))
+	} else {
+		sort.Strings(overrideFiles) // Ensure deterministic order for overrides
+		for _, overrideFile := range overrideFiles {
+			mainViper.SetConfigFile(overrideFile)
+			if err := mainViper.MergeInConfig(); err != nil {
+				l.Error(err, "Error merging override config file, skipping this override.", "path", overrideFile)
+			} else {
+				l.Info("Merged override config file", "path", overrideFile)
+			}
+		}
 	}
-	// Create state from config
-	appState := state.NewState(l, config.Settings)
 
-	// Set up repositories and their schedules
-	for path, repo := range config.Repositories {
-		rProviderOpts, err := remote.SettingsToOptions(repo.RemoteProvider)
-		if err != nil {
-			l.Error(err, "Error setting up remote provider", "path", path)
+	// Final Step: Unmarshal the fully merged map into the Config struct
+	var finalConfig Config
+	decodeHooks := mapstructure.ComposeDecodeHookFunc(
+		mapstructure.StringToTimeDurationHookFunc(),
+		mapstructure.StringToSliceHookFunc(","),
+	)
+	if err := mainViper.Unmarshal(&finalConfig, viper.DecodeHook(decodeHooks)); err != nil {
+		return nil, fmt.Errorf("error unmarshalling final merged config to Config struct: %w", err)
+	}
+
+	appState := state.NewState(l, finalConfig.Settings)
+	for repoPathVal, repo := range finalConfig.Repositories {
+		if repo == nil {
+			l.Error(fmt.Errorf("nil repository pointer in final config for key %s", repoPathVal), "Skipping repository initialization")
+			continue
+		}
+
+		// Default RemoteProvider if not specified in config
+		if repo.RemoteProvider.Provider == "" {
+			l.Info("Remote provider not specified, defaulting to local", "repository", repoPathVal, "repo.Path", repo.Path)
+			repo.RemoteProvider.Provider = remote.ProviderTypeToString(remote.LOCAL)
+			// When using a local provider, its path is the same as the repository's main path.
+			// The repo.Path field should already be populated from the config or defaults.
+			repo.RemoteProvider.Path = repo.Path
+		}
+
+		rProviderOpts, errRemote := remote.SettingsToOptions(repo.RemoteProvider)
+		if errRemote != nil {
+			l.Error(errRemote, "Error setting up remote provider", "path", repoPathVal)
 			continue
 		}
 		rProvider := remote.New(rProviderOpts)
 		r := repository.NewRepositoryWithRemote(repo.Path, rProvider)
-		err = appState.RAG.AddRepository(repo.Path)
-		if err != nil {
-			l.Error(err, "Error adding repository to RAG")
+		errRAG := appState.RAG.AddRepository(repo.Path)
+		if errRAG != nil {
+			l.Error(errRAG, "Error adding repository to RAG")
 		} else {
 			l.Info("Added repository to VectorDB", "path", repo.Path)
 		}
@@ -70,20 +144,20 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 		r.Schedule = repo.Schedule
 		r.RemotePath = repo.RemotePath
 		r.RemoteProvider = repo.RemoteProvider
-		err = r.UpdateStatus()
-		if err != nil {
-			l.Error(err, "Error getting repo status")
+		errStatus := r.UpdateStatus()
+		if errStatus != nil {
+			l.Error(errStatus, "Error getting repo status")
 		}
-		appState.Repositories[path] = r
+		appState.Repositories[repoPathVal] = r
 		defaultWorkflow := appState.Workflows["default"]
-		err = appState.Scheduler.AddTask(path, repo.Schedule, func() {
-			err := r.Sync(appState.Agents, defaultWorkflow)
-			if err != nil {
-				l.Error(err, "Error syncing repo")
+		errTask := appState.Scheduler.AddTask(repoPathVal, repo.Schedule, func() {
+			errSync := r.Sync(appState.Agents, defaultWorkflow)
+			if errSync != nil {
+				l.Error(errSync, "Error syncing repo")
 			}
 		})
-		if err != nil {
-			l.Error(err, "Error setting up schedule for %s", path)
+		if errTask != nil {
+			l.Error(errTask, "Error setting up schedule for repository", "repository", repoPathVal)
 		}
 	}
 
@@ -97,20 +171,24 @@ func SaveConfig(path string) error {
 	state.State.Mu.RLock()
 	defer state.State.Mu.RUnlock()
 
-	// Create config from state
-	config := Config{
+	currentConfig := Config{
 		Repositories: make(map[string]*repository.Repository),
 		Settings:     state.State.Settings,
 	}
-
-	for path, repo := range state.State.Repositories {
-		config.Repositories[path] = repo
+	if state.State.Repositories == nil {
+		state.State.Repositories = make(map[string]*repository.Repository)
+	}
+	for repoPath, repo := range state.State.Repositories {
+		currentConfig.Repositories[repoPath] = repo
 	}
 
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
+	vconfig := viper.New()
+	vconfig.Set("repositories", currentConfig.Repositories)
+	vconfig.Set("settings", currentConfig.Settings)
+
+	if err := vconfig.WriteConfigAs(path); err != nil {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return nil
 }

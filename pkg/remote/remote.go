@@ -43,9 +43,9 @@ type Provider interface {
 }
 
 type ProviderSettings struct {
-	Provider string `json:"provider,omitempty"`
-	Path     string `json:"path,omitempty"`
-	Token    string `json:"token,omitempty"`
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Path     string `json:"path,omitempty" yaml:"path,omitempty"`
+	Token    string `json:"token,omitempty" yaml:"token,omitempty"`
 }
 
 type ProviderOptions struct {

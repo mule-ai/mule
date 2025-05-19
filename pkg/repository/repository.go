@@ -27,13 +27,13 @@ some duplicate types. The types from `remote/types` should be used instead.
 */
 
 type Repository struct {
-	Path           string                  `json:"path"`
-	RemoteProvider remote.ProviderSettings `json:"remoteProvider"`
-	Schedule       string                  `json:"schedule"`
-	LastSync       time.Time               `json:"lastSync"`
-	State          *Status                 `json:"status,omitempty"`
-	RemotePath     string                  `json:"remotePath,omitempty"`
-	Issues         map[int]*Issue          `json:"-"`
+	Path           string                  `json:"path" yaml:"path"`
+	RemoteProvider remote.ProviderSettings `json:"remoteProvider" yaml:"remoteProvider"`
+	Schedule       string                  `json:"schedule" yaml:"schedule"`
+	LastSync       time.Time               `json:"lastSync" yaml:"lastSync"`
+	State          *Status                 `json:"status,omitempty" yaml:"status,omitempty"`
+	RemotePath     string                  `json:"remotePath,omitempty" yaml:"remotePath,omitempty"`
+	Issues         map[int]*Issue          `json:"-" yaml:"-"`
 	PullRequests   map[int]*PullRequest    `json:"-"`
 	Mu             sync.RWMutex            `json:"-"`
 	Locked         bool                    `json:"locked"`

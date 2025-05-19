@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/mule-ai/mule/internal/config"
 	"github.com/mule-ai/mule/internal/settings"
@@ -52,13 +50,12 @@ func handleSettingsChange(newSettings settings.Settings) error {
 		return err
 	}
 
-	configPath, err := os.UserHomeDir()
+	configPath, err := config.GetHomeConfigPath()
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting config path: %w", err)
 	}
-	configPath = filepath.Join(configPath, config.ConfigPath)
 	if err := config.SaveConfig(configPath); err != nil {
-		return fmt.Errorf("error saving config: %v", err)
+		return fmt.Errorf("error saving config: %w", err)
 	}
 	return nil
 }
