@@ -4,9 +4,11 @@ import (
 	"github.com/mule-ai/mule/pkg/agent"
 	"github.com/mule-ai/mule/pkg/integration"
 	"github.com/mule-ai/mule/pkg/integration/matrix"
+	"github.com/mule-ai/mule/pkg/integration/types"
 )
 
 var DefaultSettings = Settings{
+	Environment: []EnvironmentVariable{},
 	GitHubToken: "",
 	AIProviders: []AIProviderSettings{
 		{
@@ -22,7 +24,7 @@ var DefaultSettings = Settings{
 			Name:           "code",
 			Model:          "qwen2.5-coder:32b",
 			PromptTemplate: "Your software team has been assigned the following issue.\n\n{{ .IssueTitle }}:\n{{ .IssueBody }}\n\n\n{{ if .IsPRComment }}\n\nYou generated the following diffs when solving the issue above.\n\n{{ .Diff }}\n\nA user has provided you the following comment:\n\n{{ .PRComment }}\n\non the following lines:\n\n{{ .PRCommentDiffHunk }}\n\n{{ end }}\n\n\nYour software architect has provided the context above. Be sure to use that while implementing your solution.\n\n",
-			SystemPrompt:   "Act as an expert software developer.\nYou are diligent and tireless!\nYou NEVER leave comments describing code without implementing it!\nYou always COMPLETELY IMPLEMENT the needed code!\nAlways use best practices when coding.\nRespect and use existing conventions, libraries, etc that are already present in the code base.\n\nTake requests for changes to the supplied code.\nIf the request is ambiguous, ask questions.\n\n\nFor each file that needs to be changed, write out the changes similar to a unified diff like `diff -U0` would produce.\n\n1. Add an imports of sympy.\n2. Remove the is_prime() function.\n3. Replace the existing call to is_prime() with a call to sympy.isprime().\n\nHere are the diffs for those changes:\n\n```diff\n--- mathweb/flask/app.py\n+++ mathweb/flask/app.py\n@@ ... @@\n-class MathWeb:\n+import sympy\n+\n+class MathWeb:\n@@ ... @@\n-def is_prime(x):\n-    if x \u003c 2:\n-        return False\n-    for i in range(2, int(math.sqrt(x)) + 1):\n-        if x % i == 0:\n-            return False\n-    return True\n@@ ... @@\n-@app.route('/prime/\u003cint:n\u003e')\n-def nth_prime(n):\n-    count = 0\n-    num = 1\n-    while count \u003c n:\n-        num += 1\n-        if is_prime(num):\n-            count += 1\n-    return str(num)\n+@app.route('/prime/\u003cint:n\u003e')\n+def nth_prime(n):\n+    count = 0\n+    num = 1\n+    while count \u003c n:\n+        num += 1\n+        if sympy.isprime(num):\n+            count += 1\n+    return str(num)\n```",
+			SystemPrompt:   "Act as an expert software developer.\nYou are diligent and tireless!\nYou NEVER leave comments describing code without implementing it!\nYou always COMPLETELY IMPLEMENT the needed code!\nAlways use best practices when coding.\nRespect and use existing conventions, libraries, etc that are already present in the code base.\n\nTake requests for changes to the supplied code.\nIf the request is ambiguous, ask questions.\n\n\nFor each file that needs to be changed, write out the changes similar to a unified diff like `diff -U0` would produce.\n\n1. Add an imports of sympy.\n2. Remove the is_prime() function.\n3. Replace the existing call to is_prime() with a call to sympy.isprime().\n\nHere are the diffs for those changes:\n\n```diff\n--- mathweb/flask/app.py\n+++ mathweb/flask/app.py\n@@ ... @@\n-class MathWeb:\n+import sympy\n+\n+class MathWeb:\n@@ ... @@\n-def is_prime(x):\n-    if x \u003c 2:\n-        return False\n-    for i in range(2, int(math.sqrt(x)) + 1):\n-        if x % i == 0:\n-            return False\n-    return True\n@@ ... @@\n-@app.route('/prime/\u003cint:n\u003e')\n-def nth_prime(n):\n-    count = 0\n-    num = 1\n-    while count \u003c n:\n-        num += 1\n-        if is_prime(num):\n-            count += 1\n-    return str(num)\n+@app.route('/prime/\u003cint:n\u003e')\n+def nth_prime(n):\n-    count = 0\n-    num = 1\n-    while count \u003c n:\n-        num += 1\n-        if sympy.isprime(num):\n-            count += 1\n-    return str(num)\n+    count = 0\n+    num = 1\n+    while count \u003c n:\n+        num += 1\n+        if sympy.isprime(num):\n+            count += 1\n+    return str(num)\n```",
 			Tools: []string{
 				"revertFile",
 				"tree",
@@ -59,6 +61,7 @@ var DefaultSettings = Settings{
 			Name:        "Code Generation",
 			Description: "This is a simple code generation workflow",
 			IsDefault:   true,
+			Outputs:     []types.TriggerSettings{},
 			Steps: []agent.WorkflowStep{
 				{
 					ID:          "step_architect",
@@ -73,6 +76,7 @@ var DefaultSettings = Settings{
 					OutputField: "generatedText",
 				},
 			},
+			Triggers: []types.TriggerSettings{},
 			ValidationFunctions: []string{
 				"goFmt",
 				"goModTidy",
