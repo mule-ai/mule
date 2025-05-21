@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/go-logr/logr"
+	"github.com/mule-ai/mule/pkg/integration/memory"
 	"github.com/mule-ai/mule/pkg/integration/types"
 )
 
@@ -30,6 +31,7 @@ type Discord struct {
 	slashCommandRegex  *regexp.Regexp
 	triggers           map[string]chan any
 	registeredCommands []*discordgo.ApplicationCommand
+	memory             *memory.Memory
 }
 
 var (
@@ -178,8 +180,15 @@ func (d *Discord) sendMessage(channelID, message string) error { //
 	_, err := d.session.ChannelMessageSend(channelID, message)
 	if err != nil {
 		d.l.Error(err, "Error sending message to Discord", "channelID", channelID)
+		return err
 	}
-	return err
+
+	// Log the bot's message to chat history
+	if d.memory != nil {
+		d.LogBotMessage(channelID, message)
+	}
+
+	return nil
 }
 
 func (d *Discord) sendMessageAsFile(channelID, message string) error {
@@ -220,6 +229,12 @@ func (d *Discord) sendMessageAsFile(channelID, message string) error {
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
+
+	// Log the bot's file message to chat history
+	if d.memory != nil {
+		d.LogBotMessage(channelID, "File: "+messageSend.Content)
+	}
+
 	return nil
 }
 
@@ -310,6 +325,18 @@ func (d *Discord) interactionCreate(s *discordgo.Session, i *discordgo.Interacti
 // messageReceived processes incoming messages (from messageCreate or interactionCreate).
 // The `isInteraction` flag and `interaction` object are for slash commands that come via Interactions API.
 func (d *Discord) messageReceived(message, userID, channelID string, isInteraction bool, interaction *discordgo.Interaction) { //
+	// Get username from the session if possible
+	username := "User-" + userID
+	if d.session != nil && d.session.State != nil {
+		if member, err := d.session.State.Member("", userID); err == nil && member != nil {
+			if member.Nick != "" {
+				username = member.Nick
+			} else if member.User != nil && member.User.Username != "" {
+				username = member.User.Username
+			}
+		}
+	}
+
 	// Check for slash commands first
 	slashCommandMatch := d.slashCommandRegex.FindStringSubmatch(message) //
 	if len(slashCommandMatch) > 1 {
@@ -317,14 +344,39 @@ func (d *Discord) messageReceived(message, userID, channelID string, isInteracti
 			cmd := strings.TrimPrefix(key, "slashCommand")
 			if strings.Contains(message, cmd) {
 				d.l.Info("Slash command received", "command", cmd)
+				// Store slash command in memory
+				if d.memory != nil {
+					if err := d.memory.SaveMessage(d.Name(), channelID, userID, username, message, false); err != nil {
+						d.l.Error(err, "Failed to save slash command to memory")
+					}
+				}
+				// For slash commands, pass the original message (no chat history)
 				d.triggers[key] <- message
 				return
 			}
 		}
 		d.l.Info("Slash command recognized with no trigger, processing as chat message")
 	}
+
+	// Store the message in memory
+	if d.memory != nil {
+		if err := d.memory.SaveMessage(d.Name(), channelID, userID, username, message, false); err != nil {
+			d.l.Error(err, "Failed to save message to memory")
+		}
+	}
+
+	// Check if this is a slash command (even without a specific trigger)
+	isSlashCommand := len(d.slashCommandRegex.FindStringSubmatch(message)) > 1
+
+	// Process through triggers
 	select {
-	case d.triggers["newMessage"] <- message:
+	case d.triggers["newMessage"] <- func() any {
+		// For slash commands without specific triggers, don't add history
+		if isSlashCommand {
+			return message
+		}
+		return d.addHistoryToMessage(message, channelID)
+	}():
 	default:
 		d.l.Info("Channel full or not ready for newMessage, discarding message", "message", message)
 		err := d.sendMessage(channelID, "Mule is busy, please try again later.")

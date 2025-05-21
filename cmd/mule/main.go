@@ -2,14 +2,18 @@ package main
 
 import (
 	"embed"
+	"flag"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/mule-ai/mule/internal/config"
 	"github.com/mule-ai/mule/internal/handlers"
 	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/internal/state"
+	"github.com/mule-ai/mule/pkg/agent"
 	"github.com/mule-ai/mule/pkg/log"
 	"github.com/mule-ai/mule/pkg/repository"
 
@@ -59,6 +63,55 @@ func main() {
 
 	state.State = appState
 
+	// read flags
+	serverMode := flag.Bool("server", false, "run in server mode")
+	workflow := flag.String("workflow", "", "workflow to run")
+	prompt := flag.String("prompt", "", "prompt to run workflow with")
+	flag.Parse()
+	if *serverMode {
+		server(l)
+	} else if *workflow != "" {
+		l = log.NewStdoutLogger()
+		runWorkflow(l, *workflow, *prompt)
+	} else {
+		l.Error(nil, "No server mode or workflow specified")
+	}
+}
+
+func runWorkflow(l logr.Logger, workflowName string, prompt string) {
+	if prompt == "" {
+		l.Error(nil, "No prompt specified")
+		return
+	}
+
+	// load workflow
+	workflow, ok := state.State.Workflows[workflowName]
+	if !ok {
+		workflowOptions := make([]string, 0, len(state.State.Workflows))
+		for name := range state.State.Workflows {
+			workflowOptions = append(workflowOptions, name)
+		}
+		l.Error(nil, "Workflow not found", "options", workflowOptions)
+		return
+	}
+
+	l.Info(fmt.Sprintf("Running workflow: %s with prompt: %s", workflowName, prompt))
+	// run workflow
+	results, err := workflow.ExecuteWorkflow(workflow.Steps, state.State.Agents, agent.PromptInput{
+		Message: prompt,
+	}, "", l, workflow.ValidationFunctions)
+	if err != nil {
+		l.Error(err, "Error executing workflow")
+	}
+	finalResult, ok := results["final"]
+	if !ok || finalResult.Error != nil || finalResult.Content == "" {
+		l.Error(fmt.Errorf("final result not found"), "Final result not found")
+		finalResult.Content = "An error occurred while executing the workflow, please try again."
+	}
+	l.Info(fmt.Sprintf("Workflow result: %s", finalResult.Content))
+}
+
+func server(l logr.Logger) {
 	mux := http.NewServeMux()
 
 	// API routes

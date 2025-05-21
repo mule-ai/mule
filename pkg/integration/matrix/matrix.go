@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/mule-ai/mule/pkg/integration/memory"
 	"github.com/mule-ai/mule/pkg/integration/types"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/crypto"
@@ -41,6 +42,7 @@ type Matrix struct {
 	mentionRegex          *regexp.Regexp
 	slashCommandRegex     *regexp.Regexp
 	triggers              map[string]chan any
+	memory                *memory.Memory
 }
 
 var (
@@ -603,7 +605,16 @@ func (m *Matrix) processEvent(ctx context.Context, evt *event.Event) {
 		}
 
 		body := m.mentionRegex.ReplaceAllString(messageContent.Body, "$1")
-		m.messageReceived(body)
+
+		// Get username and sender ID
+		senderID := string(evt.Sender)
+		username := senderID
+		// Matrix usernames are in the format @username:server.com, extract just the username part
+		if idx := strings.Index(username, ":"); idx > 0 {
+			username = username[1:idx] // Remove the @ prefix and domain
+		}
+
+		m.messageReceived(body, senderID, username)
 	}
 }
 
@@ -619,10 +630,15 @@ func (m *Matrix) sendMessage(message string) error {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
+	// Log the bot's message to chat history
+	if m.memory != nil {
+		m.LogBotMessage(message)
+	}
+
 	return nil
 }
 
-func (m *Matrix) messageReceived(message string) {
+func (m *Matrix) messageReceived(message string, sender string, username string) {
 	// check for slash commands
 	slashCommand := m.slashCommandRegex.FindStringSubmatch(message)
 	if len(slashCommand) > 1 {
@@ -630,14 +646,38 @@ func (m *Matrix) messageReceived(message string) {
 			cmd := strings.TrimPrefix(key, "slashCommand")
 			if strings.Contains(message, cmd) {
 				m.l.Info("Slash command received", "command", cmd)
+				if m.memory != nil {
+					if err := m.memory.SaveMessage(m.Name(), m.config.RoomID, sender, username, message, false); err != nil {
+						m.l.Error(err, "Failed to save slash command to memory")
+					}
+				}
+				// For slash commands, pass the original message (no chat history)
 				m.triggers[key] <- message
 				return
 			}
 		}
 		m.l.Info("Slash command recognized with no trigger, processing as chat message")
 	}
+
+	// Store message in memory if available
+	if m.memory != nil {
+		if err := m.memory.SaveMessage(m.Name(), m.config.RoomID, sender, username, message, false); err != nil {
+			m.l.Error(err, "Failed to save message to memory")
+		}
+	}
+
+	// Check if this is a slash command (even without a specific trigger)
+	isSlashCommand := len(m.slashCommandRegex.FindStringSubmatch(message)) > 1
+
+	// Process through triggers
 	select {
-	case m.triggers["newMessage"] <- message:
+	case m.triggers["newMessage"] <- func() any {
+		// For slash commands without specific triggers, don't add history
+		if isSlashCommand {
+			return message
+		}
+		return m.addHistoryToMessage(message)
+	}():
 	default:
 		m.l.Info("Channel full or not ready, discarding message", "message", message)
 		err := m.sendMessage("Mule is busy, please try again later")
@@ -645,6 +685,31 @@ func (m *Matrix) messageReceived(message string) {
 			m.l.Error(err, "Failed to send message")
 		}
 	}
+}
+
+// addHistoryToMessage adds chat history context to a message
+func (m *Matrix) addHistoryToMessage(message string) any {
+	if m.memory == nil {
+		return message
+	}
+
+	// Get chat history and format it with the current message
+	history, err := m.memory.GetFormattedHistory(m.Name(), m.config.RoomID, 10)
+	if err != nil {
+		m.l.Error(err, "Failed to get chat history")
+		return message
+	}
+
+	// If no history, just return the message
+	if history == "" {
+		return message
+	}
+
+	// Format with history
+	messageWithHistory := fmt.Sprintf("=== Previous Messages ===\n%s\n=== Current Message ===\n%s",
+		history, message)
+
+	return messageWithHistory
 }
 
 func (m *Matrix) receiveTriggers() {

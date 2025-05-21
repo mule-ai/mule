@@ -4,7 +4,7 @@ tmp_dir = "tmp"
 
 [build]
   args_bin = []
-  bin = "./cmd/mule/bin/mule"
+  bin = "./cmd/mule/bin/mule --server"
   cmd = "make all"
   delay = 1000
   exclude_dir = [
