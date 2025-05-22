@@ -2,9 +2,11 @@ package integration
 
 import (
 	"github.com/go-logr/logr"
+	"github.com/mule-ai/mule/pkg/integration/api"
 	"github.com/mule-ai/mule/pkg/integration/discord"
 	"github.com/mule-ai/mule/pkg/integration/matrix"
 	"github.com/mule-ai/mule/pkg/integration/memory"
+	"github.com/mule-ai/mule/pkg/integration/system"
 	"github.com/mule-ai/mule/pkg/integration/tasks"
 )
 
@@ -13,6 +15,8 @@ type Settings struct {
 	Tasks   *tasks.Config   `json:"tasks,omitempty"`
 	Discord *discord.Config `json:"discord,omitempty"`
 	Memory  *memory.Config  `json:"memory,omitempty"`
+	API     *api.Config     `json:"api,omitempty"`
+	System  *system.Config  `json:"system,omitempty"`
 }
 
 type Integration interface {
@@ -73,6 +77,13 @@ func LoadIntegrations(settings Settings, l logr.Logger) map[string]Integration {
 	if settings.Tasks != nil {
 		integrations["tasks"] = tasks.New(settings.Tasks, l.WithName("tasks-integration"))
 	}
+
+	if settings.API != nil {
+		integrations["api"] = api.New(settings.API, l.WithName("api-integration"))
+	}
+
+	// always start the system integration
+	integrations["system"] = system.New(settings.System, l.WithName("system-integration"))
 
 	return integrations
 }
