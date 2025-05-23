@@ -44,7 +44,11 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
-	integrations := integration.LoadIntegrations(settings.Integration, logger)
+	integrations := integration.LoadIntegrations(integration.IntegrationInput{
+		Settings:  &settings.Integration,
+		Logger:    logger,
+		Providers: genaiProviders,
+	})
 	workflows := initializeWorkflows(settings, agents, logger, integrations)
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
@@ -81,6 +85,7 @@ func initializeGenAIProviders(logger logr.Logger, settings settings.Settings) ma
 		genaiProvider, err := genai.NewProviderWithLog(providerConfig.Provider, genai.ProviderOptions{
 			APIKey:  providerConfig.APIKey,
 			BaseURL: providerConfig.Server,
+			Name:    providerConfig.Name,
 			Log:     logger.WithName(providerConfig.Provider),
 		})
 		if err != nil {

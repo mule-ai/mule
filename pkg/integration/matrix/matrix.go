@@ -75,35 +75,6 @@ func (m *Matrix) Name() string {
 	return "matrix"
 }
 
-func (m *Matrix) Send(message any) error {
-	if !m.config.Enabled || m.client == nil {
-		m.l.Info("Matrix integration is disabled or client is not initialized")
-		return nil
-	}
-
-	// Convert message to string
-	var body string
-	switch msg := message.(type) {
-	case string:
-		body = msg
-	case []byte:
-		body = string(msg)
-	default:
-		// Try to marshal to JSON
-		jsonBytes, err := json.Marshal(message)
-		if err != nil {
-			return fmt.Errorf("failed to marshal message to JSON: %w", err)
-		}
-		body = string(jsonBytes)
-	}
-	err := m.sendMessage(body)
-	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
-	}
-	m.l.Info("Successfully sent message to Matrix room", "room_id", m.config.RoomID)
-	return nil
-}
-
 func (m *Matrix) GetChannel() chan any {
 	return m.channel
 }

@@ -103,13 +103,6 @@ func (t *Tasks) GetChannel() chan any {
 	return t.channel
 }
 
-// Send is a placeholder for sending messages/commands to the tasks API.
-// For now, it's not implemented as the primary goal is fetching tasks.
-func (t *Tasks) Send(message any) error {
-	t.l.Info("Send method called, but not implemented for tasks integration", "message", message)
-	return fmt.Errorf("send not implemented for tasks integration")
-}
-
 // RegisterTrigger is a placeholder for registering triggers.
 func (t *Tasks) RegisterTrigger(trigger string, data any, channel chan any) {
 	t.l.Info("RegisterTrigger method called, but not implemented for tasks integration", "trigger", trigger)

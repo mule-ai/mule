@@ -229,7 +229,8 @@ func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agen
 			result.Error = fmt.Errorf("integration with ID %s not found", step.Integration.Integration)
 			return result, result.Error
 		}
-		response, err := integration.Call(step.Integration.Event, step.Integration.Data)
+		w.logger.Info("Calling integration", "integration", step.Integration.Integration, "event", step.Integration.Event, "data", ctx.CurrentInput.Message)
+		response, err := integration.Call(step.Integration.Event, ctx.CurrentInput.Message)
 		if err != nil {
 			result.Error = fmt.Errorf("error calling integration: %w", err)
 			return result, result.Error
