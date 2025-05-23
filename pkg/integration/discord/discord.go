@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -141,35 +140,6 @@ func (d *Discord) Call(name string, data any) (any, error) {
 // Name returns the name of the integration.
 func (d *Discord) Name() string {
 	return "discord"
-}
-
-// Send sends a message to the configured Discord channel.
-func (d *Discord) Send(message any) error { //
-	if !d.config.Enabled || d.session == nil {
-		d.l.Info("Discord integration is disabled or session is not initialized")
-		return nil
-	}
-
-	var body string
-	switch msg := message.(type) {
-	case string:
-		body = msg
-	case []byte:
-		body = string(msg)
-	default:
-		jsonBytes, err := json.Marshal(message)
-		if err != nil {
-			return fmt.Errorf("failed to marshal message to JSON: %w", err)
-		}
-		body = string(jsonBytes)
-	}
-
-	err := d.sendMessage(d.config.ChannelID, body) //
-	if err != nil {
-		return fmt.Errorf("failed to send message to Discord: %w", err)
-	}
-	d.l.Info("Successfully sent message to Discord channel", "channel_id", d.config.ChannelID)
-	return nil
 }
 
 // sendMessage is an internal helper to send a message to a specific channel.
