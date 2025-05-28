@@ -14,6 +14,7 @@ import (
 	"github.com/mule-ai/mule/pkg/rag"
 	"github.com/mule-ai/mule/pkg/remote"
 	"github.com/mule-ai/mule/pkg/repository"
+	"github.com/mule-ai/mule/pkg/types"
 )
 
 var State *AppState
@@ -29,7 +30,7 @@ type AppState struct {
 	Agents       map[int]*agent.Agent
 	RAG          *rag.Store
 	Workflows    map[string]*agent.Workflow
-	Integrations map[string]integration.Integration
+	Integrations map[string]types.Integration
 }
 
 type RemoteProviders struct {
@@ -45,11 +46,15 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
 	integrations := integration.LoadIntegrations(integration.IntegrationInput{
-		Settings:  &settings.Integration,
-		Logger:    logger,
-		Providers: genaiProviders,
+		Settings: &settings.Integration,
+		Logger:   logger,
 	})
 	workflows := initializeWorkflows(settings, agents, logger, integrations)
+	integrations = integration.UpdateSystemPointers(integrations, integration.IntegrationInput{
+		Agents:    agents,
+		Workflows: workflows,
+		Providers: genaiProviders,
+	})
 	return &AppState{
 		Repositories: make(map[string]*repository.Repository),
 		Settings:     settings,
@@ -155,7 +160,7 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 	return agents
 }
 
-func initializeWorkflows(settingsInput settings.Settings, agents map[int]*agent.Agent, logger logr.Logger, integrations map[string]integration.Integration) map[string]*agent.Workflow {
+func initializeWorkflows(settingsInput settings.Settings, agents map[int]*agent.Agent, logger logr.Logger, integrations map[string]types.Integration) map[string]*agent.Workflow {
 	workflows := make(map[string]*agent.Workflow)
 
 	for _, workflow := range settingsInput.Workflows {

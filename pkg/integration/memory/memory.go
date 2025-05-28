@@ -3,7 +3,7 @@ package memory
 import (
 	"time"
 
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 )
 
 // Message represents a chat message

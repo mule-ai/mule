@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-logr/logr"
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 )
 
 type Config struct {

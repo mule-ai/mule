@@ -7,8 +7,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"github.com/mule-ai/mule/pkg/integration"
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 	"github.com/mule-ai/mule/pkg/validation"
 )
 
@@ -23,7 +22,7 @@ type Workflow struct {
 	outputChannels      []chan any
 	agentMap            map[int]*Agent
 	logger              logr.Logger
-	integrations        map[string]integration.Integration
+	integrations        map[string]types.Integration
 }
 
 type WorkflowSettings struct {
@@ -65,7 +64,7 @@ type WorkflowContext struct {
 	ValidationFunctions []string
 }
 
-func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integrations map[string]integration.Integration, logger logr.Logger) *Workflow {
+func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integrations map[string]types.Integration, logger logr.Logger) *Workflow {
 	w := &Workflow{
 		settings:            settings,
 		Steps:               settings.Steps,
@@ -97,7 +96,11 @@ func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integration
 	return w
 }
 
-func (w *Workflow) RegisterTriggers(integrations map[string]integration.Integration) error {
+func (w *Workflow) GetSettings() WorkflowSettings {
+	return w.settings
+}
+
+func (w *Workflow) RegisterTriggers(integrations map[string]types.Integration) error {
 	for _, trigger := range w.settings.Triggers {
 		integration, ok := integrations[trigger.Integration]
 		if !ok {
@@ -128,10 +131,24 @@ func (w *Workflow) Execute(data string) {
 		finalResult.Content = "An error occurred while executing the workflow, please try again."
 	}
 	for i := range w.settings.Outputs {
+		var data any
+		if w.settings.Outputs[i].Data == nil || w.settings.Outputs[i].Data == "" {
+			data = finalResult.Content
+		} else {
+			data = map[string]string{
+				"output": finalResult.Content,
+				"data":   w.settings.Outputs[i].Data.(string),
+			}
+		}
+		if w.outputChannels[i] == nil {
+			w.logger.Error(fmt.Errorf("output channel %d is nil", i), "Output channel is nil")
+			continue
+		}
+		w.logger.Info("Sending output to integration", "integration", w.settings.Outputs[i].Integration, "event", w.settings.Outputs[i].Event, "data", data)
 		w.outputChannels[i] <- &types.TriggerSettings{
 			Integration: w.settings.Outputs[i].Integration,
 			Event:       w.settings.Outputs[i].Event,
-			Data:        finalResult.Content,
+			Data:        data,
 		}
 	}
 }

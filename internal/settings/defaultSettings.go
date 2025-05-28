@@ -3,8 +3,9 @@ package settings
 import (
 	"github.com/mule-ai/mule/pkg/agent"
 	"github.com/mule-ai/mule/pkg/integration"
+	"github.com/mule-ai/mule/pkg/integration/grpc"
 	"github.com/mule-ai/mule/pkg/integration/matrix"
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 )
 
 var DefaultSettings = Settings{
@@ -87,8 +88,15 @@ var DefaultSettings = Settings{
 		},
 	},
 	Integration: integration.Settings{
-		Matrix: &matrix.Config{
-			Enabled: false,
+		Matrix: map[string]*matrix.Config{
+			"default": {
+				Enabled: false,
+			},
+		},
+		GRPC: &grpc.Config{
+			Enabled: true,
+			Host:    "0.0.0.0",
+			Port:    9090,
 		},
 	},
 }

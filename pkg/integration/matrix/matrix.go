@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/mule-ai/mule/pkg/integration/memory"
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/crypto"
 	"maunium.net/go/mautrix/crypto/cryptohelper"
@@ -33,6 +33,7 @@ type Config struct {
 
 type Matrix struct {
 	config                *Config
+	name                  string
 	l                     logr.Logger
 	client                *mautrix.Client
 	channel               chan any
@@ -52,9 +53,10 @@ var (
 	}
 )
 
-func New(config *Config, l logr.Logger) *Matrix {
+func New(name string, config *Config, l logr.Logger) *Matrix {
 	m := &Matrix{
 		config:            config,
+		name:              name,
 		l:                 l,
 		channel:           make(chan any),
 		requestedSessions: make(map[string]time.Time),
@@ -147,7 +149,7 @@ func (m *Matrix) setupCryptoHelper() (*cryptohelper.CryptoHelper, error) {
 	pickleKey := []byte(m.config.PickleKey)
 
 	// this is a path to the SQLite database you will use to store various data about your bot
-	dbPath := "crypto.db"
+	dbPath := m.name + "_crypto.db"
 
 	helper, err := cryptohelper.NewCryptoHelper(m.client, pickleKey, dbPath)
 	if err != nil {
@@ -473,7 +475,7 @@ func (m *Matrix) connect() error {
 
 	// Send test message
 	if m.config.MessageOnConnect {
-		err = m.sendMessage("Hello world from Mule!")
+		err = m.sendMessage("Hello world from Mule!", []string{})
 		if err != nil {
 			return fmt.Errorf("failed to send test message: %w", err)
 		}
@@ -589,12 +591,21 @@ func (m *Matrix) processEvent(ctx context.Context, evt *event.Event) {
 	}
 }
 
-func (m *Matrix) sendMessage(message string) error {
+func (m *Matrix) sendMessage(message string, mentions []string) error {
 	content := event.MessageEventContent{
 		MsgType:       event.MsgText,
 		Body:          message,
 		Format:        event.FormatHTML,
 		FormattedBody: FormatMessage(message),
+	}
+	if len(mentions) > 0 {
+		userIDs := make([]id.UserID, len(mentions))
+		for i, mention := range mentions {
+			userIDs[i] = id.UserID(mention)
+		}
+		content.Mentions = &event.Mentions{
+			UserIDs: userIDs,
+		}
 	}
 	_, err := m.client.SendMessageEvent(context.Background(), id.RoomID(m.config.RoomID), event.EventMessage, content)
 	if err != nil {
@@ -651,7 +662,7 @@ func (m *Matrix) messageReceived(message string, sender string, username string)
 	}():
 	default:
 		m.l.Info("Channel full or not ready, discarding message", "message", message)
-		err := m.sendMessage("Mule is busy, please try again later")
+		err := m.sendMessage("Mule is busy, please try again later", []string{})
 		if err != nil {
 			m.l.Error(err, "Failed to send message")
 		}
@@ -685,23 +696,25 @@ func (m *Matrix) addHistoryToMessage(message string) any {
 
 func (m *Matrix) receiveTriggers() {
 	for trigger := range m.channel {
+		m.l.Info("Received trigger", "trigger", trigger)
 		triggerSettings, ok := trigger.(*types.TriggerSettings)
 		if !ok {
 			m.l.Error(fmt.Errorf("trigger is not a Trigger"), "Trigger is not a Trigger")
 			continue
 		}
-		if triggerSettings.Integration != "matrix" {
-			m.l.Error(fmt.Errorf("trigger integration is not matrix"), "Trigger integration is not matrix")
+		if triggerSettings.Integration != m.name {
+			m.l.Error(fmt.Errorf("trigger integration is not %s", m.name), "Trigger integration is not %s", m.name)
 			continue
 		}
 		switch triggerSettings.Event {
 		case "sendMessage":
-			message, ok := triggerSettings.Data.(string)
-			if !ok {
-				m.l.Error(fmt.Errorf("trigger data is not a string"), "Trigger data is not a string")
+			message, mentions, err := unmarshalOutput(triggerSettings.Data)
+			if err != nil {
+				m.l.Error(err, "Failed to unmarshal output")
 				continue
 			}
-			err := m.sendMessage(message)
+			m.l.Info("Sending message", "message", message, "mentions", mentions)
+			err = m.sendMessage(message, mentions)
 			if err != nil {
 				m.l.Error(err, "Failed to send message")
 			}
@@ -709,4 +722,25 @@ func (m *Matrix) receiveTriggers() {
 			m.l.Error(fmt.Errorf("trigger event not supported"), "Trigger event not supported")
 		}
 	}
+}
+
+func unmarshalOutput(data any) (string, []string, error) {
+	output, ok := data.(map[string]string)
+	if !ok {
+		output2, ok := data.(string)
+		if !ok {
+			return "", nil, fmt.Errorf("output is not a string or map[string]string")
+		}
+		return output2, []string{}, nil
+	}
+	message, ok := output["output"]
+	if !ok {
+		return "", nil, fmt.Errorf("message is not a string")
+	}
+	mentions, ok := output["data"]
+	if !ok {
+		return "", nil, fmt.Errorf("mentions is not a string or not set")
+	}
+	mentionsArray := strings.Split(mentions, ",")
+	return message, mentionsArray, nil
 }

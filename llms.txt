@@ -1,0 +1,189 @@
+# Mule - AI Development Team
+
+Mule is an AI agent that monitors Git repositories and completes issues assigned to it. Issues are assigned by giving them the `mule` label. After work is completed, the agent creates a pull request for review.
+
+## Project Structure
+
+- `cmd/mule/` - Main application entry point with CLI and web server
+- `internal/` - Internal application packages
+  - `config/` - Configuration management
+  - `handlers/` - HTTP request handlers for web interface
+  - `scheduler/` - Task scheduling functionality
+  - `settings/` - Application settings management
+  - `state/` - Global application state
+- `pkg/` - Public packages that can be imported
+  - `agent/` - Core AI agent functionality and workflow execution
+  - `auth/` - SSH authentication utilities
+  - `integration/` - Platform integrations (Discord, Matrix, API, gRPC, etc.)
+    - `grpc/` - gRPC server integration for external API access
+  - `log/` - Logging utilities
+  - `rag/` - Retrieval Augmented Generation for better context
+  - `remote/` - Git remote providers (GitHub, local)
+  - `repository/` - Repository management and operations
+  - `validation/` - Input validation functions
+- `api/proto/` - Protocol buffer definitions and generated gRPC code
+
+## Key Features
+
+- Multi-agent workflows with configurable steps
+- Integration with GitHub for issue and PR management
+- Local provider for testing without GitHub
+- RAG (Retrieval Augmented Generation) for better code understanding
+- Web interface for repository and settings management
+- Discord and Matrix bot integrations
+- **gRPC API server** for external system integration and automation
+- Configurable AI models and providers (supports OpenAI, Anthropic, local models)
+- Automated issue assignment and PR creation
+
+## Technology Stack
+
+- **Language**: Go 1.24
+- **AI Integration**: Custom genai library for LLM providers
+- **Version Control**: go-git for Git operations
+- **Web Framework**: Standard library HTTP with embedded templates
+- **gRPC**: Protocol Buffers v3 with gRPC-Go for API services
+- **Database**: SQLite for chat history and memory
+- **Configuration**: Viper for YAML configuration management
+- **Logging**: Structured logging with logr and zap
+
+## Running Modes
+
+1. **Server Mode**: Web interface for managing repositories and settings
+2. **CLI Mode**: Direct workflow execution with prompts
+3. **Integration Mode**: Bot integrations for platforms like Discord/Matrix
+
+## Configuration
+
+The application uses YAML configuration files stored in the user's home directory. Settings include AI model configurations, repository definitions, workflow specifications, and integration credentials.
+
+## gRPC API Server Integration
+
+### Overview
+
+Mule includes a built-in gRPC server that provides external API access to core functionality. This enables automation, monitoring, and integration with external systems through a robust, type-safe API.
+
+### Configuration
+
+The gRPC integration is configured in the main settings file:
+
+```yaml
+integration:
+  grpc:
+    enabled: true
+    host: "0.0.0.0"
+    port: 9090
+```
+
+Configuration options:
+- `enabled`: Whether to start the gRPC server (default: false)
+- `host`: Host to bind to (default: "localhost")
+- `port`: Port to listen on (default: 9090)
+
+### API Endpoints
+
+The gRPC service provides the following endpoints:
+
+#### Core Operations
+- `GetHeartbeat()` - Health check endpoint returning status and version
+- `ListProviders()` - List all configured AI providers (OpenAI, Anthropic, etc.)
+
+#### Workflow Management
+- `ListWorkflows()` - Get all available workflows
+- `GetWorkflow(name)` - Get details about a specific workflow
+- `ExecuteWorkflow(workflow, prompt, path)` - Start workflow execution
+- `ListRunningWorkflows()` - Get currently executing workflows
+
+#### Agent Management  
+- `ListAgents()` - Get all configured agents
+- `GetAgent(id)` - Get details about a specific agent
+
+### Protocol Buffer Schema
+
+Located in `api/proto/mule.proto`, the schema defines:
+
+- **Service Definition**: `MuleService` with all RPC methods
+- **Message Types**: Request/response pairs for each endpoint
+- **Data Models**: Agent, Workflow, Provider, and execution status structures
+- **Nested Types**: Workflow steps, triggers, validation functions, etc.
+
+### Code Generation
+
+Generated files (auto-generated, do not edit manually):
+- `api/proto/mule.pb.go` - Protocol buffer message definitions
+- `api/proto/mule_grpc.pb.go` - gRPC service client/server code
+
+Regenerate protobuf code when schema changes:
+```bash
+protoc --go_out=. --go-grpc_out=. api/proto/mule.proto
+```
+
+### Integration Architecture
+
+The gRPC integration follows Mule's plugin architecture:
+
+1. **Registration**: Auto-registers during application startup via `init()` function
+2. **Configuration**: Loaded through the standard integration settings system  
+3. **State Access**: Direct access to agents, workflows, and providers from global state
+4. **Execution**: Async workflow execution with progress tracking
+5. **Memory Management**: Automatic cleanup of completed executions
+
+### Server Implementation
+
+Key components:
+
+- **Server Struct**: Main gRPC server with access to agents, workflows, providers
+- **Async Execution**: Background goroutines for workflow execution
+- **State Tracking**: In-memory tracking of running workflows with unique IDs
+- **Type Conversion**: Conversion between internal types and protobuf messages
+- **Error Handling**: Proper gRPC error codes and messages
+
+### Use Cases
+
+- **External Automation**: Trigger workflows from CI/CD pipelines
+- **Monitoring Dashboard**: Real-time view of workflow executions  
+- **Multi-System Integration**: Connect Mule with other development tools
+- **API Gateway**: Expose Mule functionality through REST-to-gRPC proxies
+- **Microservices**: Use Mule as a service in larger architectures
+
+### Security Considerations
+
+- gRPC server runs on configurable host/port
+- No built-in authentication (implement via gRPC interceptors if needed)
+- Defaults to localhost binding for security
+- Consider network-level security for production deployments
+
+### Testing
+
+Comprehensive test suite covers:
+- All gRPC endpoints and error conditions
+- Type conversion between internal and protobuf types
+- Integration with Mule's configuration system
+- Async workflow execution and tracking
+
+### Example Usage
+
+```go
+// Connect to gRPC server
+conn, err := grpc.Dial("localhost:9090", grpc.WithInsecure())
+client := proto.NewMuleServiceClient(conn)
+
+// Execute a workflow
+resp, err := client.ExecuteWorkflow(ctx, &proto.ExecuteWorkflowRequest{
+    WorkflowName: "Code Generation",
+    Prompt: "Add error handling to the user authentication module",
+    Path: "/path/to/repo",
+})
+
+// Monitor execution
+runningResp, err := client.ListRunningWorkflows(ctx, &proto.ListRunningWorkflowsRequest{})
+```
+
+## Development Notes
+
+- Uses embedded templates and static files for the web interface
+- Supports hot-reloading of configurations
+- Modular design allows easy addition of new integrations
+- Comprehensive test coverage for core functionality
+- Follows Go best practices with proper error handling and logging
+- gRPC integration uses registry pattern to avoid import cycles
+- Protocol buffer schema is versioned and backward-compatible

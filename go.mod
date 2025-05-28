@@ -5,13 +5,13 @@ go 1.24.0
 require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/fsnotify/fsnotify v1.8.0
-	github.com/go-git/go-git/v5 v5.14.0
+	github.com/go-git/go-git/v5 v5.16.0
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/zapr v1.3.0
 	github.com/gomarkdown/markdown v0.0.0-20250311123330-531bef5e742b
 	github.com/google/go-github/v60 v60.0.0
 	github.com/google/uuid v1.6.0
-	github.com/jbutlerdev/genai v0.0.0-20250516005909-fbf8b73845cc
+	github.com/jbutlerdev/genai v0.0.0-20250528230134-0fc99a526c60
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/robfig/cron/v3 v3.0.1
@@ -21,6 +21,8 @@ require (
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/oauth2 v0.28.0
+	google.golang.org/grpc v1.72.2
+	google.golang.org/protobuf v1.36.6
 	maunium.net/go/mautrix v0.23.3
 )
 
@@ -35,7 +37,7 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
-	github.com/cloudflare/circl v1.6.0 // indirect
+	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
@@ -94,8 +96,6 @@ require (
 	google.golang.org/api v0.228.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250324211829-b45e905df463 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250324211829-b45e905df463 // indirect
-	google.golang.org/grpc v1.71.0 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
