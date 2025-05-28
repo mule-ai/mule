@@ -22,6 +22,7 @@ const (
 type Agent struct {
 	id             int
 	provider       *genai.Provider
+	providerName   string
 	model          string
 	promptTemplate string
 	promptContext  string
@@ -64,6 +65,7 @@ func NewAgent(opts AgentOptions) *Agent {
 	agent := &Agent{
 		id:             opts.ID,
 		provider:       opts.Provider,
+		providerName:   opts.ProviderName,
 		model:          opts.Model,
 		promptTemplate: opts.PromptTemplate,
 		systemPrompt:   opts.SystemPrompt,
@@ -123,6 +125,30 @@ func (a *Agent) SetUDiffSettings(settings UDiffSettings) {
 
 func (a *Agent) GetUDiffSettings() UDiffSettings {
 	return a.udiffSettings
+}
+
+func (a *Agent) GetModel() string {
+	return a.model
+}
+
+func (a *Agent) GetPromptTemplate() string {
+	return a.promptTemplate
+}
+
+func (a *Agent) GetSystemPrompt() string {
+	return a.systemPrompt
+}
+
+func (a *Agent) GetTools() []string {
+	var toolNames []string
+	for _, tool := range a.tools {
+		toolNames = append(toolNames, tool.Name)
+	}
+	return toolNames
+}
+
+func (a *Agent) GetProviderName() string {
+	return a.providerName
 }
 
 func (a *Agent) Run(input PromptInput) error {

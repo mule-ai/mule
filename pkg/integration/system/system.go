@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jbutlerdev/genai"
 	"github.com/mule-ai/mule/internal/scheduler"
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 )
 
 type Config struct {

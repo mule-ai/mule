@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 )
 
 func TestInMemoryStore(t *testing.T) {
@@ -151,11 +151,11 @@ func TestMemory(t *testing.T) {
 	// Test saving and retrieving messages through the Memory manager
 	t.Run("SaveAndRetrieveMessages", func(t *testing.T) {
 		// Register an integration
-		memory.RegisterIntegration("matrix", "matrix")
+		memory.RegisterIntegration("test-matrix-instance", "test-matrix-instance")
 
 		// Save some messages
 		for i := 0; i < 3; i++ {
-			err := memory.SaveMessage("matrix", "room123", "user1", "User One",
+			err := memory.SaveMessage("test-matrix-instance", "room123", "user1", "User One",
 				"Test message "+GenerateID(), i%2 == 0)
 			if err != nil {
 				t.Fatalf("Failed to save message: %v", err)
@@ -163,7 +163,7 @@ func TestMemory(t *testing.T) {
 		}
 
 		// Get formatted history
-		history, err := memory.GetFormattedHistory("matrix", "room123", 10)
+		history, err := memory.GetFormattedHistory("test-matrix-instance", "room123", 10)
 		if err != nil {
 			t.Fatalf("Failed to get formatted history: %v", err)
 		}
@@ -178,13 +178,13 @@ func TestMemory(t *testing.T) {
 	t.Run("AddHistoryToTriggerSettings", func(t *testing.T) {
 		// Create a trigger setting with string data
 		ts := &types.TriggerSettings{
-			Integration: "matrix",
+			Integration: "test-matrix-instance",
 			Event:       "newMessage",
 			Data:        "Hello world",
 		}
 
 		// Add history to the trigger settings
-		err := memory.AddTriggerSettings(ts, "matrix", "room123", 10)
+		err := memory.AddTriggerSettings(ts, "test-matrix-instance", "room123", 10)
 		if err != nil {
 			t.Fatalf("Failed to add history to trigger settings: %v", err)
 		}

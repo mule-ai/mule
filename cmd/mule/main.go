@@ -17,6 +17,9 @@ import (
 	"github.com/mule-ai/mule/pkg/log"
 	"github.com/mule-ai/mule/pkg/repository"
 
+	// Import integrations to register them
+	_ "github.com/mule-ai/mule/pkg/integration/grpc"
+
 	"github.com/rs/cors"
 )
 

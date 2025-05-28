@@ -9,7 +9,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/go-logr/logr"
 	"github.com/mule-ai/mule/pkg/integration/memory"
-	"github.com/mule-ai/mule/pkg/integration/types"
+	"github.com/mule-ai/mule/pkg/types"
 )
 
 // Config holds the configuration for the Discord integration.
