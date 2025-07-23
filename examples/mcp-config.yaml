@@ -1,0 +1,72 @@
+# Example MCP configuration for Mule
+# Add this to your ~/.config/mule/config.yaml
+
+integration:
+  mcp:
+    enabled: true
+    servers:
+      # Weather MCP server - provides weather data
+      weather:
+        command: "npx"
+        args: 
+          - "-y"
+          - "@modelcontextprotocol/server-weather"
+        env:
+          OPENWEATHER_API_KEY: "your-openweather-api-key"
+      
+      # Filesystem MCP server - provides file operations
+      filesystem:
+        command: "npx"
+        args: 
+          - "-y"
+          - "@modelcontextprotocol/server-filesystem"
+          - "/home/user/projects"  # Directory to allow access to
+      
+      # GitHub MCP server - provides GitHub operations
+      github:
+        command: "npx"
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-github"
+        env:
+          GITHUB_TOKEN: "your-github-token"
+
+# Example agent configuration using MCP tools
+agents:
+  - id: 10
+    name: "MCP-Enhanced Agent"
+    providerName: "openai"
+    model: "gpt-4"
+    tools:
+      # Standard tools
+      - "bash"
+      - "write_file"
+      - "read_file"
+      # MCP tools (automatically available when servers are running)
+      - "mcp_weather_get_current"
+      - "mcp_weather_get_forecast"
+      - "mcp_filesystem_read_file"
+      - "mcp_filesystem_write_file"
+      - "mcp_github_create_issue"
+      - "mcp_github_list_issues"
+    systemPrompt: |
+      You are an AI assistant with access to weather data, filesystem operations,
+      and GitHub integration through MCP servers.
+    promptTemplate: |
+      Task: {{.Task}}
+      
+      You have access to MCP tools for weather, filesystem, and GitHub operations.
+      Use them as needed to complete the task.
+
+# Example workflow using MCP tools
+workflows:
+  - name: "weather-report"
+    description: "Generate a weather report and save it"
+    steps:
+      - agentId: 10
+        name: "Get weather and save report"
+        prompt: |
+          1. Get the current weather for San Francisco
+          2. Get the 5-day forecast
+          3. Create a markdown report with the weather information
+          4. Save it to weather_report.md

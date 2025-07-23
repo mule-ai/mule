@@ -98,7 +98,7 @@ func (a *Agent) SetModel(model string) error {
 
 func (a *Agent) SetTools(toolList []string) error {
 	for _, toolName := range toolList {
-		tool, err := tools.GetTool(toolName)
+		tool, err := GetToolWithMCP(toolName)
 		if err != nil {
 			return fmt.Errorf("tool %s not found", toolName)
 		}

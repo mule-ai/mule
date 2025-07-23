@@ -8,6 +8,7 @@ import (
 	"github.com/mule-ai/mule/pkg/integration/discord"
 	"github.com/mule-ai/mule/pkg/integration/grpc"
 	"github.com/mule-ai/mule/pkg/integration/matrix"
+	"github.com/mule-ai/mule/pkg/integration/mcp"
 	"github.com/mule-ai/mule/pkg/integration/memory"
 	"github.com/mule-ai/mule/pkg/integration/system"
 	"github.com/mule-ai/mule/pkg/integration/tasks"
@@ -22,6 +23,7 @@ type Settings struct {
 	API     *api.Config               `json:"api,omitempty"`
 	System  *system.Config            `json:"system,omitempty"`
 	GRPC    *grpc.Config              `json:"grpc,omitempty"` // Generic config to avoid import cycles
+	MCP     *mcp.Config               `json:"mcp,omitempty"`
 }
 
 type IntegrationInput struct {
@@ -102,6 +104,21 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 
 	// always start the system integration
 	integrations["system"] = system.New(settings.System, providers, l.WithName("system-integration"))
+
+	if settings.MCP != nil {
+		mcpInteg := mcp.New(settings.MCP, l.WithName("mcp-integration"))
+		if mcpInteg != nil {
+			integrations["mcp"] = mcpInteg
+			// Start MCP servers and register tools
+			if err := mcpInteg.Start(); err != nil {
+				l.Error(err, "failed to start MCP servers")
+			} else {
+				if err := mcpInteg.RegisterMCPTools(); err != nil {
+					l.Error(err, "failed to register MCP tools")
+				}
+			}
+		}
+	}
 
 	return integrations
 }

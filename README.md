@@ -22,6 +22,16 @@ https://github.com/user-attachments/assets/f891017b-3794-4b8f-b779-63f0d9e97087
 
 Documentation is available on [muleai.io](https://muleai.io/docs)
 
+## Key Features
+
+* Multi-agent workflows for complex tasks
+* RAG (Retrieval Augmented Generation) for better code understanding
+* MCP (Model Context Protocol) support for extensible tool integration
+* Multiple AI provider support (OpenAI, Anthropic, local models)
+* Web UI and CLI interfaces
+* Discord and Matrix chat integrations
+* gRPC and REST API support
+
 ## Contributing
 
 * Find an issue marked `good first issue`
@@ -29,7 +39,5 @@ Documentation is available on [muleai.io](https://muleai.io/docs)
 
 ## To Do
 
-* Perform RAG for better results
-* Create multi-agent workflows
 * Add the ability to create a new repository
 * Implement manager mode to allow spawning multiple agents that track their own repository 
