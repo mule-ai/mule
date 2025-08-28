@@ -671,27 +671,10 @@ func (m *Matrix) messageReceived(message string, sender string, username string)
 
 // addHistoryToMessage adds chat history context to a message
 func (m *Matrix) addHistoryToMessage(message string) any {
-	if m.memory == nil {
-		return message
-	}
-
-	// Get chat history and format it with the current message
-	history, err := m.memory.GetFormattedHistory(m.Name(), m.config.RoomID, 10)
-	if err != nil {
-		m.l.Error(err, "Failed to get chat history")
-		return message
-	}
-
-	// If no history, just return the message
-	if history == "" {
-		return message
-	}
-
-	// Format with history
-	messageWithHistory := fmt.Sprintf("=== Previous Messages ===\n%s\n=== Current Message ===\n%s",
-		history, message)
-
-	return messageWithHistory
+	// Since we now use the new ChromeM-based workflow memory integration,
+	// we don't need to add history formatting here as it's handled by the workflow.
+	// This prevents duplication of context information.
+	return message
 }
 
 func (m *Matrix) receiveTriggers() {

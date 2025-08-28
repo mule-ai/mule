@@ -12,6 +12,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/genai"
 	"github.com/jbutlerdev/genai/tools"
+
 	"github.com/mule-ai/mule/pkg/rag"
 )
 
