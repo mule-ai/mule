@@ -11,6 +11,7 @@ require (
 	github.com/gomarkdown/markdown v0.0.0-20250311123330-531bef5e742b
 	github.com/google/go-github/v60 v60.0.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/feeds v1.2.0
 	github.com/jbutlerdev/genai v0.0.0-20250528230134-0fc99a526c60
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/philippgille/chromem-go v0.7.0

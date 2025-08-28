@@ -10,7 +10,8 @@ import (
 )
 
 type Config struct {
-	Port int `json:"port"`
+	Enabled bool   `json:"enabled,omitempty"`
+	Path    string `json:"path,omitempty"` // Root path for API endpoints (e.g. "/integration-api")
 }
 
 type API struct {
@@ -22,6 +23,11 @@ type API struct {
 }
 
 func New(config *Config, logger logr.Logger) *API {
+	// Set defaults
+	if config.Path == "" {
+		config.Path = "/integration-api"
+	}
+
 	api := &API{
 		Config:       config,
 		logger:       logger,
@@ -29,18 +35,10 @@ func New(config *Config, logger logr.Logger) *API {
 		triggers:     make(map[string]chan any),
 		responseChan: make(chan string),
 	}
-	go api.start()
+	// Don't start a server - handlers will be registered with main server
 	go api.receiveOutputs()
+	logger.Info("API integration initialized - handlers will be registered with main server", "path", config.Path)
 	return api
-}
-
-func (a *API) start() {
-	http.HandleFunc("/api/", a.handleAPI)
-	a.logger.Info("Starting API", "port", a.Config.Port)
-	err := http.ListenAndServe(fmt.Sprintf(":%d", a.Config.Port), nil)
-	if err != nil {
-		a.logger.Error(err, "Failed to start API")
-	}
 }
 
 func (a *API) Call(name string, data any) (any, error) {
@@ -74,9 +72,9 @@ func (a *API) ClearChatHistory(channelID string) error {
 	return nil
 }
 
-// create an api that accepts any path, query params, and body
+// HandleAPI creates an api that accepts any path, query params, and body
 // and returns a response
-func (a *API) handleAPI(w http.ResponseWriter, r *http.Request) {
+func (a *API) HandleAPI(w http.ResponseWriter, r *http.Request) {
 	// get the path, query params, and body
 	path := r.URL.Path
 	queryParams := r.URL.Query()

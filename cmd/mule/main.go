@@ -14,6 +14,8 @@ import (
 	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/internal/state"
 	"github.com/mule-ai/mule/pkg/agent"
+	"github.com/mule-ai/mule/pkg/integration/api"
+	"github.com/mule-ai/mule/pkg/integration/rss"
 	"github.com/mule-ai/mule/pkg/log"
 	"github.com/mule-ai/mule/pkg/repository"
 
@@ -114,8 +116,104 @@ func runWorkflow(l logr.Logger, workflowName string, prompt string) {
 	l.Info(fmt.Sprintf("Workflow result: %s", finalResult.Content))
 }
 
+// getExistingPaths returns a list of all paths already registered in the main server
+func getExistingPaths() []string {
+	return []string{
+		"/", "/settings", "/local-provider", "/logs", "/static/",
+		"/api/repositories", "/api/repositories/clone", "/api/repositories/update",
+		"/api/repositories/sync", "/api/repositories/provider", "/api/models",
+		"/api/tools", "/api/validation-functions", "/api/template-values",
+		"/api/workflow-output-fields", "/api/workflow-input-mappings",
+		"/api/github/repositories", "/api/github/issues",
+		"/api/local/issues", "/api/local/issues/update", "/api/local/pullrequests",
+		"/api/local/comments", "/api/local/reactions", "/api/local/diff",
+		"/api/local/labels", "/api/local/issues/state", "/api/local/pullrequests/state",
+		"/api/settings",
+	}
+}
+
+// validatePath checks if a path conflicts with existing routes
+func validatePath(path string, existingPaths []string, l logr.Logger) bool {
+	// Ensure path starts with /
+	if !strings.HasPrefix(path, "/") {
+		l.Error(fmt.Errorf("path must start with /"), "Invalid path", "path", path)
+		return false
+	}
+
+	// Check for conflicts
+	for _, existing := range existingPaths {
+		// Skip root path "/" as it shouldn't block other paths
+		if existing == "/" {
+			continue
+		}
+
+		// Exact match is a conflict
+		if path == existing {
+			l.Error(fmt.Errorf("path conflicts with existing route"), "Path conflict", "path", path, "existing", existing)
+			return false
+		}
+
+		// Check if new path would shadow existing path (new path is prefix of existing)
+		if strings.HasPrefix(existing, path+"/") {
+			l.Error(fmt.Errorf("path would shadow existing route"), "Path conflict", "path", path, "existing", existing)
+			return false
+		}
+
+		// Check if existing path would shadow new path (existing path is prefix of new)
+		if strings.HasPrefix(path, existing+"/") {
+			l.Error(fmt.Errorf("path conflicts with existing route"), "Path conflict", "path", path, "existing", existing)
+			return false
+		}
+	}
+	return true
+}
+
+// registerIntegrationHandlers registers handlers for integrations that need HTTP endpoints
+func registerIntegrationHandlers(mux *http.ServeMux, l logr.Logger) {
+	existingPaths := getExistingPaths()
+	registeredPaths := []string{} // Track newly registered paths
+
+	// Register API integration handlers for workflow endpoints
+	if apiInteg, ok := state.State.Integrations["api"]; ok {
+		if apiConfig := state.State.Settings.Integration.API; apiConfig != nil && apiConfig.Enabled {
+			apiPath := apiConfig.Path
+			if !validatePath(apiPath, append(existingPaths, registeredPaths...), l) {
+				l.Error(fmt.Errorf("API integration path validation failed"), "Skipping API integration", "path", apiPath)
+			} else {
+				l.Info("Registering API integration handlers", "path", apiPath+"/*")
+				apiIntegration := apiInteg.(*api.API)
+				mux.HandleFunc(apiPath+"/", apiIntegration.HandleAPI)
+				registeredPaths = append(registeredPaths, apiPath)
+			}
+		}
+	}
+
+	// Register RSS integration handlers
+	if rssInteg, ok := state.State.Integrations["rss"]; ok {
+		if rssConfig := state.State.Settings.Integration.RSS; rssConfig != nil && rssConfig.Enabled {
+			rssPath := rssConfig.Path
+			indexPath := rssPath + "-index"
+
+			if !validatePath(rssPath, append(existingPaths, registeredPaths...), l) ||
+				!validatePath(indexPath, append(existingPaths, registeredPaths...), l) {
+				l.Error(fmt.Errorf("RSS integration path validation failed"), "Skipping RSS integration", "rss_path", rssPath, "index_path", indexPath)
+			} else {
+				l.Info("Registering RSS integration handlers", "rss_path", rssPath, "index_path", indexPath)
+				rssIntegration := rssInteg.(*rss.RSS)
+				mux.HandleFunc(rssPath, rssIntegration.HandleRSS)
+				mux.HandleFunc(indexPath, rssIntegration.HandleIndex)
+				registeredPaths = append(registeredPaths, rssPath, indexPath)
+				l.Info("Integration handlers registered successfully", "total_paths", len(registeredPaths))
+			}
+		}
+	}
+}
+
 func server(l logr.Logger) {
 	mux := http.NewServeMux()
+
+	// Register integration handlers if enabled
+	registerIntegrationHandlers(mux, l)
 
 	// API routes
 	mux.HandleFunc("/api/repositories", methodsHandler(map[string]http.HandlerFunc{

@@ -9,6 +9,7 @@ import (
 	"github.com/mule-ai/mule/pkg/integration/grpc"
 	"github.com/mule-ai/mule/pkg/integration/matrix"
 	"github.com/mule-ai/mule/pkg/integration/memory"
+	"github.com/mule-ai/mule/pkg/integration/rss"
 	"github.com/mule-ai/mule/pkg/integration/system"
 	"github.com/mule-ai/mule/pkg/integration/tasks"
 	"github.com/mule-ai/mule/pkg/types"
@@ -22,6 +23,7 @@ type Settings struct {
 	API     *api.Config               `json:"api,omitempty"`
 	System  *system.Config            `json:"system,omitempty"`
 	GRPC    *grpc.Config              `json:"grpc,omitempty"` // Generic config to avoid import cycles
+	RSS     *rss.Config               `json:"rss,omitempty"`
 }
 
 type IntegrationInput struct {
@@ -123,6 +125,22 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 				Providers: providers,
 			},
 		)
+	}
+
+	// RSS integration
+	if settings.RSS != nil {
+		rssInteg := rss.New(settings.RSS, l.WithName("rss-integration"))
+		integrations["rss"] = rssInteg
+
+		// If Discord is also enabled, connect them
+		if settings.Discord != nil && integrations["discord"] != nil {
+			discordInteg, ok := integrations["discord"].(*discord.Discord)
+			if ok {
+				// Connect Discord messages to RSS feed
+				discordInteg.SetRSSIntegration(rssInteg.GetChannel())
+				l.Info("Connected Discord to RSS integration")
+			}
+		}
 	}
 
 	// always start the system integration
