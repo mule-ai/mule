@@ -111,7 +111,7 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 		integrations["tasks"] = tasks.New(settings.Tasks, l.WithName("tasks-integration"))
 	}
 
-	if settings.API != nil {
+	if settings.API != nil && settings.API.Enabled {
 		integrations["api"] = api.New(settings.API, l.WithName("api-integration"))
 	}
 
