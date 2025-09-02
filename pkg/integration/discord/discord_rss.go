@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
@@ -69,10 +70,17 @@ func (d *Discord) messageReceivedRSS(message, userID, channelID, username string
 		"author":      username,
 	}
 
-	// Trigger RSS feed addition
+	// Convert to JSON string for workflow compatibility
+	jsonData, err := json.Marshal(rssItemData)
+	if err != nil {
+		d.l.Error(err, "Failed to marshal RSS item data")
+		return
+	}
+
+	// Trigger RSS feed addition with JSON string
 	if rssChannel, exists := d.triggers["allMessages"]; exists {
 		select {
-		case rssChannel <- rssItemData:
+		case rssChannel <- string(jsonData):
 			d.l.Info("Added message to RSS feed", "username", username, "content", truncateString(message, 50))
 		default:
 			d.l.Info("RSS trigger channel full or not ready, discarding message", "message", truncateString(message, 50))

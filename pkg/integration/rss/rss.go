@@ -1,6 +1,7 @@
 package rss
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -180,17 +181,29 @@ func (r *RSS) AddItem(title, description, link, author string) {
 func (r *RSS) Call(name string, data any) (any, error) {
 	switch name {
 	case "addItem":
-		itemData, ok := data.(map[string]string)
-		if !ok {
-			return nil, fmt.Errorf("invalid data format for addItem")
+		var itemData map[string]string
+
+		// Try to handle different data formats
+		switch v := data.(type) {
+		case map[string]string:
+			itemData = v
+		case string:
+			// Try to parse as JSON
+			if err := json.Unmarshal([]byte(v), &itemData); err != nil {
+				r.l.Error(err, "Failed to parse JSON data for addItem", "data", v)
+				return nil, fmt.Errorf("invalid data format for addItem: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("invalid data format for addItem: expected string or map[string]string, got %T", data)
 		}
+
 		r.AddItem(
 			itemData["title"],
 			itemData["description"],
 			itemData["link"],
 			itemData["author"],
 		)
-		return nil, nil
+		return "", nil // Return empty string for workflow compatibility
 	default:
 		return nil, fmt.Errorf("method '%s' not implemented", name)
 	}
@@ -243,11 +256,23 @@ func (r *RSS) receiveTriggers() {
 		}
 		switch triggerSettings.Event {
 		case "addItem":
-			itemData, ok := triggerSettings.Data.(map[string]string)
-			if !ok {
-				r.l.Error(fmt.Errorf("trigger data is not a map[string]string"), "Trigger data is not a map[string]string")
+			var itemData map[string]string
+
+			// Try to handle different data formats
+			switch v := triggerSettings.Data.(type) {
+			case map[string]string:
+				itemData = v
+			case string:
+				// Try to parse as JSON
+				if err := json.Unmarshal([]byte(v), &itemData); err != nil {
+					r.l.Error(err, "Failed to parse JSON data for addItem", "data", v)
+					continue
+				}
+			default:
+				r.l.Error(fmt.Errorf("trigger data is not a map[string]string or JSON string, got %T", triggerSettings.Data), "Invalid trigger data type")
 				continue
 			}
+
 			r.AddItem(
 				itemData["title"],
 				itemData["description"],
