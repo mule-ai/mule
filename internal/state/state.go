@@ -48,6 +48,7 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	integrations := integration.LoadIntegrations(integration.IntegrationInput{
 		Settings:  &settings.Integration,
 		Providers: genaiProviders,
+		Agents:    agents,
 		Logger:    logger,
 	})
 	workflows := initializeWorkflows(settings, agents, logger, integrations)

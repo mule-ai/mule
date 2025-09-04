@@ -23,7 +23,7 @@ type Settings struct {
 	API     *api.Config               `json:"api,omitempty"`
 	System  *system.Config            `json:"system,omitempty"`
 	GRPC    *grpc.Config              `json:"grpc,omitempty"` // Generic config to avoid import cycles
-	RSS     *rss.Config               `json:"rss,omitempty"`
+	RSS     map[string]*rss.Config    `json:"rss,omitempty"`  // Support multiple RSS instances
 }
 
 type IntegrationInput struct {
@@ -127,18 +127,29 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 		)
 	}
 
-	// RSS integration
+	// RSS integrations (support multiple instances)
 	if settings.RSS != nil {
-		rssInteg := rss.New(settings.RSS, l.WithName("rss-integration"))
-		integrations["rss"] = rssInteg
+		l.Info("Loading RSS integrations", "count", len(settings.RSS))
+		for name, rssConfig := range settings.RSS {
+			if rssConfig == nil || !rssConfig.Enabled {
+				l.Info("Skipping RSS integration", "name", name, "enabled", rssConfig != nil && rssConfig.Enabled)
+				continue
+			}
+			// Use "rss-" prefix to avoid naming conflicts
+			integrationName := "rss-" + name
+			rssLogger := l.WithName(integrationName + "-integration")
+			rssInteg := rss.New(rssConfig, rssLogger, input.Agents)
+			integrations[integrationName] = rssInteg
+			l.Info("Loaded RSS integration", "name", name, "integration_name", integrationName)
 
-		// If Discord is also enabled, connect them
-		if settings.Discord != nil && integrations["discord"] != nil {
-			discordInteg, ok := integrations["discord"].(*discord.Discord)
-			if ok {
-				// Connect Discord messages to RSS feed
-				discordInteg.SetRSSIntegration(rssInteg.GetChannel())
-				l.Info("Connected Discord to RSS integration")
+			// If this is the "discord" RSS instance and Discord is enabled, connect them
+			if name == "discord" && settings.Discord != nil && integrations["discord"] != nil {
+				discordInteg, ok := integrations["discord"].(*discord.Discord)
+				if ok {
+					// Connect Discord messages to RSS feed
+					discordInteg.SetRSSIntegration(rssInteg.GetChannel())
+					l.Info("Connected Discord to RSS integration", "rss_instance", name)
+				}
 			}
 		}
 	}
@@ -161,6 +172,10 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 		l.Info("Workflow memory integration initialized with ChromeM", "dbPath", workflowMemoryConfig.DBPath)
 	}
 
+	l.Info("Final integrations loaded", "count", len(integrations))
+	for name := range integrations {
+		l.Info("Final integration", "name", name)
+	}
 	return integrations
 }
 
@@ -183,9 +198,9 @@ func UpdateSystemPointers(integrations map[string]types.Integration, input Integ
 				continue
 			}
 			i.SetSystemPointers(input.Agents, input.Workflows, input.Providers)
-			newIntegrations[integration.Name()] = i
+			newIntegrations[name] = i // Use the key name, not integration.Name()
 		default:
-			newIntegrations[integration.Name()] = integration
+			newIntegrations[name] = integration // Use the key name, not integration.Name()
 		}
 	}
 	return newIntegrations

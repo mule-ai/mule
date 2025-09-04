@@ -57,14 +57,16 @@ func main() {
 			GuildID:          guildID,
 			ChannelID:        channelID,
 		},
-		RSS: &rss.Config{
-			Enabled:     true,
-			Title:       "Discord Messages RSS Feed",
-			Description: "Live RSS feed of Discord messages from the configured channel",
-			Link:        "http://localhost:8083/rss",
-			Author:      "Mule Discord Bot",
-			MaxItems:    50,
-			Path:        "/rss",
+		RSS: map[string]*rss.Config{
+			"discord": {
+				Enabled:     true,
+				Title:       "Discord Messages RSS Feed",
+				Description: "Live RSS feed of Discord messages from the configured channel",
+				Link:        "http://localhost:8083/rss",
+				Author:      "Mule Discord Bot",
+				MaxItems:    50,
+				Path:        "/rss",
+			},
 		},
 		API: &api.Config{
 			Enabled: true,

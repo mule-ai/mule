@@ -58,12 +58,14 @@ func main() {
 	configPath, err := config.GetHomeConfigPath()
 	if err != nil {
 		l.Error(err, "Error getting config path")
+		return
 	}
 
 	// Load config
 	appState, err := config.LoadConfig(configPath, l)
 	if err != nil {
 		l.Error(err, "Error loading config")
+		return
 	}
 
 	state.State = appState
@@ -188,24 +190,42 @@ func registerIntegrationHandlers(mux *http.ServeMux, l logr.Logger) {
 		}
 	}
 
-	// Register RSS integration handlers
-	if rssInteg, ok := state.State.Integrations["rss"]; ok {
-		if rssConfig := state.State.Settings.Integration.RSS; rssConfig != nil && rssConfig.Enabled {
-			rssPath := rssConfig.Path
-			indexPath := rssPath + "-index"
+	// Register RSS integration handlers for all RSS instances
+	l.Info("Checking all integrations for RSS instances", "total_integrations", len(state.State.Integrations))
+	for name, rssInteg := range state.State.Integrations {
+		l.Info("Checking integration", "name", name, "type", fmt.Sprintf("%T", rssInteg))
+		// Check if this is an RSS integration
+		if rssIntegration, ok := rssInteg.(*rss.RSS); ok {
+			// Get config from settings - strip "rss-" prefix to get original config name
+			var rssConfig *rss.Config
+			if state.State.Settings.Integration.RSS != nil {
+				configName := name
+				if strings.HasPrefix(name, "rss-") {
+					configName = strings.TrimPrefix(name, "rss-")
+				}
+				rssConfig = state.State.Settings.Integration.RSS[configName]
+				l.Info("Looking for RSS config", "integration_name", name, "config_name", configName, "found", rssConfig != nil)
+			}
 
-			if !validatePath(rssPath, append(existingPaths, registeredPaths...), l) ||
-				!validatePath(indexPath, append(existingPaths, registeredPaths...), l) {
-				l.Error(fmt.Errorf("RSS integration path validation failed"), "Skipping RSS integration", "rss_path", rssPath, "index_path", indexPath)
-			} else {
-				l.Info("Registering RSS integration handlers", "rss_path", rssPath, "index_path", indexPath)
-				rssIntegration := rssInteg.(*rss.RSS)
-				mux.HandleFunc(rssPath, rssIntegration.HandleRSS)
-				mux.HandleFunc(indexPath, rssIntegration.HandleIndex)
-				registeredPaths = append(registeredPaths, rssPath, indexPath)
-				l.Info("Integration handlers registered successfully", "total_paths", len(registeredPaths))
+			if rssConfig != nil && rssConfig.Enabled {
+				rssPath := rssConfig.Path
+				indexPath := rssPath + "-index"
+
+				if !validatePath(rssPath, append(existingPaths, registeredPaths...), l) ||
+					!validatePath(indexPath, append(existingPaths, registeredPaths...), l) {
+					l.Error(fmt.Errorf("RSS integration path validation failed"), "Skipping RSS integration", "name", name, "rss_path", rssPath, "index_path", indexPath)
+				} else {
+					l.Info("Registering RSS integration handlers", "name", name, "rss_path", rssPath, "index_path", indexPath)
+					mux.HandleFunc(rssPath, rssIntegration.HandleRSS)
+					mux.HandleFunc(indexPath, rssIntegration.HandleIndex)
+					registeredPaths = append(registeredPaths, rssPath, indexPath)
+				}
 			}
 		}
+	}
+
+	if len(registeredPaths) > 0 {
+		l.Info("Integration handlers registered successfully", "total_paths", len(registeredPaths))
 	}
 }
 
