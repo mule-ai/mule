@@ -32,6 +32,7 @@ type Config struct {
 	EnhanceContent bool   `json:"enhanceContent,omitempty"` // Whether to enhance content with AI
 	CacheDir       string `json:"cacheDir,omitempty"`       // Directory for caching enhanced content
 	FetchInterval  int    `json:"fetchInterval,omitempty"`  // Interval in minutes to fetch external feed
+	CacheTTL       int    `json:"cacheTTL,omitempty"`       // Cache TTL in minutes (default: 360)
 }
 
 // RSS represents the RSS integration.
@@ -552,8 +553,8 @@ func (r *RSS) fetchExternalRSS() {
 				Id:          item.GUID,
 			}
 
-			// Generate ID from description if GUID is empty (for HN feeds)
-			if feedItem.Id == "" && strings.Contains(item.Description, "news.ycombinator.com/item?id=") {
+			// Generate ID from description for HN feeds (always override for consistency)
+			if strings.Contains(item.Description, "news.ycombinator.com/item?id=") {
 				// Extract HN item ID from the comments link in description
 				re := regexp.MustCompile(`id=(\d+)`)
 				matches := re.FindStringSubmatch(item.Description)
@@ -677,7 +678,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 			Comments:        comments,
 			Summary:         summary,
 			CachedAt:        time.Now(),
-			TTL:             60, // 1 hour
+			TTL:             r.getCacheTTL(),
 		}
 
 		r.UpdateCachedContent(item.Id, cachedContent)
@@ -718,7 +719,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 			Comments:        comments,
 			Summary:         summary,
 			CachedAt:        time.Now(),
-			TTL:             60, // 1 hour
+			TTL:             r.getCacheTTL(),
 		}
 
 		r.UpdateCachedContent(item.Id, cachedContent)
@@ -746,7 +747,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 				EnhancedContent: enhancedContent,
 				Summary:         summary,
 				CachedAt:        time.Now(),
-				TTL:             120, // 2 hours for news articles
+				TTL:             r.getCacheTTL(),
 			}
 
 			r.UpdateCachedContent(item.Id, cachedContent)
@@ -760,12 +761,18 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 	r.l.Info("Item needs enhancement but no summarization available", "id", item.Id, "title", item.Title)
 }
 
+// getCacheTTL returns the configured cache TTL or default value (360 minutes = 6 hours)
+func (r *RSS) getCacheTTL() int {
+	if r.config.CacheTTL > 0 {
+		return r.config.CacheTTL
+	}
+	return 360 // Default to 6 hours
+}
+
 // isCacheExpired checks if cached content has expired
 func (r *RSS) isCacheExpired(cached CachedContent) bool {
-	ttl := cached.TTL
-	if ttl <= 0 {
-		ttl = 60 // Default 60 minutes
-	}
+	// Always use the current configured TTL to allow for TTL updates
+	ttl := r.getCacheTTL()
 
 	expiry := cached.CachedAt.Add(time.Duration(ttl) * time.Minute)
 	return time.Now().After(expiry)
@@ -1324,6 +1331,18 @@ func (r *RSS) generateArticleSummary(item *feeds.Item) string {
 		return ""
 	}
 
+	// Check if we already have a cached summary for this item
+	if item.Id != "" {
+		r.cacheMutex.RLock()
+		cached, exists := r.cache[item.Id]
+		r.cacheMutex.RUnlock()
+
+		if exists && !r.isCacheExpired(cached) && cached.Summary != "" {
+			r.l.Info("Using cached article summary", "url", item.Link.Href, "title", item.Title, "cached_at", cached.CachedAt)
+			return cached.Summary
+		}
+	}
+
 	r.l.Info("Article summarization requested", "url", item.Link.Href, "title", item.Title)
 
 	// Try to find an agent with RetrievePage tool for article summarization
@@ -1354,6 +1373,9 @@ func (r *RSS) generateArticleSummary(item *feeds.Item) string {
 		return fmt.Sprintf("<strong>📰 Article Summary</strong><br/><br/>Article summarization service unavailable (no RetrievePage tool found).<br/><br/><a href='%s' target='_blank'>View Original Article</a>",
 			item.Link.Href)
 	}
+
+	// Clone the agent to avoid shared state issues with parallel workflows
+	researchAgent = researchAgent.Clone()
 
 	// Resolve redirects to get the final URL
 	r.l.Info("Starting redirect resolution", "original_url", item.Link.Href)

@@ -267,6 +267,9 @@ func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agen
 		return result, result.Error
 	}
 
+	// Clone the agent to avoid shared state issues in parallel execution
+	agent = agent.Clone()
+
 	// Prepare input based on previous step if this is not the first step
 	if prevResult != nil {
 		// Using previous result's content as the next step's input
