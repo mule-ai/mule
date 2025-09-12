@@ -5,11 +5,13 @@ import "os/exec"
 type ValidationFunc func(string) (string, error)
 
 var functions = map[string]ValidationFunc{
-	"getDeps":      getDeps,
-	"goFmt":        goFmt,
-	"goModTidy":    goModTidy,
-	"golangciLint": golangciLint,
-	"goTest":       goTest,
+	"getDeps":            getDeps,
+	"goFmt":              goFmt,
+	"goModTidy":          goModTidy,
+	"golangciLint":       golangciLint,
+	"goTest":             goTest,
+	"planValidation":     PlanValidation,
+	"researchValidation": ResearchValidation,
 }
 
 func Get(name string) (ValidationFunc, bool) {

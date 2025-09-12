@@ -49,6 +49,8 @@ type RSS struct {
 	cacheMutex    sync.RWMutex
 	stopFetcher   chan bool            // Channel to stop the fetcher goroutine
 	agents        map[int]*agent.Agent // Available agents for article summarization
+	processing    map[string]bool      // Track items currently being processed to prevent duplicates
+	processingMux sync.Mutex           // Mutex for processing map
 }
 
 // CachedContent represents cached enhanced content for an RSS item
@@ -173,6 +175,7 @@ func New(config *Config, l logr.Logger, agents map[int]*agent.Agent) *RSS {
 		cache:         make(map[string]CachedContent),
 		stopFetcher:   make(chan bool),
 		agents:        agents,
+		processing:    make(map[string]bool),
 	}
 
 	l.Info("RSS integration created", "title", config.Title, "agents_count", len(agents))
@@ -626,13 +629,19 @@ func (r *RSS) fetchExternalRSS() {
 
 // enhanceItem enhances an RSS item with additional content
 func (r *RSS) enhanceItem(item *feeds.Item) {
-	if item.Id == "" {
+	// Use URL as fallback ID if item.Id is empty
+	itemID := item.Id
+	if itemID == "" && item.Link != nil && item.Link.Href != "" {
+		itemID = item.Link.Href
+	}
+
+	if itemID == "" {
 		return
 	}
 
 	// Check cache first
 	r.cacheMutex.RLock()
-	cached, exists := r.cache[item.Id]
+	cached, exists := r.cache[itemID]
 	r.cacheMutex.RUnlock()
 
 	if exists && !r.isCacheExpired(cached) {
@@ -643,6 +652,16 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 		return
 	}
 
+	// Check if this item is currently being processed to avoid duplicates
+	if r.isProcessing(itemID) {
+		r.l.Info("Item enhancement already in progress, skipping duplicate", "itemID", itemID)
+		return
+	}
+
+	// Mark as processing
+	r.setProcessing(itemID, true)
+	defer r.setProcessing(itemID, false)
+
 	// Check if this is a Hacker News post and fetch comments
 	if isHN, hnItemID := r.isHackerNewsPost(item); isHN {
 		comments := r.fetchHackerNewsComments(hnItemID)
@@ -650,7 +669,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 		// Generate AI summary for HN posts with external links
 		var summary string
 		if item.Link != nil && item.Link.Href != "" && !strings.Contains(item.Link.Href, "news.ycombinator.com") {
-			summary = r.generateArticleSummary(item)
+			summary = r.generateArticleSummary(item, false)
 		}
 
 		// Build enhanced content
@@ -673,7 +692,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 
 		// Cache the enhanced content
 		cachedContent := CachedContent{
-			ItemID:          item.Id,
+			ItemID:          itemID,
 			EnhancedContent: enhancedContent,
 			Comments:        comments,
 			Summary:         summary,
@@ -681,7 +700,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 			TTL:             r.getCacheTTL(),
 		}
 
-		r.UpdateCachedContent(item.Id, cachedContent)
+		r.UpdateCachedContent(itemID, cachedContent)
 		item.Description = enhancedContent
 
 		r.l.Info("Enhanced HN item with AI summary and comments", "id", item.Id, "hnID", hnItemID, "comments", len(comments), "has_summary", summary != "")
@@ -695,7 +714,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 		enhancedContent := r.enhanceWithComments(item, comments)
 
 		// Also generate an AI summary for Reddit posts
-		summary := r.generateArticleSummary(item)
+		summary := r.generateArticleSummary(item, false)
 		if summary != "" {
 			// Add the AI summary before the comments
 			enhancedContent = item.Description
@@ -714,7 +733,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 
 		// Cache the enhanced content
 		cachedContent := CachedContent{
-			ItemID:          item.Id,
+			ItemID:          itemID,
 			EnhancedContent: enhancedContent,
 			Comments:        comments,
 			Summary:         summary,
@@ -722,7 +741,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 			TTL:             r.getCacheTTL(),
 		}
 
-		r.UpdateCachedContent(item.Id, cachedContent)
+		r.UpdateCachedContent(itemID, cachedContent)
 		item.Description = enhancedContent
 
 		r.l.Info("Enhanced Reddit item with AI summary and comments", "id", item.Id, "comments", len(comments), "has_summary", summary != "")
@@ -731,7 +750,7 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 
 	// For non-Reddit content, attempt to fetch and summarize the article
 	if item.Link != nil && item.Link.Href != "" {
-		summary := r.generateArticleSummary(item)
+		summary := r.generateArticleSummary(item, false)
 		if summary != "" {
 			enhancedContent := item.Description
 			if enhancedContent != "" {
@@ -743,14 +762,14 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 
 			// Cache the enhanced content
 			cachedContent := CachedContent{
-				ItemID:          item.Id,
+				ItemID:          itemID,
 				EnhancedContent: enhancedContent,
 				Summary:         summary,
 				CachedAt:        time.Now(),
 				TTL:             r.getCacheTTL(),
 			}
 
-			r.UpdateCachedContent(item.Id, cachedContent)
+			r.UpdateCachedContent(itemID, cachedContent)
 			item.Description = enhancedContent
 
 			r.l.Info("Enhanced item with AI summary", "id", item.Id, "summary_length", len(summary))
@@ -776,6 +795,24 @@ func (r *RSS) isCacheExpired(cached CachedContent) bool {
 
 	expiry := cached.CachedAt.Add(time.Duration(ttl) * time.Minute)
 	return time.Now().After(expiry)
+}
+
+// isProcessing checks if an item is currently being processed
+func (r *RSS) isProcessing(itemID string) bool {
+	r.processingMux.Lock()
+	defer r.processingMux.Unlock()
+	return r.processing[itemID]
+}
+
+// setProcessing marks an item as being processed
+func (r *RSS) setProcessing(itemID string, processing bool) {
+	r.processingMux.Lock()
+	defer r.processingMux.Unlock()
+	if processing {
+		r.processing[itemID] = true
+	} else {
+		delete(r.processing, itemID)
+	}
 }
 
 // loadCache loads cached content from disk
@@ -1326,21 +1363,39 @@ func (r *RSS) formatHackerNewsComments(comments []Comment) string {
 }
 
 // generateArticleSummary generates an AI summary of a web article using an agent with RetrievePage tool
-func (r *RSS) generateArticleSummary(item *feeds.Item) string {
+// When checkProcessing is false, it skips processing state checks (used when called from within enhanceItem)
+func (r *RSS) generateArticleSummary(item *feeds.Item, checkProcessing bool) string {
 	if item.Link == nil || item.Link.Href == "" {
 		return ""
 	}
 
-	// Check if we already have a cached summary for this item
-	if item.Id != "" {
-		r.cacheMutex.RLock()
-		cached, exists := r.cache[item.Id]
-		r.cacheMutex.RUnlock()
+	// Use URL as fallback ID if item.Id is empty
+	itemID := item.Id
+	if itemID == "" {
+		itemID = item.Link.Href
+	}
 
-		if exists && !r.isCacheExpired(cached) && cached.Summary != "" {
-			r.l.Info("Using cached article summary", "url", item.Link.Href, "title", item.Title, "cached_at", cached.CachedAt)
-			return cached.Summary
+	// Check if we already have a cached summary for this item
+	r.cacheMutex.RLock()
+	cached, exists := r.cache[itemID]
+	r.cacheMutex.RUnlock()
+
+	if exists && !r.isCacheExpired(cached) && cached.Summary != "" {
+		r.l.Info("Using cached article summary", "url", item.Link.Href, "title", item.Title, "cached_at", cached.CachedAt)
+		return cached.Summary
+	}
+
+	// Only check processing state if requested (to avoid issues when called from within enhanceItem)
+	if checkProcessing {
+		// Check if this item is currently being processed by another goroutine
+		if r.isProcessing(itemID) {
+			r.l.Info("Article is already being processed, skipping duplicate request", "url", item.Link.Href, "title", item.Title)
+			return ""
 		}
+
+		// Mark as processing to prevent duplicate requests
+		r.setProcessing(itemID, true)
+		defer r.setProcessing(itemID, false)
 	}
 
 	r.l.Info("Article summarization requested", "url", item.Link.Href, "title", item.Title)
@@ -1395,12 +1450,17 @@ func (r *RSS) generateArticleSummary(item *feeds.Item) string {
 Article URL: %s
 Title: %s
 
+IMPORTANT: When using the RetrievePage tool:
+- If the retrieved content appears to be only JavaScript code, error messages (like 403, 404, etc.), or doesn't contain actual article text, try searching for alternative URLs or sources for this article.
+- Look for patterns indicating the page requires JavaScript rendering or is behind a paywall/login wall.
+- If you cannot retrieve the actual article content after trying alternative approaches, indicate this clearly in your response rather than attempting to summarize JavaScript or error content.
+
 Format your response as:
 **TL;DR:** [2-3 sentence summary]
 
 **Detailed Summary:** [comprehensive summary]
 
-Use the RetrievePage tool to fetch the article content.`,
+Use the RetrievePage tool to fetch the article content. If the initial retrieval fails or returns non-article content, try alternative approaches to find the actual article.`,
 		finalURL, item.Title)
 
 	summary, err := researchAgent.GenerateWithTools("", agent.PromptInput{
@@ -1420,6 +1480,15 @@ Use the RetrievePage tool to fetch the article content.`,
 
 	// Clean up the summary and format it
 	cleanSummary := strings.TrimSpace(summary)
+
+	// Cache the summary result for future use
+	cachedContent := CachedContent{
+		ItemID:   itemID,
+		Summary:  cleanSummary,
+		CachedAt: time.Now(),
+		TTL:      r.getCacheTTL(),
+	}
+	r.UpdateCachedContent(itemID, cachedContent)
 
 	// Format the summary with HTML
 	formattedSummary := r.formatArticleSummary(cleanSummary)
