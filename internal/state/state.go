@@ -46,8 +46,10 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
 	integrations := integration.LoadIntegrations(integration.IntegrationInput{
-		Settings: &settings.Integration,
-		Logger:   logger,
+		Settings:  &settings.Integration,
+		Providers: genaiProviders,
+		Agents:    agents,
+		Logger:    logger,
 	})
 	workflows := initializeWorkflows(settings, agents, logger, integrations)
 	integrations = integration.UpdateSystemPointers(integrations, integration.IntegrationInput{
@@ -163,11 +165,21 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 func initializeWorkflows(settingsInput settings.Settings, agents map[int]*agent.Agent, logger logr.Logger, integrations map[string]types.Integration) map[string]*agent.Workflow {
 	workflows := make(map[string]*agent.Workflow)
 
+	// First pass: create all workflows
 	for _, workflow := range settingsInput.Workflows {
 		workflows[workflow.Name] = agent.NewWorkflow(workflow, agents, integrations, logger.WithName("workflow").WithValues("name", workflow.Name))
 		if workflow.IsDefault {
 			workflows["default"] = workflows[workflow.Name]
 		}
+	}
+
+	// Second pass: set workflow references for sub-workflow execution
+	for _, workflow := range workflows {
+		workflow.SetWorkflowReferences(workflows)
+	}
+
+	// Third pass: register triggers
+	for _, workflow := range settingsInput.Workflows {
 		err := workflows[workflow.Name].RegisterTriggers(integrations)
 		if err != nil {
 			logger.Error(err, "Error registering triggers for workflow", "workflowName", workflow.Name)

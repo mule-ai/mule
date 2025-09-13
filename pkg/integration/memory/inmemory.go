@@ -7,6 +7,7 @@ import (
 )
 
 // InMemoryStore implements a simple in-memory store for chat messages
+// DEPRECATED: Use ChromeMStore instead for persistent vector-based storage with semantic search
 type InMemoryStore struct {
 	messages      map[string]map[string][]Message // integrationID -> channelID -> []Message
 	maxPerChannel int
@@ -14,6 +15,7 @@ type InMemoryStore struct {
 }
 
 // NewInMemoryStore creates a new in-memory message store
+// DEPRECATED: Use NewChromeMStore instead for persistent storage
 func NewInMemoryStore(maxPerChannel int) *InMemoryStore {
 	if maxPerChannel <= 0 {
 		maxPerChannel = 100 // reasonable default

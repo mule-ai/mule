@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
@@ -23,6 +24,7 @@ type Workflow struct {
 	agentMap            map[int]*Agent
 	logger              logr.Logger
 	integrations        map[string]types.Integration
+	workflowMap         map[string]*Workflow // Map of workflow ID/name to workflow instances
 }
 
 type WorkflowSettings struct {
@@ -43,6 +45,14 @@ type WorkflowStep struct {
 	AgentName   string                `json:"agentName,omitempty"`
 	OutputField string                `json:"outputField"`
 	Integration types.TriggerSettings `json:"integration,omitempty"`
+	WorkflowID  string                `json:"workflowID,omitempty"`  // Reference to sub-workflow
+	RetryConfig *RetryConfig          `json:"retryConfig,omitempty"` // Retry configuration for sub-workflows
+}
+
+// RetryConfig defines retry behavior for workflow steps
+type RetryConfig struct {
+	MaxAttempts int `json:"maxAttempts"`
+	DelayMs     int `json:"delayMs"`
 }
 
 // WorkflowResult represents the result of a workflow step execution
@@ -74,12 +84,13 @@ func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integration
 		agentMap:            agentMap,
 		logger:              logger,
 		integrations:        integrations,
+		workflowMap:         make(map[string]*Workflow),
 	}
 
 	for _, step := range w.Steps {
-		if step.Integration.Integration == "" && step.AgentID == 0 {
-			w.logger.Error(fmt.Errorf("step %s has no integration or agentID", step.ID), "Step has no integration or agentID")
-			panic(fmt.Errorf("step %s has no integration or agentID", step.ID))
+		if step.Integration.Integration == "" && step.AgentID == 0 && step.WorkflowID == "" {
+			w.logger.Error(fmt.Errorf("step %s has no integration, agentID, or workflowID", step.ID), "Step has no integration, agentID, or workflowID")
+			panic(fmt.Errorf("step %s has no integration, agentID, or workflowID", step.ID))
 		}
 	}
 
@@ -98,6 +109,11 @@ func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integration
 
 func (w *Workflow) GetSettings() WorkflowSettings {
 	return w.settings
+}
+
+// SetWorkflowReferences sets the workflow map for sub-workflow execution
+func (w *Workflow) SetWorkflowReferences(workflows map[string]*Workflow) {
+	w.workflowMap = workflows
 }
 
 func (w *Workflow) RegisterTriggers(integrations map[string]types.Integration) error {
@@ -204,11 +220,14 @@ func (w *Workflow) ExecuteWorkflow(workflow []WorkflowStep, agentMap map[int]*Ag
 		// Create a new logger for the validation
 		validationLogger := ctx.Logger.WithName("validation").WithValues("id", uuid.New().String())
 		// Run validations after the final step if they exist at the workflow level
-		prevResult.Content, err = validation.Run(&validation.ValidationInput{
-			Validations: validations,
-			Logger:      validationLogger,
-			Path:        ctx.Path,
-		})
+		// For workflow validators that validate content (not files), we need to pass the content directly
+		for _, validationFunc := range validations {
+			validatedContent, err := validationFunc(prevResult.Content)
+			if err != nil {
+				break
+			}
+			prevResult.Content = validatedContent
+		}
 
 		if err != nil {
 			errString := fmt.Sprintf("Validation attempt %d out of %d failed, retrying: %s", i, numValidationAttempts, err)
@@ -239,6 +258,11 @@ func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agen
 		TODO: Break this into multiple functions
 	*/
 
+	// Handle sub-workflow execution
+	if step.WorkflowID != "" {
+		return w.executeSubWorkflow(step, ctx, prevResult)
+	}
+
 	if step.Integration.Integration != "" {
 		// Get the integration for this step
 		integration, exists := w.integrations[step.Integration.Integration]
@@ -246,8 +270,13 @@ func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agen
 			result.Error = fmt.Errorf("integration with ID %s not found", step.Integration.Integration)
 			return result, result.Error
 		}
-		w.logger.Info("Calling integration", "integration", step.Integration.Integration, "event", step.Integration.Event, "data", ctx.CurrentInput.Message)
-		response, err := integration.Call(step.Integration.Event, ctx.CurrentInput.Message)
+		// Use previous step result if available, otherwise use original input
+		var inputData any = ctx.CurrentInput.Message
+		if prevResult != nil && prevResult.Content != "" {
+			inputData = prevResult.Content
+		}
+		w.logger.Info("Calling integration", "integration", step.Integration.Integration, "event", step.Integration.Event, "data", inputData)
+		response, err := integration.Call(step.Integration.Event, inputData)
 		if err != nil {
 			result.Error = fmt.Errorf("error calling integration: %w", err)
 			return result, result.Error
@@ -261,6 +290,9 @@ func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agen
 		result.Error = fmt.Errorf("agent with ID %d not found", step.AgentID)
 		return result, result.Error
 	}
+
+	// Clone the agent to avoid shared state issues in parallel execution
+	agent = agent.Clone()
 
 	// Prepare input based on previous step if this is not the first step
 	if prevResult != nil {
@@ -282,6 +314,29 @@ func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agen
 	// Process the output based on the specified output field
 	result.Content = processOutput(content, step.OutputField)
 
+	// Handle passthrough: validation agents should validate but return previous content
+	if step.OutputField == "passthrough" {
+		// Check if validation failed
+		if strings.Contains(content, "INVALID:") {
+			// Extract the reason after INVALID:
+			parts := strings.Split(content, "INVALID:")
+			if len(parts) > 1 {
+				reason := strings.TrimSpace(parts[1])
+				result.Error = fmt.Errorf("validation failed: %s", reason)
+				return result, result.Error
+			}
+			result.Error = fmt.Errorf("validation failed")
+			return result, result.Error
+		}
+
+		// Validation passed - return previous step's content instead of validation response
+		if prevResult != nil && prevResult.Content != "" {
+			result.Content = prevResult.Content
+		} else {
+			result.Content = ctx.CurrentInput.Message
+		}
+	}
+
 	// Process udiffs if enabled
 	if agent.GetUDiffSettings().Enabled {
 		if err := agent.ProcessUDiffs(content, ctx.Logger); err != nil {
@@ -301,16 +356,119 @@ func processOutput(content string, outputField string) string {
 	case "generatedTextWithReasoning":
 		// For generatedTextWithReasoning, we keep the reasoning section if it exists
 		return content
+	case "passthrough":
+		// For passthrough, the content will be replaced with previous step content in executeWorkflowStep
+		return content
 	default:
 		return content
 	}
 }
 
 func extractReasoning(content string) string {
-	split := strings.Split(content, `</think>`)
-	if len(split) < 2 {
-		return content
+	// Find the positions of think tags
+	startIdx := strings.Index(content, "<think>")
+	endIdx := strings.Index(content, "</think>")
+
+	// Case 1: Both tags exist - remove everything between them
+	if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+		before := content[:startIdx]
+		after := content[endIdx+8:] // 8 is the length of "</think>"
+		return strings.TrimSpace(before + after)
 	}
-	reasoning := strings.TrimSpace(split[1])
-	return reasoning
+
+	// Case 2: Only closing tag exists (opening tag might be missing) - remove everything before and including it
+	if endIdx != -1 {
+		after := content[endIdx+8:] // 8 is the length of "</think>"
+		return strings.TrimSpace(after)
+	}
+
+	// Case 3: Only opening tag exists (incomplete) or no tags - return as-is
+	return content
+}
+
+// executeSubWorkflow executes a sub-workflow with retry logic
+func (w *Workflow) executeSubWorkflow(step WorkflowStep, ctx *WorkflowContext, prevResult *WorkflowResult) (WorkflowResult, error) {
+	result := WorkflowResult{
+		OutputField: step.OutputField,
+		StepID:      step.ID,
+	}
+
+	// Look up the sub-workflow by ID or name
+	subWorkflow, exists := w.workflowMap[step.WorkflowID]
+	if !exists {
+		// Try looking up by name if ID lookup fails
+		for _, workflow := range w.workflowMap {
+			if workflow.settings.ID == step.WorkflowID || workflow.settings.Name == step.WorkflowID {
+				subWorkflow = workflow
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			result.Error = fmt.Errorf("workflow with ID %s not found", step.WorkflowID)
+			return result, result.Error
+		}
+	}
+
+	// Prepare input for sub-workflow
+	var inputData string
+	if prevResult != nil && prevResult.Content != "" {
+		inputData = prevResult.Content
+	} else {
+		inputData = ctx.CurrentInput.Message
+	}
+
+	// Determine retry attempts
+	maxAttempts := 1
+	delayMs := 0
+	if step.RetryConfig != nil {
+		if step.RetryConfig.MaxAttempts > 0 {
+			maxAttempts = step.RetryConfig.MaxAttempts
+		}
+		delayMs = step.RetryConfig.DelayMs
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx.Logger.Info("Executing sub-workflow", "workflowID", step.WorkflowID, "attempt", attempt, "maxAttempts", maxAttempts)
+
+		// Execute the sub-workflow
+		subResults, err := subWorkflow.ExecuteWorkflow(
+			subWorkflow.Steps,
+			subWorkflow.agentMap,
+			PromptInput{Message: inputData},
+			ctx.Path,
+			ctx.Logger.WithName("sub-workflow").WithValues("id", step.WorkflowID),
+			subWorkflow.ValidationFunctions,
+		)
+
+		if err == nil {
+			// Success - get the final result from the sub-workflow
+			if finalResult, ok := subResults["final"]; ok {
+				result.Content = processOutput(finalResult.Content, step.OutputField)
+				return result, nil
+			}
+			// No final result but no error - use last step result
+			for _, subStep := range subWorkflow.Steps {
+				if subResult, ok := subResults[subStep.ID]; ok {
+					result.Content = processOutput(subResult.Content, step.OutputField)
+				}
+			}
+			if result.Content != "" {
+				return result, nil
+			}
+			err = fmt.Errorf("sub-workflow %s produced no output", step.WorkflowID)
+		}
+
+		lastErr = err
+		ctx.Logger.Error(err, "Sub-workflow execution failed", "workflowID", step.WorkflowID, "attempt", attempt)
+
+		// Sleep before retry if configured and not the last attempt
+		if attempt < maxAttempts && delayMs > 0 {
+			time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		}
+	}
+
+	result.Error = fmt.Errorf("sub-workflow %s failed after %d attempts: %w", step.WorkflowID, maxAttempts, lastErr)
+	return result, result.Error
 }

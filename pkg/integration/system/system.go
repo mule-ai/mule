@@ -96,6 +96,13 @@ func (s *System) receiveOutputs() {
 				continue
 			}
 			s.channel <- response
+		case "providers":
+			response, err := s.getProviders(triggerSettings.Data)
+			if err != nil {
+				s.logger.Error(err, "Failed to get providers")
+				continue
+			}
+			s.channel <- response
 		default:
 			s.logger.Error(fmt.Errorf("trigger event not supported: %s", triggerSettings.Event), "Unsupported trigger event")
 		}

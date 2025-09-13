@@ -9,6 +9,7 @@ import (
 	"github.com/mule-ai/mule/pkg/integration/grpc"
 	"github.com/mule-ai/mule/pkg/integration/matrix"
 	"github.com/mule-ai/mule/pkg/integration/memory"
+	"github.com/mule-ai/mule/pkg/integration/rss"
 	"github.com/mule-ai/mule/pkg/integration/system"
 	"github.com/mule-ai/mule/pkg/integration/tasks"
 	"github.com/mule-ai/mule/pkg/types"
@@ -22,6 +23,7 @@ type Settings struct {
 	API     *api.Config               `json:"api,omitempty"`
 	System  *system.Config            `json:"system,omitempty"`
 	GRPC    *grpc.Config              `json:"grpc,omitempty"` // Generic config to avoid import cycles
+	RSS     map[string]*rss.Config    `json:"rss,omitempty"`  // Support multiple RSS instances
 }
 
 type IntegrationInput struct {
@@ -38,18 +40,43 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 	l := input.Logger
 	providers := input.Providers
 
-	// Initialize memory store if enabled
-	var memoryManager *memory.Memory
+	// Initialize memory stores
+	var memoryManagerInMemory *memory.Memory // For Discord and other integrations (deprecated)
+	var memoryManagerChromeM *memory.Memory  // For Matrix integration (new ChromeM-based)
+
+	// Initialize ChromeM memory for Matrix
 	if settings.Memory != nil && settings.Memory.Enabled {
+		// Create ChromeM-based memory for Matrix
+		chromeMPath := "/tmp/mule_memory.db" // TODO: Make this configurable
+		chromeMStore, err := memory.NewChromeMStoreWithEmbedding(chromeMPath, settings.Memory.MaxMessages, memory.NewLocalEmbeddingFunc())
+		if err != nil {
+			l.Error(err, "Failed to create ChromeM store, falling back to in-memory")
+			chromeMStore = nil
+		}
+		if chromeMStore != nil {
+			memoryManagerChromeM = memory.New(settings.Memory, chromeMStore)
+			l.Info("ChromeM memory initialized for Matrix", "path", chromeMPath)
+		}
+
+		// Keep in-memory for other integrations (deprecated)
 		store := memory.NewInMemoryStore(settings.Memory.MaxMessages)
-		memoryManager = memory.New(settings.Memory, store)
-		l.Info("Chat memory initialized", "max_messages", settings.Memory.MaxMessages)
+		memoryManagerInMemory = memory.New(settings.Memory, store)
+		l.Info("In-memory store initialized for legacy integrations", "max_messages", settings.Memory.MaxMessages)
 	} else {
-		// Create a default memory manager with minimal settings if not explicitly configured
+		// Create default managers
 		defaultConfig := memory.DefaultConfig()
+
+		// ChromeM for Matrix
+		chromeMPath := "/tmp/mule_memory.db"
+		chromeMStore, _ := memory.NewChromeMStoreWithEmbedding(chromeMPath, defaultConfig.MaxMessages, memory.NewLocalEmbeddingFunc())
+		if chromeMStore != nil {
+			memoryManagerChromeM = memory.New(defaultConfig, chromeMStore)
+		}
+
+		// In-memory for others
 		store := memory.NewInMemoryStore(defaultConfig.MaxMessages)
-		memoryManager = memory.New(defaultConfig, store)
-		l.Info("Default chat memory initialized", "max_messages", defaultConfig.MaxMessages)
+		memoryManagerInMemory = memory.New(defaultConfig, store)
+		l.Info("Default memory managers initialized")
 	}
 
 	if settings.Matrix != nil {
@@ -57,10 +84,10 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 			matrixLogger := l.WithName(name + "-matrix-integration")
 			matrixInteg := matrix.New(name, matrixConfig, matrixLogger)
 
-			// Wrap with memory support if matrix integration was created
-			if matrixInteg != nil {
-				matrixInteg.SetMemory(memoryManager)
-				memoryManager.RegisterIntegration(name, name)
+			// Use ChromeM memory for Matrix
+			if matrixInteg != nil && memoryManagerChromeM != nil {
+				matrixInteg.SetMemory(memoryManagerChromeM)
+				memoryManagerChromeM.RegisterIntegration(name, name)
 			}
 
 			integrations[name] = matrixInteg
@@ -71,10 +98,10 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 		discordLogger := l.WithName("discord-integration")
 		discordInteg := discord.New(settings.Discord, discordLogger)
 
-		// Wrap with memory support if discord integration was created
-		if discordInteg != nil {
-			discordInteg.SetMemory(memoryManager)
-			memoryManager.RegisterIntegration("discord", "discord")
+		// Use deprecated in-memory for Discord (for now)
+		if discordInteg != nil && memoryManagerInMemory != nil {
+			discordInteg.SetMemory(memoryManagerInMemory)
+			memoryManagerInMemory.RegisterIntegration("discord", "discord")
 		}
 
 		integrations["discord"] = discordInteg
@@ -84,7 +111,7 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 		integrations["tasks"] = tasks.New(settings.Tasks, l.WithName("tasks-integration"))
 	}
 
-	if settings.API != nil {
+	if settings.API != nil && settings.API.Enabled {
 		integrations["api"] = api.New(settings.API, l.WithName("api-integration"))
 	}
 
@@ -100,9 +127,55 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 		)
 	}
 
+	// RSS integrations (support multiple instances)
+	if settings.RSS != nil {
+		l.Info("Loading RSS integrations", "count", len(settings.RSS))
+		for name, rssConfig := range settings.RSS {
+			if rssConfig == nil || !rssConfig.Enabled {
+				l.Info("Skipping RSS integration", "name", name, "enabled", rssConfig != nil && rssConfig.Enabled)
+				continue
+			}
+			// Use "rss-" prefix to avoid naming conflicts
+			integrationName := "rss-" + name
+			rssLogger := l.WithName(integrationName + "-integration")
+			rssInteg := rss.New(rssConfig, rssLogger, input.Agents)
+			integrations[integrationName] = rssInteg
+			l.Info("Loaded RSS integration", "name", name, "integration_name", integrationName)
+
+			// If this is the "discord" RSS instance and Discord is enabled, connect them
+			if name == "discord" && settings.Discord != nil && integrations["discord"] != nil {
+				discordInteg, ok := integrations["discord"].(*discord.Discord)
+				if ok {
+					// Connect Discord messages to RSS feed
+					discordInteg.SetRSSIntegration(rssInteg.GetChannel())
+					l.Info("Connected Discord to RSS integration", "rss_instance", name)
+				}
+			}
+		}
+	}
+
 	// always start the system integration
 	integrations["system"] = system.New(settings.System, providers, l.WithName("system-integration"))
 
+	// Add workflow memory integration (new ChromeM-based)
+	workflowMemoryConfig := &memory.WorkflowMemoryConfig{
+		Enabled:           true,
+		DBPath:            "/tmp/mule_workflow_memory.db",
+		MaxMessages:       100,
+		UseLocalEmbedding: true, // Use local embeddings to avoid API dependency
+	}
+	workflowMemory, err := memory.NewWorkflowMemoryIntegration("workflow-memory", workflowMemoryConfig, l.WithName("workflow-memory"))
+	if err != nil {
+		l.Error(err, "Failed to create workflow memory integration")
+	} else {
+		integrations["workflow-memory"] = workflowMemory
+		l.Info("Workflow memory integration initialized with ChromeM", "dbPath", workflowMemoryConfig.DBPath)
+	}
+
+	l.Info("Final integrations loaded", "count", len(integrations))
+	for name := range integrations {
+		l.Info("Final integration", "name", name)
+	}
 	return integrations
 }
 
@@ -125,9 +198,9 @@ func UpdateSystemPointers(integrations map[string]types.Integration, input Integ
 				continue
 			}
 			i.SetSystemPointers(input.Agents, input.Workflows, input.Providers)
-			newIntegrations[integration.Name()] = i
+			newIntegrations[name] = i // Use the key name, not integration.Name()
 		default:
-			newIntegrations[integration.Name()] = integration
+			newIntegrations[name] = integration // Use the key name, not integration.Name()
 		}
 	}
 	return newIntegrations

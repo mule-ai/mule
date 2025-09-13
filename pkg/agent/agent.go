@@ -12,6 +12,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/genai"
 	"github.com/jbutlerdev/genai/tools"
+
 	"github.com/mule-ai/mule/pkg/rag"
 )
 
@@ -236,6 +237,31 @@ func (a *Agent) ProcessUDiffs(message string, logger logr.Logger) error {
 
 	// Apply the udiffs
 	return ApplyUDiffs(diffs, a.path, logger)
+}
+
+// Clone creates a deep copy of the agent to avoid shared state issues
+func (a *Agent) Clone() *Agent {
+	// Create a new agent with the same configuration
+	clone := &Agent{
+		id:             a.id,
+		provider:       a.provider,
+		providerName:   a.providerName,
+		model:          a.model,
+		promptTemplate: a.promptTemplate,
+		promptContext:  "", // Start with empty context for isolation
+		systemPrompt:   a.systemPrompt,
+		logger:         a.logger,
+		Name:           a.Name,
+		path:           a.path,
+		rag:            a.rag,
+		udiffSettings:  a.udiffSettings,
+	}
+
+	// Clone the tools slice to avoid shared references
+	clone.tools = make([]*tools.Tool, len(a.tools))
+	copy(clone.tools, a.tools)
+
+	return clone
 }
 
 // GenerateWithTools has been moved to the workflow package, so we can simplify here
