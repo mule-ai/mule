@@ -301,11 +301,31 @@ func (w *Workflow) executeWorkflowStep(step WorkflowStep, agentMap map[int]*Agen
 		agent.SetPromptContext(prevResult.Content)
 	}
 
+	// Prepare the input for this step
+	stepInput := ctx.CurrentInput
+
+	// If this step has integration data but no integration name, use the data as the message
+	if step.Integration.Integration == "" && step.Integration.Data != nil {
+		if dataStr, ok := step.Integration.Data.(string); ok && dataStr != "" {
+			// Create a new PromptInput with the step's data as the message
+			stepInput = PromptInput{
+				IssueTitle:        ctx.CurrentInput.IssueTitle,
+				IssueBody:         ctx.CurrentInput.IssueBody,
+				Commits:           ctx.CurrentInput.Commits,
+				Diff:              ctx.CurrentInput.Diff,
+				IsPRComment:       ctx.CurrentInput.IsPRComment,
+				PRComment:         ctx.CurrentInput.PRComment,
+				PRCommentDiffHunk: ctx.CurrentInput.PRCommentDiffHunk,
+				Message:           dataStr,
+			}
+		}
+	}
+
 	// Execute the agent
 	var content string
 	var err error
 
-	content, err = agent.GenerateWithTools(ctx.Path, ctx.CurrentInput)
+	content, err = agent.GenerateWithTools(ctx.Path, stepInput)
 	if err != nil {
 		result.Error = err
 		return result, err
