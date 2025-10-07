@@ -168,7 +168,12 @@ func (p *Provider) FetchDiffs(_, _ string, resourceID int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			// Log the error but don't fail the function
+			fmt.Printf("Warning: failed to remove temp dir %s: %v\n", tmpDir, err)
+		}
+	}()
 
 	// Run git diff command
 	cmd := exec.Command("git", "-C", p.Path, "diff", pr.BaseBranch+".."+pr.Branch)

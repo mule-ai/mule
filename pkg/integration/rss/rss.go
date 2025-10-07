@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,18 +23,20 @@ import (
 
 // Config holds the configuration for the RSS integration.
 type Config struct {
-	Enabled        bool   `json:"enabled,omitempty"`
-	Title          string `json:"title,omitempty"`          // RSS feed title
-	Description    string `json:"description,omitempty"`    // RSS feed description
-	Link           string `json:"link,omitempty"`           // RSS feed link
-	Author         string `json:"author,omitempty"`         // RSS feed author
-	MaxItems       int    `json:"maxItems,omitempty"`       // Maximum number of items to keep in feed
-	Path           string `json:"path,omitempty"`           // URL path for RSS feed (default: /rss)
-	MirrorFrom     string `json:"mirrorFrom,omitempty"`     // External RSS feed URL to mirror
-	EnhanceContent bool   `json:"enhanceContent,omitempty"` // Whether to enhance content with AI
-	CacheDir       string `json:"cacheDir,omitempty"`       // Directory for caching enhanced content
-	FetchInterval  int    `json:"fetchInterval,omitempty"`  // Interval in minutes to fetch external feed
-	CacheTTL       int    `json:"cacheTTL,omitempty"`       // Cache TTL in minutes (default: 360)
+	Enabled                       bool   `json:"enabled,omitempty"`
+	Title                         string `json:"title,omitempty"`                         // RSS feed title
+	Description                   string `json:"description,omitempty"`                   // RSS feed description
+	Link                          string `json:"link,omitempty"`                          // RSS feed link
+	Author                        string `json:"author,omitempty"`                        // RSS feed author
+	MaxItems                      int    `json:"maxItems,omitempty"`                      // Maximum number of items to keep in feed
+	Path                          string `json:"path,omitempty"`                          // URL path for RSS feed (default: /rss)
+	MirrorFrom                    string `json:"mirrorFrom,omitempty"`                    // External RSS feed URL to mirror
+	EnhanceContent                bool   `json:"enhanceContent,omitempty"`                // Whether to enhance content with AI
+	CacheDir                      string `json:"cacheDir,omitempty"`                      // Directory for caching enhanced content
+	FetchInterval                 int    `json:"fetchInterval,omitempty"`                 // Interval in minutes to fetch external feed
+	CacheTTL                      int    `json:"cacheTTL,omitempty"`                      // Cache TTL in minutes (default: 360)
+	UseDeterministicPreprocessing bool   `json:"useDeterministicPreprocessing,omitempty"` // Whether to use deterministic preprocessing before LLM
+	SearxngURL                    string `json:"searxngURL,omitempty"`                    // Searxng URL for search queries
 }
 
 // RSS represents the RSS integration.
@@ -53,14 +57,41 @@ type RSS struct {
 	processingMux sync.Mutex           // Mutex for processing map
 }
 
+// ArticleMeta represents metadata extracted from an article
+type ArticleMeta struct {
+	Title       string    `json:"title"`
+	Author      string    `json:"author"`
+	PublishDate time.Time `json:"publishDate"`
+	WordCount   int       `json:"wordCount"`
+	Keywords    []string  `json:"keywords"`
+}
+
+// SearchHit represents a search result from Searxng
+type SearchHit struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet"`
+}
+
+// EnhancedRSSItem represents an RSS item with enhanced content
+type EnhancedRSSItem struct {
+	OriginalItem    *feeds.Item `json:"originalItem"`
+	ArticleContent  string      `json:"articleContent"`  // Cleaned article text
+	Metadata        ArticleMeta `json:"metadata"`        // Extracted metadata
+	RelatedHits     []SearchHit `json:"relatedHits"`     // Top search results
+	FinalSummary    string      `json:"finalSummary"`    // LLM-generated summary
+	ProcessingError string      `json:"processingError"` // Any error during processing
+}
+
 // CachedContent represents cached enhanced content for an RSS item
 type CachedContent struct {
-	ItemID          string    `json:"itemId"`
-	EnhancedContent string    `json:"enhancedContent"`
-	Comments        []Comment `json:"comments,omitempty"`
-	Summary         string    `json:"summary,omitempty"`
-	CachedAt        time.Time `json:"cachedAt"`
-	TTL             int       `json:"ttl"` // TTL in minutes
+	ItemID          string          `json:"itemId"`
+	EnhancedContent string          `json:"enhancedContent"`
+	Comments        []Comment       `json:"comments,omitempty"`
+	Summary         string          `json:"summary,omitempty"`
+	EnhancedItem    EnhancedRSSItem `json:"enhancedItem,omitempty"` // New enhanced item structure
+	CachedAt        time.Time       `json:"cachedAt"`
+	TTL             int             `json:"ttl"` // TTL in minutes
 }
 
 // Comment represents a comment on an RSS item
@@ -196,13 +227,14 @@ func New(config *Config, l logr.Logger, agents map[int]*agent.Agent) *RSS {
 // DefaultConfig returns default RSS configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled:     true,
-		Title:       "Mule Discord RSS Feed",
-		Description: "RSS feed of Discord messages processed by Mule",
-		Link:        "http://localhost:8083/rss",
-		Author:      "Mule AI",
-		MaxItems:    100,
-		Path:        "/rss",
+		Enabled:                       true,
+		Title:                         "Mule Discord RSS Feed",
+		Description:                   "RSS feed of Discord messages processed by Mule",
+		Link:                          "http://localhost:8083/rss",
+		Author:                        "Mule AI",
+		MaxItems:                      100,
+		Path:                          "/rss",
+		UseDeterministicPreprocessing: true, // Enable deterministic preprocessing by default
 	}
 }
 
@@ -478,7 +510,11 @@ func (r *RSS) fetchExternalRSS() {
 		r.l.Error(err, "Failed to fetch external RSS feed", "url", r.config.MirrorFrom)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		r.l.Error(fmt.Errorf("HTTP %d", resp.StatusCode), "Failed to fetch external RSS feed", "url", r.config.MirrorFrom)
@@ -748,32 +784,95 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 		return
 	}
 
-	// For non-Reddit content, attempt to fetch and summarize the article
+	// For non-Reddit content, use the deterministic enhancement approach if enabled
 	if item.Link != nil && item.Link.Href != "" {
-		summary := r.generateArticleSummary(item, false)
-		if summary != "" {
-			enhancedContent := item.Description
-			if enhancedContent != "" {
-				enhancedContent += "\n\n"
+		if r.config.UseDeterministicPreprocessing {
+			// Try deterministic enhancement first
+			enhancedItem, err := r.enhanceItemDeterministic(item)
+			if err != nil {
+				r.l.Error(err, "Failed to enhance item deterministically, falling back to traditional method", "id", item.Id)
+				// Fall back to traditional method
+				summary := r.generateArticleSummary(item, false)
+				if summary != "" {
+					enhancedContent := item.Description
+					if enhancedContent != "" {
+						enhancedContent += "\n\n"
+					}
+					// Format the summary with proper HTML formatting
+					formattedSummary := r.formatArticleSummary(summary)
+					enhancedContent += "\n\n<br/><br/>" + formattedSummary
+
+					// Cache the enhanced content
+					cachedContent := CachedContent{
+						ItemID:          itemID,
+						EnhancedContent: enhancedContent,
+						Summary:         summary,
+						CachedAt:        time.Now(),
+						TTL:             r.getCacheTTL(),
+					}
+
+					r.UpdateCachedContent(itemID, cachedContent)
+					item.Description = enhancedContent
+
+					r.l.Info("Enhanced item with AI summary (fallback method)", "id", item.Id, "summary_length", len(summary))
+					return
+				}
+			} else {
+				// Successfully enhanced with deterministic approach
+				enhancedContent := item.Description
+				if enhancedContent != "" {
+					enhancedContent += "\n\n"
+				}
+
+				// Add the final summary from the enhanced item
+				if enhancedItem.FinalSummary != "" {
+					// Format the summary with proper HTML formatting
+					formattedSummary := r.formatArticleSummary(enhancedItem.FinalSummary)
+					enhancedContent += "\n\n<br/><br/>" + formattedSummary
+				}
+
+				// Cache the enhanced content
+				cachedContent := CachedContent{
+					ItemID:          itemID,
+					EnhancedContent: enhancedContent,
+					EnhancedItem:    *enhancedItem,
+					CachedAt:        time.Now(),
+					TTL:             r.getCacheTTL(),
+				}
+
+				r.UpdateCachedContent(itemID, cachedContent)
+				item.Description = enhancedContent
+
+				r.l.Info("Enhanced item with deterministic approach", "id", item.Id, "summary_length", len(enhancedItem.FinalSummary))
+				return
 			}
-			// Format the summary with proper HTML formatting
-			formattedSummary := r.formatArticleSummary(summary)
-			enhancedContent += "\n\n<br/><br/>" + formattedSummary
+		} else {
+			// Use traditional method if deterministic preprocessing is disabled
+			summary := r.generateArticleSummary(item, false)
+			if summary != "" {
+				enhancedContent := item.Description
+				if enhancedContent != "" {
+					enhancedContent += "\n\n"
+				}
+				// Format the summary with proper HTML formatting
+				formattedSummary := r.formatArticleSummary(summary)
+				enhancedContent += "\n\n<br/><br/>" + formattedSummary
 
-			// Cache the enhanced content
-			cachedContent := CachedContent{
-				ItemID:          itemID,
-				EnhancedContent: enhancedContent,
-				Summary:         summary,
-				CachedAt:        time.Now(),
-				TTL:             r.getCacheTTL(),
+				// Cache the enhanced content
+				cachedContent := CachedContent{
+					ItemID:          itemID,
+					EnhancedContent: enhancedContent,
+					Summary:         summary,
+					CachedAt:        time.Now(),
+					TTL:             r.getCacheTTL(),
+				}
+
+				r.UpdateCachedContent(itemID, cachedContent)
+				item.Description = enhancedContent
+
+				r.l.Info("Enhanced item with AI summary (traditional method)", "id", item.Id, "summary_length", len(summary))
+				return
 			}
-
-			r.UpdateCachedContent(itemID, cachedContent)
-			item.Description = enhancedContent
-
-			r.l.Info("Enhanced item with AI summary", "id", item.Id, "summary_length", len(summary))
-			return
 		}
 	}
 
@@ -936,7 +1035,11 @@ func (r *RSS) fetchHackerNewsComments(itemID string) []Comment {
 		r.l.Error(err, "Failed to fetch HN item", "itemID", itemID)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		r.l.Error(fmt.Errorf("HTTP %d", resp.StatusCode), "Failed to fetch HN item", "itemID", itemID)
@@ -1016,7 +1119,11 @@ func (r *RSS) fetchSingleHNComment(commentID int) *Comment {
 		r.l.Error(err, "Failed to fetch HN comment", "commentID", commentID)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -1076,7 +1183,11 @@ func (r *RSS) fetchHNItemDetails(itemID int) *HNItem {
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -1135,7 +1246,11 @@ func (r *RSS) fetchRedditComments(item *feeds.Item) []Comment {
 		r.l.Error(err, "Failed to fetch Reddit comments", "url", postURL)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		r.l.Error(fmt.Errorf("HTTP %d", resp.StatusCode), "Failed to fetch Reddit comments", "url", postURL)
@@ -1561,7 +1676,11 @@ func (r *RSS) resolveRedirects(url string) string {
 		r.l.Error(err, "Failed to resolve redirects", "url", url)
 		return url
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	finalURL := resp.Request.URL.String()
 	r.l.Info("HTTP redirect resolution", "original", url, "final", finalURL, "status", resp.StatusCode)
@@ -1603,7 +1722,11 @@ func (r *RSS) extractGoogleNewsURL(googleURL string) string {
 		r.l.Error(err, "Error fetching Google News URL", "url", googleURL)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	// If we found an HTTP redirect, check if it's still a Google News URL or a real article URL
 	if redirectURL != "" && redirectURL != googleURL {
@@ -1690,7 +1813,11 @@ func (r *RSS) followSecondLevelRedirect(googleURL string) string {
 		r.l.Error(err, "Error following second level redirect", "url", googleURL)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
 
 	finalURL := resp.Request.URL.String()
 	r.l.Info("Second level redirect result", "original", googleURL, "final", finalURL, "status", resp.StatusCode)
@@ -1701,4 +1828,616 @@ func (r *RSS) followSecondLevelRedirect(googleURL string) string {
 	}
 
 	return ""
+}
+
+// enhanceItemDeterministic enhances an RSS item using deterministic processing before LLM summarization
+func (r *RSS) enhanceItemDeterministic(item *feeds.Item) (*EnhancedRSSItem, error) {
+	// Check if we already have cached enhanced content
+	itemID := item.Id
+	if itemID == "" && item.Link != nil && item.Link.Href != "" {
+		itemID = item.Link.Href
+	}
+
+	if itemID == "" {
+		return nil, fmt.Errorf("no item ID or link available")
+	}
+
+	// Check cache first
+	r.cacheMutex.RLock()
+	cached, exists := r.cache[itemID]
+	r.cacheMutex.RUnlock()
+
+	if exists && !r.isCacheExpired(cached) && cached.EnhancedItem.FinalSummary != "" {
+		r.l.Info("Using cached deterministic enhanced content", "itemID", itemID)
+		return &cached.EnhancedItem, nil
+	}
+
+	// Fetch article content using RetrievePage tool if available
+	var articleContent string
+	var err error
+
+	// Try to find an agent with RetrievePage tool
+	var researchAgent *agent.Agent
+	researchAgentIDs := []int{18, 17} // Try Research agent first, then Planning agent
+
+	for _, agentID := range researchAgentIDs {
+		if agent, exists := r.agents[agentID]; exists && agent != nil {
+			// Check if agent has RetrievePage tool
+			tools := agent.GetTools()
+			for _, tool := range tools {
+				if tool == "RetrievePage" {
+					researchAgent = agent
+					r.l.Info("Found research agent with RetrievePage tool", "agentID", agentID, "name", agent.Name)
+					break
+				}
+			}
+			if researchAgent != nil {
+				break
+			}
+		}
+	}
+
+	if researchAgent != nil && item.Link != nil && item.Link.Href != "" {
+		// Clone the agent to avoid shared state issues
+		researchAgent = researchAgent.Clone()
+
+		// Use the agent to fetch the article content
+		prompt := fmt.Sprintf("Retrieve the content of this article: %s", item.Link.Href)
+		result, err := researchAgent.GenerateWithTools("", agent.PromptInput{
+			Message: prompt,
+		})
+
+		if err != nil {
+			r.l.Error(err, "Failed to retrieve article content", "url", item.Link.Href)
+		} else {
+			// Extract the article content from the result
+			// This would depend on how the RetrievePage tool formats its output
+			articleContent = result
+		}
+	}
+
+	// Extract metadata using deterministic functions
+	metadata, err := extractArticleMetadata(articleContent)
+	if err != nil {
+		r.l.Error(err, "Failed to extract article metadata", "url", item.Link.Href)
+		// Continue with empty metadata rather than failing completely
+		metadata = ArticleMeta{}
+	}
+
+	// Clean HTML content
+	cleanedContent, err := cleanHTMLContent(articleContent)
+	if err != nil {
+		r.l.Error(err, "Failed to clean HTML content", "url", item.Link.Href)
+		// Use original content if cleaning fails
+		cleanedContent = articleContent
+	}
+
+	// Extract key sections
+	sections, err := extractKeySections(cleanedContent)
+	if err != nil {
+		r.l.Error(err, "Failed to extract key sections", "url", item.Link.Href)
+		sections = make(map[string][]string)
+	}
+
+	// Search for related content using Searxng if available
+	var relatedHits []SearchHit
+	if r.config.SearxngURL != "" && r.config.UseDeterministicPreprocessing {
+		// Create search query using article metadata
+		searchQuery := fmt.Sprintf("related to %s %s", metadata.Title, strings.Join(metadata.Keywords, " "))
+
+		// Perform search using Searxng
+		searchResults, err := r.searchWithSearxng(searchQuery)
+		if err != nil {
+			r.l.Error(err, "Failed to search for related content with Searxng", "query", searchQuery)
+		} else {
+			r.l.Info("Successfully searched for related content", "query", searchQuery, "results", len(searchResults))
+			relatedHits = searchResults
+		}
+	} else if researchAgent != nil && r.config.UseDeterministicPreprocessing {
+		// Fallback to agent-based search if Searxng is not configured
+		// Use the agent to search for related content
+		searchQuery := fmt.Sprintf("related to %s %s", metadata.Title, strings.Join(metadata.Keywords, " "))
+		prompt := fmt.Sprintf(`Use the SearchWeb tool to find related articles and information about: %s
+
+Please format your response as a JSON array of search results with the following structure:
+[
+  {
+    "title": "Article Title",
+    "url": "https://example.com/article",
+    "snippet": "Brief description of the article"
+  }
+]`, searchQuery)
+
+		result, err := researchAgent.GenerateWithTools("", agent.PromptInput{
+			Message: prompt,
+		})
+
+		if err != nil {
+			r.l.Error(err, "Failed to search for related content", "query", searchQuery)
+		} else {
+			// Try to parse the search results as JSON
+			// This would depend on how the SearchWeb tool formats its output
+			r.l.Info("Search results received", "result_length", len(result))
+
+			// For now, we'll create a simple placeholder for related hits
+			// In a real implementation, we would parse the actual search results
+			if len(result) > 0 {
+				relatedHits = append(relatedHits, SearchHit{
+					Title:   "Related Article",
+					URL:     "https://example.com",
+					Snippet: "This is a related article found through search",
+				})
+			}
+		}
+	}
+
+	// Create enhanced item
+	enhancedItem := &EnhancedRSSItem{
+		OriginalItem:   item,
+		ArticleContent: cleanedContent,
+		Metadata:       metadata,
+		RelatedHits:    relatedHits,
+	}
+
+	// Generate final summary using LLM with pre-processed content
+	if researchAgent != nil {
+		// Create a prompt with all the pre-processed information
+		summaryPrompt := fmt.Sprintf(`Please provide a concise summary of the following article:
+
+Title: %s
+Author: %s
+Published: %s
+Word Count: %d
+Keywords: %s
+
+Article Content:
+%s
+
+Key Sections Identified:
+%v
+
+Related Content:
+%v
+
+Please provide a summary that captures the essential points of this article.`,
+			metadata.Title,
+			metadata.Author,
+			metadata.PublishDate.Format("2006-01-02"),
+			metadata.WordCount,
+			strings.Join(metadata.Keywords, ", "),
+			cleanedContent,
+			sections,
+			relatedHits)
+
+		summary, err := researchAgent.GenerateWithTools("", agent.PromptInput{
+			Message: summaryPrompt,
+		})
+
+		if err != nil {
+			r.l.Error(err, "Failed to generate final summary")
+			enhancedItem.ProcessingError = fmt.Sprintf("Failed to generate summary: %v", err)
+		} else {
+			enhancedItem.FinalSummary = summary
+		}
+	} else {
+		enhancedItem.ProcessingError = "No research agent available for final summarization"
+	}
+
+	// Cache the enhanced item
+	cachedContent := CachedContent{
+		ItemID:       itemID,
+		EnhancedItem: *enhancedItem,
+		CachedAt:     time.Now(),
+		TTL:          r.getCacheTTL(),
+	}
+	r.UpdateCachedContent(itemID, cachedContent)
+
+	return enhancedItem, nil
+}
+
+// extractArticleMetadata extracts metadata from article content
+func extractArticleMetadata(content string) (ArticleMeta, error) {
+	meta := ArticleMeta{}
+
+	if content == "" {
+		return meta, nil
+	}
+
+	// Count words
+	words := strings.Fields(content)
+	meta.WordCount = len(words)
+
+	// Extract keywords (simple approach - could be enhanced with NLP)
+	meta.Keywords = extractTopKeywords(content, 10)
+
+	// Try to extract title from <title> tag or <h1> tag
+	titleRegex := regexp.MustCompile(`(?i)<title[^>]*>([^<]+)`)
+	titleMatches := titleRegex.FindStringSubmatch(content)
+	if len(titleMatches) > 1 {
+		// Clean up the title by removing extra whitespace and common suffixes
+		title := strings.TrimSpace(titleMatches[1])
+		// Remove common site name suffixes
+		siteSuffixRegex := regexp.MustCompile(`(?i)\s*[|-]\s*[^|]+\s*$`)
+		title = siteSuffixRegex.ReplaceAllString(title, "")
+		meta.Title = strings.TrimSpace(title)
+	} else {
+		// Try h1 tag as fallback
+		h1Regex := regexp.MustCompile(`(?i)<h1[^>]*>([^<]+)`)
+		h1Matches := h1Regex.FindStringSubmatch(content)
+		if len(h1Matches) > 1 {
+			meta.Title = strings.TrimSpace(h1Matches[1])
+		} else {
+			// Try og:title meta tag
+			ogTitleRegex := regexp.MustCompile(`(?i)<meta[^>]*property\s*=\s*["']og:title["'][^>]*content\s*=\s*["']([^"']+)["']`)
+			ogTitleMatches := ogTitleRegex.FindStringSubmatch(content)
+			if len(ogTitleMatches) > 1 {
+				meta.Title = strings.TrimSpace(ogTitleMatches[1])
+			} else {
+				meta.Title = "Untitled Article"
+			}
+		}
+	}
+
+	// Try to extract author from common author meta tags or bylines
+	authorRegex := regexp.MustCompile(`(?i)<meta[^>]*name\s*=\s*["']author["'][^>]*content\s*=\s*["']([^"']+)["']`)
+	authorMatches := authorRegex.FindStringSubmatch(content)
+	if len(authorMatches) > 1 {
+		meta.Author = strings.TrimSpace(authorMatches[1])
+	} else {
+		// Try og:author meta tag
+		ogAuthorRegex := regexp.MustCompile(`(?i)<meta[^>]*property\s*=\s*["']article:author["'][^>]*content\s*=\s*["']([^"']+)["']`)
+		ogAuthorMatches := ogAuthorRegex.FindStringSubmatch(content)
+		if len(ogAuthorMatches) > 1 {
+			meta.Author = strings.TrimSpace(ogAuthorMatches[1])
+		} else {
+			// Try byline patterns
+			bylineRegex := regexp.MustCompile(`(?i)(?:by|author)[:\s]+([^<>\n\r]{3,50})`)
+			bylineMatches := bylineRegex.FindStringSubmatch(content)
+			if len(bylineMatches) > 1 {
+				meta.Author = strings.TrimSpace(bylineMatches[1])
+			} else {
+				// Try itemprop author
+				itempropRegex := regexp.MustCompile(`(?i)<[^>]*itemprop\s*=\s*["']author["'][^>]*>([^<]+)`)
+				itempropMatches := itempropRegex.FindStringSubmatch(content)
+				if len(itempropMatches) > 1 {
+					meta.Author = strings.TrimSpace(itempropMatches[1])
+				} else {
+					meta.Author = "Unknown Author"
+				}
+			}
+		}
+	}
+
+	// Try to extract publish date from common date meta tags or patterns
+	dateRegex := regexp.MustCompile(`(?i)<meta[^>]*name\s*=\s*["'](date|publishdate|publicationdate)["'][^>]*content\s*=\s*["']([^"']+)["']`)
+	dateMatches := dateRegex.FindStringSubmatch(content)
+	if len(dateMatches) > 2 {
+		if parsedTime, err := time.Parse(time.RFC3339, dateMatches[2]); err == nil {
+			meta.PublishDate = parsedTime
+		} else if parsedTime, err := time.Parse("2006-01-02", dateMatches[2]); err == nil {
+			meta.PublishDate = parsedTime
+		} else {
+			meta.PublishDate = time.Now()
+		}
+	} else {
+		// Try og:article:published_time meta tag
+		ogDateRegex := regexp.MustCompile(`(?i)<meta[^>]*property\s*=\s*["']article:published_time["'][^>]*content\s*=\s*["']([^"']+)["']`)
+		ogDateMatches := ogDateRegex.FindStringSubmatch(content)
+		if len(ogDateMatches) > 1 {
+			if parsedTime, err := time.Parse(time.RFC3339, ogDateMatches[1]); err == nil {
+				meta.PublishDate = parsedTime
+			} else {
+				meta.PublishDate = time.Now()
+			}
+		} else {
+			// Try itemprop datePublished
+			itempropDateRegex := regexp.MustCompile(`(?i)<[^>]*itemprop\s*=\s*["']datePublished["'][^>]*datetime\s*=\s*["']([^"']+)["']`)
+			itempropDateMatches := itempropDateRegex.FindStringSubmatch(content)
+			if len(itempropDateMatches) > 1 {
+				if parsedTime, err := time.Parse(time.RFC3339, itempropDateMatches[1]); err == nil {
+					meta.PublishDate = parsedTime
+				} else if parsedTime, err := time.Parse("2006-01-02", itempropDateMatches[1]); err == nil {
+					meta.PublishDate = parsedTime
+				} else {
+					meta.PublishDate = time.Now()
+				}
+			} else {
+				// Try common date patterns in content
+				datePatternRegex := regexp.MustCompile(`(?i)(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})`)
+				datePatternMatches := datePatternRegex.FindStringSubmatch(content)
+				if len(datePatternMatches) > 1 {
+					if parsedTime, err := time.Parse("2006-01-02", datePatternMatches[1]); err == nil {
+						meta.PublishDate = parsedTime
+					} else if parsedTime, err := time.Parse("01/02/2006", datePatternMatches[1]); err == nil {
+						meta.PublishDate = parsedTime
+					} else {
+						meta.PublishDate = time.Now()
+					}
+				} else {
+					meta.PublishDate = time.Now()
+				}
+			}
+		}
+	}
+
+	return meta, nil
+}
+
+// cleanHTMLContent removes unwanted HTML elements from content
+func cleanHTMLContent(content string) (string, error) {
+	if content == "" {
+		return "", nil
+	}
+
+	// Remove script and style tags
+	scriptRegex := regexp.MustCompile(`(?i)<script[^>]*>.*?</script>`)
+	content = scriptRegex.ReplaceAllString(content, "")
+
+	styleRegex := regexp.MustCompile(`(?i)<style[^>]*>.*?</style>`)
+	content = styleRegex.ReplaceAllString(content, "")
+
+	// Remove navigation and header elements
+	navRegex := regexp.MustCompile(`(?i)<nav[^>]*>.*?</nav>`)
+	content = navRegex.ReplaceAllString(content, "")
+
+	headerRegex := regexp.MustCompile(`(?i)<header[^>]*>.*?</header>`)
+	content = headerRegex.ReplaceAllString(content, "")
+
+	footerRegex := regexp.MustCompile(`(?i)<footer[^>]*>.*?</footer>`)
+	content = footerRegex.ReplaceAllString(content, "")
+
+	// Remove advertisements and sidebars
+	adRegex := regexp.MustCompile(`(?i)<aside[^>]*>.*?</aside>`)
+	content = adRegex.ReplaceAllString(content, "")
+
+	// Remove divs with common ad/sidebar classes
+	adClassRegex := regexp.MustCompile(`(?i)<div[^>]*class\s*=\s*["'][^"']*(ad|advertisement|sidebar|menu|navigation)[^"']*["'][^>]*>.*?</div>`)
+	content = adClassRegex.ReplaceAllString(content, "")
+
+	// Remove common ad containers
+	adIdRegex := regexp.MustCompile(`(?i)<div[^>]*id\s*=\s*["'][^"']*(ad|advertisement|sidebar)[^"']*["'][^>]*>.*?</div>`)
+	content = adIdRegex.ReplaceAllString(content, "")
+
+	// Remove tracking pixels and hidden elements
+	trackingRegex := regexp.MustCompile(`(?i)<img[^>]*((width\s*=\s*["']1["'])|(height\s*=\s*["']1["'])|(display\s*:\s*none)).*?>`)
+	content = trackingRegex.ReplaceAllString(content, "")
+
+	hiddenRegex := regexp.MustCompile(`(?i)<[^>]*style\s*=\s*["'][^"']*display\s*:\s*none[^"']*["'][^>]*>.*?</[^>]+>`)
+	content = hiddenRegex.ReplaceAllString(content, "")
+
+	// Remove comments
+	commentRegex := regexp.MustCompile(`(?s)<!--.*?-->`)
+	content = commentRegex.ReplaceAllString(content, "")
+
+	// Remove multiple whitespace and normalize
+	whitespaceRegex := regexp.MustCompile(`\s+`)
+	content = whitespaceRegex.ReplaceAllString(content, " ")
+
+	// Trim leading/trailing whitespace
+	content = strings.TrimSpace(content)
+
+	return content, nil
+}
+
+// extractKeySections identifies key sections like headings, lists, and quotes
+func extractKeySections(content string) (map[string][]string, error) {
+	sections := make(map[string][]string)
+
+	if content == "" {
+		return sections, nil
+	}
+
+	// Extract headings (h1-h6) with hierarchy
+	for i := 1; i <= 6; i++ {
+		headingRegex := regexp.MustCompile(fmt.Sprintf(`(?i)<h%d[^>]*>(.*?)</h%d>`, i, i))
+		headingMatches := headingRegex.FindAllStringSubmatch(content, -1)
+		for _, match := range headingMatches {
+			if len(match) > 1 {
+				key := fmt.Sprintf("h%d", i)
+				sections[key] = append(sections[key], match[1])
+			}
+		}
+	}
+
+	// Extract lists (ul, ol) with content
+	listRegex := regexp.MustCompile(`(?i)<li[^>]*>(.*?)</li>`)
+	listMatches := listRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range listMatches {
+		if len(match) > 1 {
+			sections["lists"] = append(sections["lists"], match[1])
+		}
+	}
+
+	// Extract blockquotes
+	quoteRegex := regexp.MustCompile(`(?i)<blockquote[^>]*>(.*?)</blockquote>`)
+	quoteMatches := quoteRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range quoteMatches {
+		if len(match) > 1 {
+			sections["quotes"] = append(sections["quotes"], match[1])
+		}
+	}
+
+	// Extract paragraphs (first few significant ones)
+	paraRegex := regexp.MustCompile(`(?i)<p[^>]*>(.*?)</p>`)
+	paraMatches := paraRegex.FindAllStringSubmatch(content, -1)
+	paraCount := 0
+	for _, match := range paraMatches {
+		if len(match) > 1 && paraCount < 5 { // Only first 5 paragraphs
+			// Clean paragraph content
+			paraContent := match[1]
+			// Remove extra whitespace
+			paraContent = regexp.MustCompile(`\s+`).ReplaceAllString(paraContent, " ")
+			paraContent = strings.TrimSpace(paraContent)
+
+			// Only include paragraphs with substantial content
+			if len(strings.Fields(paraContent)) > 5 {
+				sections["paragraphs"] = append(sections["paragraphs"], paraContent)
+				paraCount++
+			}
+		}
+	}
+
+	// Extract code blocks
+	codeRegex := regexp.MustCompile(`(?i)<(pre|code)[^>]*>(.*?)</(?:pre|code)>`)
+	codeMatches := codeRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range codeMatches {
+		if len(match) > 2 {
+			sections["code"] = append(sections["code"], match[2])
+		}
+	}
+
+	// Extract images with alt text
+	imgRegex := regexp.MustCompile(`(?i)<img[^>]*alt\s*=\s*["']([^"']*)["'][^>]*>`)
+	imgMatches := imgRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range imgMatches {
+		if len(match) > 1 && strings.TrimSpace(match[1]) != "" {
+			sections["images"] = append(sections["images"], match[1])
+		}
+	}
+
+	return sections, nil
+}
+
+// searchWithSearxng performs a search using Searxng API
+func (r *RSS) searchWithSearxng(query string) ([]SearchHit, error) {
+	if r.config.SearxngURL == "" {
+		return nil, fmt.Errorf("SearxngURL not configured")
+	}
+
+	// Construct search URL
+	searchURL := fmt.Sprintf("%s?q=%s&format=json&categories=general",
+		strings.TrimRight(r.config.SearxngURL, "/"),
+		url.QueryEscape(query))
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Create request
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set User-Agent to avoid blocking
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; MuleAI-RSS/1.0; +http://localhost:8083)")
+
+	// Perform request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform search: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.l.Error(err, "Failed to close response body")
+		}
+	}()
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("search returned status %d", resp.StatusCode)
+	}
+
+	// Parse response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse JSON response
+	var searchResult struct {
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
+	}
+
+	if err := json.Unmarshal(body, &searchResult); err != nil {
+		return nil, fmt.Errorf("failed to parse search results: %w", err)
+	}
+
+	// Convert to SearchHit format
+	var hits []SearchHit
+	for _, result := range searchResult.Results {
+		// Only include results with substantial content
+		if len(strings.Fields(result.Content)) > 5 {
+			hits = append(hits, SearchHit{
+				Title:   result.Title,
+				URL:     result.URL,
+				Snippet: result.Content,
+			})
+		}
+
+		// Limit to top 10 results
+		if len(hits) >= 10 {
+			break
+		}
+	}
+
+	return hits, nil
+}
+
+// extractTopKeywords extracts the most frequent words from content as keywords
+func extractTopKeywords(content string, count int) []string {
+	if content == "" || count <= 0 {
+		return []string{}
+	}
+
+	// Convert to lowercase and remove HTML tags
+	content = strings.ToLower(content)
+	tagRegex := regexp.MustCompile(`<[^>]*>`)
+	content = tagRegex.ReplaceAllString(content, " ")
+
+	// Remove punctuation and split into words
+	punctRegex := regexp.MustCompile(`[^\w\s]`)
+	content = punctRegex.ReplaceAllString(content, " ")
+	words := strings.Fields(content)
+
+	// Filter out common stop words
+	stopWords := map[string]bool{
+		"the": true, "and": true, "or": true, "but": true, "in": true, "on": true, "at": true,
+		"to": true, "for": true, "of": true, "with": true, "by": true, "a": true, "an": true,
+		"is": true, "are": true, "was": true, "were": true, "be": true, "been": true, "have": true,
+		"has": true, "had": true, "do": true, "does": true, "did": true, "will": true, "would": true,
+		"could": true, "should": true, "may": true, "might": true, "must": true, "can": true,
+		"this": true, "that": true, "these": true, "those": true, "i": true, "you": true, "he": true,
+		"she": true, "it": true, "we": true, "they": true, "me": true, "him": true, "her": true,
+		"us": true, "them": true, "my": true, "your": true, "his": true, "its": true, "our": true,
+		"their": true, "myself": true, "yourself": true, "himself": true, "herself": true,
+		"itself": true, "ourselves": true, "yourselves": true, "themselves": true,
+	}
+
+	// Count word frequencies
+	wordFreq := make(map[string]int)
+	for _, word := range words {
+		if len(word) > 3 && !stopWords[word] { // Only consider words longer than 3 characters and not stop words
+			wordFreq[word]++
+		}
+	}
+
+	// Convert to slice for sorting
+	type wordCount struct {
+		word  string
+		count int
+	}
+
+	wordCounts := make([]wordCount, 0, len(wordFreq))
+	for word, count := range wordFreq {
+		wordCounts = append(wordCounts, wordCount{word, count})
+	}
+
+	// Sort by frequency (descending) using more efficient algorithm
+	sort.Slice(wordCounts, func(i, j int) bool {
+		return wordCounts[i].count > wordCounts[j].count
+	})
+
+	// Take top N keywords
+	var keywords []string
+	for i := 0; i < len(wordCounts) && i < count; i++ {
+		keywords = append(keywords, wordCounts[i].word)
+	}
+
+	return keywords
 }

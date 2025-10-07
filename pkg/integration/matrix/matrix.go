@@ -390,14 +390,15 @@ func (m *Matrix) connect() error {
 					"sender", evt.Sender)
 
 				// Handle room key events specially to improve logging
-				if evt.Type == event.ToDeviceRoomKey {
+				switch evt.Type {
+				case event.ToDeviceRoomKey:
 					if key, ok := evt.Content.Parsed.(*event.RoomKeyEventContent); ok {
 						m.l.Info("Received room key",
 							"algorithm", key.Algorithm,
 							"room_id", key.RoomID,
 							"session_id", key.SessionID)
 					}
-				} else if evt.Type == event.ToDeviceForwardedRoomKey {
+				case event.ToDeviceForwardedRoomKey:
 					if key, ok := evt.Content.Parsed.(*event.ForwardedRoomKeyEventContent); ok {
 						m.l.Info("Received forwarded room key",
 							"algorithm", key.Algorithm,
@@ -405,7 +406,7 @@ func (m *Matrix) connect() error {
 							"session_id", key.SessionID,
 							"sender_key", key.SenderKey)
 					}
-				} else if evt.Type == event.ToDeviceRoomKeyRequest {
+				case event.ToDeviceRoomKeyRequest:
 					if req, ok := evt.Content.Parsed.(*event.RoomKeyRequestEventContent); ok {
 						m.l.Info("Received room key request",
 							"request_id", req.RequestID,

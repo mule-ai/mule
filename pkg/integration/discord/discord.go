@@ -170,7 +170,11 @@ func (d *Discord) sendMessageAsFile(channelID, message string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer os.Remove(tempFile.Name())
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			d.l.Error(err, "Failed to remove temp file", "filename", tempFile.Name())
+		}
+	}()
 	_, err = tempFile.WriteString(message)
 	if err != nil {
 		return fmt.Errorf("failed to write message to temp file: %w", err)
@@ -179,7 +183,11 @@ func (d *Discord) sendMessageAsFile(channelID, message string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open temp file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			d.l.Error(err, "Failed to close temp file", "filename", tempFile.Name())
+		}
+	}()
 
 	// You might want to determine ContentType more robustly, e.g., using http.DetectContentType
 	contentType := "application/octet-stream" // Or a more specific one

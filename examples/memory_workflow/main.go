@@ -24,7 +24,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create memory agent: %v", err)
 	}
-	defer agent.Close()
+	defer func() {
+		if err := agent.Close(); err != nil {
+			log.Printf("Failed to close agent: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	integrationID := "example_integration"

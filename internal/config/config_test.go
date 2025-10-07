@@ -67,7 +67,11 @@ func TestSaveConfig(t *testing.T) {
 		t.Fatalf("Error creating testdata directory: %v", err)
 	}
 	// Clean up config file after test
-	defer os.RemoveAll(filepath.Dir(configPath)) // Remove the whole testdata directory
+	defer func() {
+		if err := os.RemoveAll(filepath.Dir(configPath)); err != nil {
+			t.Errorf("Failed to remove testdata directory: %v", err)
+		}
+	}() // Remove the whole testdata directory
 
 	// Create a dummy state
 	// Using a new AppState to avoid conflicts with global state.State if tests run in parallel or affect each other.

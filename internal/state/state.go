@@ -82,7 +82,9 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 
 func initializeEnvironmentVariables(environmentVariables []settings.EnvironmentVariable) {
 	for _, environmentVariable := range environmentVariables {
-		os.Setenv(environmentVariable.Name, environmentVariable.Value)
+		if err := os.Setenv(environmentVariable.Name, environmentVariable.Value); err != nil {
+			fmt.Printf("Failed to set environment variable %s: %v\n", environmentVariable.Name, err)
+		}
 	}
 }
 

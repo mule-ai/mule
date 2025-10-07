@@ -57,7 +57,11 @@ func createListCmd() *cobra.Command {
 			if err != nil {
 				log.Fatalf("Failed to open store: %v", err)
 			}
-			defer store.Close()
+			defer func() {
+				if err := store.Close(); err != nil {
+					log.Printf("Failed to close store: %v", err)
+				}
+			}()
 
 			// Use the proper ListAllMessages method for listing
 			messages, err := store.ListAllMessages(integrationID, channelID, limit)
@@ -126,7 +130,11 @@ func createAddCmd() *cobra.Command {
 			if err != nil {
 				log.Fatalf("Failed to open store: %v", err)
 			}
-			defer store.Close()
+			defer func() {
+				if err := store.Close(); err != nil {
+					log.Printf("Failed to close store: %v", err)
+				}
+			}()
 
 			msg := memory.Message{
 				ID:            memory.GenerateID(),
@@ -203,7 +211,11 @@ func createQueryCmd() *cobra.Command {
 			if err != nil {
 				log.Fatalf("Failed to open store: %v", err)
 			}
-			defer store.Close()
+			defer func() {
+				if err := store.Close(); err != nil {
+					log.Printf("Failed to close store: %v", err)
+				}
+			}()
 
 			messages, err := store.SearchMessages(query, integrationID, channelID, limit)
 			if err != nil {
@@ -253,7 +265,11 @@ func createStatsCmd() *cobra.Command {
 			if err != nil {
 				log.Fatalf("Failed to open store: %v", err)
 			}
-			defer store.Close()
+			defer func() {
+				if err := store.Close(); err != nil {
+					log.Printf("Failed to close store: %v", err)
+				}
+			}()
 
 			fmt.Printf("ChromeM Memory Database Statistics\n")
 			fmt.Printf("==================================\n")
@@ -310,7 +326,11 @@ func createClearCmd() *cobra.Command {
 			if err != nil {
 				log.Fatalf("Failed to open store: %v", err)
 			}
-			defer store.Close()
+			defer func() {
+				if err := store.Close(); err != nil {
+					log.Printf("Failed to close store: %v", err)
+				}
+			}()
 
 			err = store.ClearMessages(integrationID, channelID)
 			if err != nil {

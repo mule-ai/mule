@@ -81,14 +81,22 @@ func TestMemoryWorkflow(t *testing.T) {
 	// Create a temporary directory for the test database
 	tempDir, err := os.MkdirTemp("", "memory_test_*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	dbPath := filepath.Join(tempDir, "test_memory.db")
 
 	// Create a memory agent with mock embedding function
 	agent, err := NewMemoryAgentWithEmbedding(dbPath, DefaultConfig(), chromem.EmbeddingFunc(mockEmbeddingFunc))
 	require.NoError(t, err)
-	defer agent.Close()
+	defer func() {
+		if err := agent.Close(); err != nil {
+			t.Errorf("Failed to close agent: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	integrationID := "test_integration"
@@ -168,12 +176,20 @@ func TestMemoryWorkflow(t *testing.T) {
 func TestMemoryAgentSearching(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "memory_search_test_*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	dbPath := filepath.Join(tempDir, "test_search.db")
 	agent, err := NewMemoryAgentWithEmbedding(dbPath, DefaultConfig(), chromem.EmbeddingFunc(mockEmbeddingFunc))
 	require.NoError(t, err)
-	defer agent.Close()
+	defer func() {
+		if err := agent.Close(); err != nil {
+			t.Errorf("Failed to close agent: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	integrationID := "test_integration"
@@ -220,7 +236,11 @@ func TestMemoryAgentSearching(t *testing.T) {
 func TestMemoryPersistence(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "memory_persist_test_*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	dbPath := filepath.Join(tempDir, "persist.db")
 	ctx := context.Background()
@@ -243,7 +263,11 @@ func TestMemoryPersistence(t *testing.T) {
 	{
 		agent2, err := NewMemoryAgentWithEmbedding(dbPath, DefaultConfig(), chromem.EmbeddingFunc(mockEmbeddingFunc))
 		require.NoError(t, err)
-		defer agent2.Close()
+		defer func() {
+			if err := agent2.Close(); err != nil {
+				t.Errorf("Failed to close agent2: %v", err)
+			}
+		}()
 
 		results, err := agent2.SearchMemory(ctx, "important information", integrationID, channelID)
 		assert.NoError(t, err)
@@ -255,12 +279,20 @@ func TestMemoryPersistence(t *testing.T) {
 func TestConcurrentAccess(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "memory_concurrent_test_*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	dbPath := filepath.Join(tempDir, "concurrent.db")
 	agent, err := NewMemoryAgentWithEmbedding(dbPath, DefaultConfig(), chromem.EmbeddingFunc(mockEmbeddingFunc))
 	require.NoError(t, err)
-	defer agent.Close()
+	defer func() {
+		if err := agent.Close(); err != nil {
+			t.Errorf("Failed to close agent: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	integrationID := "concurrent_test"

@@ -66,7 +66,11 @@ func HandleLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Printf("Failed to close log file: %v\n", err)
+		}
+	}()
 
 	// Map to store conversations by ID
 	conversations := make(map[string]*Conversation)
