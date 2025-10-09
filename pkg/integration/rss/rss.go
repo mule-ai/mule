@@ -36,6 +36,7 @@ type Config struct {
 	FetchInterval                 int    `json:"fetchInterval,omitempty"`                 // Interval in minutes to fetch external feed
 	CacheTTL                      int    `json:"cacheTTL,omitempty"`                      // Cache TTL in minutes (default: 360)
 	UseDeterministicPreprocessing bool   `json:"useDeterministicPreprocessing,omitempty"` // Whether to use deterministic preprocessing before LLM
+	DisableLLMCalls               bool   `json:"disableLLMCalls,omitempty"`               // Whether to disable LLM calls entirely (use only deterministic preprocessing)
 	SearxngURL                    string `json:"searxngURL,omitempty"`                    // Searxng URL for search queries
 }
 
@@ -825,10 +826,18 @@ func (r *RSS) enhanceItem(item *feeds.Item) {
 				}
 
 				// Add the final summary from the enhanced item
-				if enhancedItem.FinalSummary != "" {
+				if enhancedItem.FinalSummary != "" && !r.config.DisableLLMCalls {
 					// Format the summary with proper HTML formatting
 					formattedSummary := r.formatArticleSummary(enhancedItem.FinalSummary)
 					enhancedContent += "\n\n<br/><br/>" + formattedSummary
+				} else if r.config.DisableLLMCalls {
+					// Add information about deterministic preprocessing when LLM is disabled
+					enhancedContent += fmt.Sprintf("\n\n<br/><br/><strong>📰 Content Processed</strong><br/><br/>"+
+						"Title: %s<br/>"+
+						"Author: %s<br/>"+
+						"Word Count: %d<br/>"+
+						"Keywords: %s",
+						enhancedItem.Metadata.Title, enhancedItem.Metadata.Author, enhancedItem.Metadata.WordCount, strings.Join(enhancedItem.Metadata.Keywords, ", "))
 				}
 
 				// Cache the enhanced content
@@ -1981,8 +1990,13 @@ Please format your response as a JSON array of search results with the following
 
 	// Generate final summary using LLM with pre-processed content
 	if researchAgent != nil {
-		// Create a prompt with all the pre-processed information
-		summaryPrompt := fmt.Sprintf(`Please provide a concise summary of the following article:
+		// Skip LLM calls if DisableLLMCalls is true
+		if r.config.DisableLLMCalls {
+			enhancedItem.FinalSummary = "[LLM summarization disabled - using deterministic preprocessing only]"
+			r.l.Info("Skipping LLM summarization - LLM calls disabled", "itemID", itemID)
+		} else {
+			// Create a prompt with all the pre-processed information
+			summaryPrompt := fmt.Sprintf(`Please provide a concise summary of the following article:
 
 Title: %s
 Author: %s
@@ -2000,24 +2014,25 @@ Related Content:
 %v
 
 Please provide a summary that captures the essential points of this article.`,
-			metadata.Title,
-			metadata.Author,
-			metadata.PublishDate.Format("2006-01-02"),
-			metadata.WordCount,
-			strings.Join(metadata.Keywords, ", "),
-			cleanedContent,
-			sections,
-			relatedHits)
+				metadata.Title,
+				metadata.Author,
+				metadata.PublishDate.Format("2006-01-02"),
+				metadata.WordCount,
+				strings.Join(metadata.Keywords, ", "),
+				cleanedContent,
+				sections,
+				relatedHits)
 
-		summary, err := researchAgent.GenerateWithTools("", agent.PromptInput{
-			Message: summaryPrompt,
-		})
+			summary, err := researchAgent.GenerateWithTools("", agent.PromptInput{
+				Message: summaryPrompt,
+			})
 
-		if err != nil {
-			r.l.Error(err, "Failed to generate final summary")
-			enhancedItem.ProcessingError = fmt.Sprintf("Failed to generate summary: %v", err)
-		} else {
-			enhancedItem.FinalSummary = summary
+			if err != nil {
+				r.l.Error(err, "Failed to generate final summary")
+				enhancedItem.ProcessingError = fmt.Sprintf("Failed to generate summary: %v", err)
+			} else {
+				enhancedItem.FinalSummary = summary
+			}
 		}
 	} else {
 		enhancedItem.ProcessingError = "No research agent available for final summarization"
@@ -2440,4 +2455,38 @@ func extractTopKeywords(content string, count int) []string {
 	}
 
 	return keywords
+}
+
+// normalizeWhitespace normalizes whitespace in RSS content to reduce extraneous spacing
+// while preserving meaningful paragraph breaks
+func normalizeWhitespace(content string) string {
+	if content == "" {
+		return ""
+	}
+
+	// Normalize sequences of horizontal whitespace (spaces/tabs) to single spaces
+	horizontalWhitespaceRegex := regexp.MustCompile(`[ \t]+`)
+	content = horizontalWhitespaceRegex.ReplaceAllString(content, " ")
+
+	// Normalize sequences of newlines to preserve paragraph breaks
+	// Replace sequences of 3 or more newlines with double newlines (paragraph break)
+	multipleNewlinesRegex := regexp.MustCompile(`\n{3,}`)
+	content = multipleNewlinesRegex.ReplaceAllString(content, "\n\n")
+
+	// Replace single newlines with spaces (convert line breaks within paragraphs to spaces)
+	// But preserve double newlines (paragraph breaks)
+	// First, temporarily replace double newlines with a marker
+	tempContent := strings.ReplaceAll(content, "\n\n", "___DOUBLE_NEWLINE___")
+
+	// Then replace single newlines with spaces
+	singleNewlineRegex := regexp.MustCompile(`\n`)
+	tempContent = singleNewlineRegex.ReplaceAllString(tempContent, " ")
+
+	// Restore double newlines
+	content = strings.ReplaceAll(tempContent, "___DOUBLE_NEWLINE___", "\n\n")
+
+	// Finally, trim leading/trailing whitespace
+	content = strings.TrimSpace(content)
+
+	return content
 }
