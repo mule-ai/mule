@@ -99,6 +99,7 @@ integrations:
 - **Repository Management**: GitHub integration and local Git operations
 - **Memory System**: Persistent memory for context and learning
 - **Authentication**: SSH and token-based GitHub authentication
+- **Specialized Workflows**: Code generation, issue resolution, and automated testing
 
 ### 🔄 **In Development**
 - **Event-Based Actions**: Webhook triggers and real-time responses
@@ -113,6 +114,9 @@ integrations:
 - **Discord**: Bot for workflow triggers and notifications
 - **Matrix**: Decentralized chat integration
 - **RSS**: Automated feed monitoring and processing
+
+### Specialized Workflows
+- **RSS Integration**: Monitor RSS feeds, enhance content with AI, and host custom feeds
 
 ### Development Tools
 - **GitHub**: Issue tracking, PR management, repository operations

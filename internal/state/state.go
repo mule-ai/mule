@@ -1,12 +1,14 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/jbutlerdev/genai"
+	"github.com/jbutlerdev/genai/tools"
 	"github.com/mule-ai/mule/internal/scheduler"
 	"github.com/mule-ai/mule/internal/settings"
 	"github.com/mule-ai/mule/pkg/agent"
@@ -42,6 +44,12 @@ func NewState(logger logr.Logger, settings settings.Settings) *AppState {
 	rag := rag.NewStore(logger.WithName("rag"))
 	initializeEnvironmentVariables(settings.Environment)
 	genaiProviders := initializeGenAIProviders(logger, settings)
+
+	// Initialize memory tool if database URL is set
+	if err := initializeMemoryTool(logger, settings, genaiProviders); err != nil {
+		logger.Error(err, "Failed to initialize memory tool")
+	}
+
 	systemAgents := initializeSystemAgents(logger, settings, genaiProviders)
 	agents := initializeAgents(logger, settings, genaiProviders, rag)
 	agents = mergeAgents(agents, systemAgents)
@@ -165,10 +173,12 @@ func mergeAgents(agents map[int]*agent.Agent, systemAgents map[int]*agent.Agent)
 }
 
 func initializeWorkflows(settingsInput settings.Settings, agents map[int]*agent.Agent, logger logr.Logger, integrations map[string]types.Integration) map[string]*agent.Workflow {
+	logger.Info("Initializing workflows", "workflowCount", len(settingsInput.Workflows))
 	workflows := make(map[string]*agent.Workflow)
 
 	// First pass: create all workflows
 	for _, workflow := range settingsInput.Workflows {
+		logger.Info("Creating workflow", "workflowName", workflow.Name, "workflowId", workflow.ID)
 		workflows[workflow.Name] = agent.NewWorkflow(workflow, agents, integrations, logger.WithName("workflow").WithValues("name", workflow.Name))
 		if workflow.IsDefault {
 			workflows["default"] = workflows[workflow.Name]
@@ -181,10 +191,14 @@ func initializeWorkflows(settingsInput settings.Settings, agents map[int]*agent.
 	}
 
 	// Third pass: register triggers
+	logger.Info("Registering triggers for workflows", "workflowCount", len(settingsInput.Workflows))
 	for _, workflow := range settingsInput.Workflows {
+		logger.Info("Registering triggers for workflow", "workflowName", workflow.Name)
 		err := workflows[workflow.Name].RegisterTriggers(integrations)
 		if err != nil {
 			logger.Error(err, "Error registering triggers for workflow", "workflowName", workflow.Name)
+		} else {
+			logger.Info("Successfully registered triggers for workflow", "workflowName", workflow.Name)
 		}
 	}
 
@@ -266,4 +280,106 @@ func (s *AppState) ReloadSettings(newSettings settings.Settings) error {
 	}
 
 	return nil
+}
+
+// initializeMemoryTool initializes the memory tool with the database and embedding provider
+func initializeMemoryTool(logger logr.Logger, settings settings.Settings, genaiProviders map[string]*genai.Provider) error {
+	// Check if memory is enabled
+	if !settings.Memory.Enabled {
+		logger.Info("Memory tool not enabled, skipping initialization")
+		return nil
+	}
+
+	// Check if database URL is set
+	databaseURL := settings.Memory.DatabaseURL
+	if databaseURL == "" {
+		logger.Info("Database URL not set, skipping memory tool initialization")
+		return nil
+	}
+
+	// Get embedding provider name from settings or default to "proxy"
+	embeddingProviderName := settings.Memory.EmbeddingProvider
+	if embeddingProviderName == "" {
+		embeddingProviderName = "proxy"
+	}
+
+	logger.Info("Initializing memory tool", "databaseURL", databaseURL, "embeddingProviderName", embeddingProviderName)
+
+	// Find the provider by name
+	provider, ok := genaiProviders[embeddingProviderName]
+	if !ok {
+		// If the specified provider is not found, try to find any available provider
+		logger.Info("Specified embedding provider not found, trying to find any available provider", "requestedProvider", embeddingProviderName)
+		for name, p := range genaiProviders {
+			provider = p
+			embeddingProviderName = name
+			logger.Info("Using fallback provider", "providerName", embeddingProviderName, "providerType", provider.Provider)
+			break
+		}
+
+		if provider == nil {
+			return fmt.Errorf("no suitable provider found for memory tool")
+		}
+	} else {
+		logger.Info("Using specified embedding provider", "providerName", embeddingProviderName, "providerType", provider.Provider)
+	}
+
+	// Create memory tool configuration
+	config := tools.MemoryConfig{
+		DatabaseURL:       databaseURL,
+		EmbeddingProvider: provider.Provider, // Use the provider type for the memory tool config
+		EmbeddingDims:     settings.Memory.EmbeddingDims,
+		DefaultTopK:       settings.Memory.DefaultTopK,
+	}
+
+	// Set default values if not specified
+	if config.EmbeddingDims == 0 {
+		config.EmbeddingDims = 1536 // Default dimension
+	}
+	if config.DefaultTopK == 0 {
+		config.DefaultTopK = 5 // Default top K
+	}
+
+	// Set embedding model from settings or based on provider type
+	if settings.Memory.EmbeddingModel != "" {
+		config.EmbeddingModel = settings.Memory.EmbeddingModel
+	} else {
+		// Set embedding model based on provider type
+		switch provider.Provider {
+		case genai.OPENAI:
+			config.EmbeddingModel = "text-embedding-3-small"
+		case genai.GEMINI:
+			config.EmbeddingModel = "models/embedding-001"
+		case genai.OLLAMA:
+			config.EmbeddingModel = "nomic-embed-text"
+		default:
+			config.EmbeddingModel = "text-embedding-3-small" // fallback
+		}
+	}
+
+	// Create an embedding provider that implements the tools.EmbeddingProvider interface
+	embeddingProviderImpl := &EmbeddingProviderAdapter{provider: provider}
+
+	// Initialize the memory tool
+	err := tools.InitializeMemoryTool(config, embeddingProviderImpl)
+	if err != nil {
+		return fmt.Errorf("failed to initialize memory tool: %w", err)
+	}
+	logger.Info("Memory tool initialized successfully", "model", config.EmbeddingModel)
+	return nil
+}
+
+// EmbeddingProviderAdapter adapts a genai.Provider to implement tools.EmbeddingProvider
+type EmbeddingProviderAdapter struct {
+	provider *genai.Provider
+}
+
+// GenerateEmbedding generates an embedding for a single text input
+func (e *EmbeddingProviderAdapter) GenerateEmbedding(ctx context.Context, text string, model string) ([]float32, error) {
+	return e.provider.GenerateEmbedding(ctx, text, model)
+}
+
+// GenerateEmbeddings generates embeddings for multiple text inputs
+func (e *EmbeddingProviderAdapter) GenerateEmbeddings(ctx context.Context, texts []string, model string) ([][]float32, error) {
+	return e.provider.GenerateEmbeddings(ctx, texts, model)
 }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -79,7 +80,7 @@ func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integration
 		settings:            settings,
 		Steps:               settings.Steps,
 		ValidationFunctions: settings.ValidationFunctions,
-		triggerChannel:      make(chan any),
+		triggerChannel:      make(chan any, 100), // Buffered channel to prevent blocking
 		outputChannels:      make([]chan any, len(settings.Outputs)),
 		agentMap:            agentMap,
 		logger:              logger,
@@ -96,10 +97,31 @@ func NewWorkflow(settings WorkflowSettings, agentMap map[int]*Agent, integration
 
 	go func() {
 		for data := range w.triggerChannel {
-			dataString, ok := data.(string)
-			if !ok {
-				w.logger.Error(fmt.Errorf("data is not a string"), "Data is not a string")
-				continue
+			var dataString string
+			switch v := data.(type) {
+			case string:
+				dataString = v
+			case *types.TriggerSettings:
+				// Handle TriggerSettings by converting the Data field to a string
+				if v.Data != nil {
+					// Try to convert to JSON string first
+					if jsonData, err := json.Marshal(v.Data); err == nil {
+						dataString = string(jsonData)
+					} else {
+						// Fallback to fmt.Sprintf
+						dataString = fmt.Sprintf("%v", v.Data)
+					}
+				} else {
+					dataString = ""
+				}
+			default:
+				// Try to convert to JSON string first
+				if jsonData, err := json.Marshal(v); err == nil {
+					dataString = string(jsonData)
+				} else {
+					// Fallback to fmt.Sprintf
+					dataString = fmt.Sprintf("%v", v)
+				}
 			}
 			w.Execute(dataString)
 		}
@@ -111,26 +133,47 @@ func (w *Workflow) GetSettings() WorkflowSettings {
 	return w.settings
 }
 
+// GetTriggerChannel returns the workflow's trigger channel
+func (w *Workflow) GetTriggerChannel() chan any {
+	return w.triggerChannel
+}
+
+// GetOutputChannels returns the workflow's output channels
+func (w *Workflow) GetOutputChannels() []chan any {
+	return w.outputChannels
+}
+
 // SetWorkflowReferences sets the workflow map for sub-workflow execution
 func (w *Workflow) SetWorkflowReferences(workflows map[string]*Workflow) {
 	w.workflowMap = workflows
 }
 
 func (w *Workflow) RegisterTriggers(integrations map[string]types.Integration) error {
-	for _, trigger := range w.settings.Triggers {
+	w.logger.Info("Registering triggers for workflow", "workflowName", w.settings.Name, "triggerCount", len(w.settings.Triggers))
+	for i, trigger := range w.settings.Triggers {
+		w.logger.Info("Attempting to register trigger", "workflowName", w.settings.Name, "triggerIndex", i, "triggerIntegration", trigger.Integration, "triggerEvent", trigger.Event, "triggerData", trigger.Data)
 		integration, ok := integrations[trigger.Integration]
 		if !ok {
+			w.logger.Error(fmt.Errorf("integration %s not found", trigger.Integration), "Integration not found during trigger registration", "workflowName", w.settings.Name, "integrationName", trigger.Integration)
 			return fmt.Errorf("integration %s not found", trigger.Integration)
 		}
+		w.logger.Info("Found integration for trigger", "workflowName", w.settings.Name, "integrationName", trigger.Integration, "integrationType", fmt.Sprintf("%T", integration))
 		integration.RegisterTrigger(trigger.Event, trigger.Data, w.triggerChannel)
+		w.logger.Info("Called RegisterTrigger on integration", "workflowName", w.settings.Name, "integrationName", trigger.Integration)
 	}
+	w.logger.Info("Registering outputs for workflow", "workflowName", w.settings.Name, "outputCount", len(w.settings.Outputs))
 	for i, output := range w.settings.Outputs {
+		w.logger.Info("Attempting to register output", "workflowName", w.settings.Name, "outputIndex", i, "outputIntegration", output.Integration, "outputEvent", output.Event)
 		integration, ok := integrations[output.Integration]
 		if !ok {
+			w.logger.Error(fmt.Errorf("integration %s not found", output.Integration), "Integration not found during output registration", "workflowName", w.settings.Name, "integrationName", output.Integration)
 			return fmt.Errorf("integration %s not found", output.Integration)
 		}
+		w.logger.Info("Found integration for output", "workflowName", w.settings.Name, "integrationName", output.Integration, "integrationType", fmt.Sprintf("%T", integration))
 		w.outputChannels[i] = integration.GetChannel()
+		w.logger.Info("Got channel from integration", "workflowName", w.settings.Name, "integrationName", output.Integration)
 	}
+	w.logger.Info("Finished registering triggers for workflow", "workflowName", w.settings.Name)
 	return nil
 }
 

@@ -20,6 +20,7 @@ type Settings struct {
 	SystemAgent SystemAgentSettings      `json:"systemAgent"`
 	Workflows   []agent.WorkflowSettings `json:"workflows"`
 	Integration integration.Settings     `json:"integration"`
+	Memory      MemorySettings           `json:"memory"`
 }
 
 type EnvironmentVariable struct {
@@ -47,4 +48,13 @@ type SystemAgentSettings struct {
 	PRTitleTemplate string `json:"prTitleTemplate"`
 	PRBodyTemplate  string `json:"prBodyTemplate"`
 	SystemPrompt    string `json:"systemPrompt"`
+}
+
+type MemorySettings struct {
+	Enabled           bool   `json:"enabled"`
+	DatabaseURL       string `json:"databaseURL"`
+	EmbeddingProvider string `json:"embeddingProvider"`
+	EmbeddingModel    string `json:"embeddingModel"`
+	EmbeddingDims     int    `json:"embeddingDims"`
+	DefaultTopK       int    `json:"defaultTopK"`
 }

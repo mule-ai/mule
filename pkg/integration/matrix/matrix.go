@@ -82,17 +82,35 @@ func (m *Matrix) GetChannel() chan any {
 }
 
 func (m *Matrix) RegisterTrigger(trigger string, data any, channel chan any) {
+	m.l.Info("RegisterTrigger called", "trigger", trigger, "data", data, "dataType", fmt.Sprintf("%T", data))
+
+	// Validate trigger event
 	_, ok := events[trigger]
 	if !ok {
-		m.l.Error(fmt.Errorf("trigger not found"), "Trigger not found")
+		m.l.Error(fmt.Errorf("trigger event not found"), "Trigger event not found", "trigger", trigger, "validEvents", getValidEvents())
 		return
 	}
+
+	// Validate data type
 	dataStr, ok := data.(string)
 	if !ok {
-		m.l.Error(fmt.Errorf("data is not a string"), "Data is not a string")
+		m.l.Error(fmt.Errorf("data is not a string"), "Data is not a string", "actualData", data, "actualDataType", fmt.Sprintf("%T", data))
 		return
 	}
-	m.triggers[trigger+dataStr] = channel
+
+	// Register the trigger
+	key := trigger + dataStr
+	m.l.Info("Registering trigger", "key", key, "trigger", trigger, "dataStr", dataStr)
+	m.triggers[key] = channel
+	m.l.Info("Trigger registered successfully", "key", key, "totalTriggers", len(m.triggers))
+}
+
+func getValidEvents() []string {
+	valid := make([]string, 0, len(events))
+	for event := range events {
+		valid = append(valid, event)
+	}
+	return valid
 }
 
 func (m *Matrix) init() {
@@ -622,24 +640,34 @@ func (m *Matrix) sendMessage(message string, mentions []string) error {
 }
 
 func (m *Matrix) messageReceived(message string, sender string, username string) {
+	// Log the incoming message
+	m.l.Info("messageReceived called", "message", message, "sender", sender, "username", username)
+
 	// check for slash commands
 	slashCommand := m.slashCommandRegex.FindStringSubmatch(message)
 	if len(slashCommand) > 1 {
+		command := slashCommand[1] // Extract the command name (without the slash)
+		triggerKey := "slashCommand" + command
+		m.l.Info("Processing slash command", "message", message, "command", command, "triggerKey", triggerKey)
+
+		// Debug: log all registered triggers
+		m.l.Info("Checking registered triggers", "count", len(m.triggers))
 		for key := range m.triggers {
-			cmd := strings.TrimPrefix(key, "slashCommand")
-			if strings.Contains(message, cmd) {
-				m.l.Info("Slash command received", "command", cmd)
-				if m.memory != nil {
-					if err := m.memory.SaveMessage(m.Name(), m.config.RoomID, sender, username, message, false); err != nil {
-						m.l.Error(err, "Failed to save slash command to memory")
-					}
-				}
-				// For slash commands, pass the original message (no chat history)
-				m.triggers[key] <- message
-				return
-			}
+			m.l.Info("Registered trigger", "key", key)
 		}
-		m.l.Info("Slash command recognized with no trigger, processing as chat message")
+
+		if channel, exists := m.triggers[triggerKey]; exists {
+			m.l.Info("Slash command received", "command", command)
+			if m.memory != nil {
+				if err := m.memory.SaveMessage(m.Name(), m.config.RoomID, sender, username, message, false); err != nil {
+					m.l.Error(err, "Failed to save slash command to memory")
+				}
+			}
+			// For slash commands, pass the original message (no chat history)
+			channel <- message
+			return
+		}
+		m.l.Info("Slash command recognized with no trigger, processing as chat message", "command", command, "triggerKey", triggerKey)
 	}
 
 	// Store message in memory if available

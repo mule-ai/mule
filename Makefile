@@ -27,7 +27,7 @@ fmt:
 # Run linting
 .PHONY: lint
 lint: download-golangci-lint tidy fmt
-	./bin/golangci-lint run
+	./bin/golangci-lint run ./pkg/... ./internal/... ./cmd/...
 
 # Run full test
 .PHONY: test

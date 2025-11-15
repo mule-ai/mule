@@ -111,6 +111,12 @@ func LoadConfig(path string, l logr.Logger) (*state.AppState, error) {
 		return nil, fmt.Errorf("error unmarshalling final merged config to Config struct: %w", err)
 	}
 
+	// Debug: Log the number of workflows loaded
+	l.Info("Loaded workflows", "count", len(finalConfig.Settings.Workflows))
+	for i, workflow := range finalConfig.Settings.Workflows {
+		l.Info("Loaded workflow", "index", i, "name", workflow.Name, "id", workflow.ID)
+	}
+
 	appState := state.NewState(l, finalConfig.Settings)
 	for repoPathVal, repo := range finalConfig.Repositories {
 		if repo == nil {

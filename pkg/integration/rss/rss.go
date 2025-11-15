@@ -202,7 +202,7 @@ func New(config *Config, l logr.Logger, agents map[int]*agent.Agent) *RSS {
 		l:             l,
 		items:         make([]*feeds.Item, 0),
 		mirroredItems: make([]*feeds.Item, 0),
-		channel:       make(chan any),
+		channel:       make(chan any, 100), // Buffered channel to prevent blocking
 		triggers:      make(map[string]chan any),
 		cache:         make(map[string]CachedContent),
 		stopFetcher:   make(chan bool),

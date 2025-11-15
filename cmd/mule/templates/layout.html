@@ -3,282 +3,141 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <title>Mule</title>
+    <title>Mule AI{{if .Page}} - {{.Page}}{{end}}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        :root {
-            --bg-color: #121212;
-            --surface-color: #1e1e1e;
-            --primary-color: #90caf9;
-            --secondary-color: #f48fb1;
-            --text-color: #ffffff;
-            --text-secondary: #b0b0b0;
-            --border-color: rgba(255,255,255,0.1);
-        }
-
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
+        .sidebar {
             min-height: 100vh;
-            line-height: 1.5;
+            background-color: #f8f9fa;
         }
-
-        .header {
-            background-color: var(--surface-color);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        .main-content {
+            min-height: 100vh;
         }
-
-        .header-brand {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
+        .nav-link.active {
+            background-color: #007bff !important;
+            color: white !important;
         }
-
-        .header-brand img {
-            height: 128px;
-            width: auto;
-        }
-
-        .header-brand-text {
-            color: var(--primary-color);
-            font-size: 2rem;
-            text-decoration: none;
-            font-weight: bold;
-        }
-
-        .navbar {
-            background-color: var(--surface-color);
-            padding: 0 1rem;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-
-        .navbar-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-            padding: 0.5rem 0;
-        }
-
-        .navbar-brand {
-            color: var(--primary-color);
-            font-size: 1.5rem;
-            text-decoration: none;
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .navbar-brand img {
-            height: 48px;
-            width: auto;
-        }
-
-        .navbar-links {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-
-        .navbar-links a {
-            color: var(--text-color);
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            white-space: nowrap;
-        }
-
-        .navbar-links a.active {
-            background-color: var(--primary-color);
-            color: var(--bg-color);
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 1rem auto;
-            padding: 0 1rem;
-            box-sizing: border-box;
-        }
-
         .card {
-            background-color: var(--surface-color);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            overflow-x: auto;
-        }
-
-        .button {
-            background-color: var(--primary-color);
-            color: var(--bg-color);
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1rem;
-            margin-right: 0.5rem;
-            margin-bottom: 0.5rem;
-            white-space: nowrap;
-        }
-
-        .button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .input {
-            background-color: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
-            color: var(--text-color);
-            padding: 0.5rem;
-            border-radius: 4px;
-            font-size: 1rem;
-            width: 100%;
-            box-sizing: border-box;
-            max-width: 100%;
-        }
-
-        .label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: var(--text-secondary);
-        }
-
-        .form-group {
             margin-bottom: 1rem;
         }
-
-        .chip {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 16px;
-            background-color: rgba(255,255,255,0.1);
-            margin-right: 0.5rem;
-            margin-bottom: 0.5rem;
-            white-space: nowrap;
+        .loading {
+            display: none;
         }
-
-        .chip.success {
-            background-color: #4caf50;
-            color: white;
+        .error {
+            color: #dc3545;
         }
-
-        .chip.warning {
-            background-color: #ff9800;
-            color: black;
-        }
-
-        /* Responsive adjustments */
-        @media (max-width: 768px) {
-            .navbar-content {
-                flex-direction: column;
-                align-items: stretch;
-                padding: 0.5rem;
-            }
-
-            .navbar-brand {
-                justify-content: center;
-            }
-
-            .navbar-links {
-                justify-content: center;
-            }
-
-            .navbar-links a {
-                padding: 0.5rem;
-                font-size: 0.9rem;
-                text-align: center;
-                flex: 1;
-            }
-
-            .card {
-                padding: 0.75rem;
-            }
-
-            .button {
-                width: 100%;
-                margin-right: 0;
-            }
-
-            .header-brand img {
-                height: 64px;
-            }
-
-            .header-brand-text {
-                font-size: 1.5rem;
-            }
-
-            h2 {
-                font-size: 1.25rem;
-            }
-
-            h3 {
-                font-size: 1.1rem;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .container {
-                padding: 0 0.5rem;
-            }
-
-            .navbar-brand img {
-                height: 32px;
-            }
-
-            .navbar-links {
-                flex-direction: column;
-                width: 100%;
-            }
-
-            .navbar-links a {
-                width: 100%;
-                box-sizing: border-box;
-            }
-
-            .input, select, textarea {
-                font-size: 16px; /* Prevents iOS zoom on focus */
-            }
+        .success {
+            color: #28a745;
         }
     </style>
 </head>
 <body>
-    <nav class="navbar">
-        <div class="navbar-content">
-            <a href="/" class="navbar-brand">
-                <img src="/static/logo.png" alt="Mule Logo">
-                Mule
-            </a>
-            <div class="navbar-links">
-                <a href="/" class="{{if eq .Page "home"}}active{{end}}">Repositories</a>
-                <a href="/logs" class="{{if eq .Page "logs"}}active{{end}}">Logs</a>
-                <a href="/settings" class="{{if eq .Page "settings"}}active{{end}}">Settings</a>
-            </div>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <h5 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                        <span>Mule AI</span>
+                    </h5>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link{{if eq .Page "home"}} active{{end}}" href="/">
+                                <i class="fas fa-home"></i> Home
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{{if eq .Page "local"}} active{{end}}" href="/local-provider">
+                                <i class="fas fa-code-branch"></i> Local Provider
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{{if eq .Page "meal-planning"}} active{{end}}" href="/meal-planning">
+                                <i class="fas fa-utensils"></i> Meal Planning
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{{if eq .Page "settings"}} active{{end}}" href="/settings">
+                                <i class="fas fa-cog"></i> Settings
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{{if eq .Page "logs"}} active{{end}}" href="/logs">
+                                <i class="fas fa-file-alt"></i> Logs
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
+                {{template "content" .}}
+            </main>
         </div>
-    </nav>
-    <main class="container">
-        {{if eq .Page "home"}}
-            {{template "home" .}}
-        {{else if eq .Page "logs"}}
-            {{template "logs" .}}
-        {{else if eq .Page "local"}}
-            {{template "local-provider" .}}
-        {{else}}
-            {{template "settings" .}}
-        {{end}}
-    </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Common utility functions
+        function showLoading(element) {
+            element.classList.add('loading');
+        }
+
+        function hideLoading(element) {
+            element.classList.remove('loading');
+        }
+
+        function showError(message) {
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger alert-dismissible fade show';
+            alert.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.querySelector('main').prepend(alert);
+        }
+
+        function showSuccess(message) {
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show';
+            alert.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.querySelector('main').prepend(alert);
+        }
+
+        // API helper
+        async function apiCall(url, method = 'GET', data = null) {
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            };
+
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+
+            try {
+                const response = await fetch(url, options);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || `HTTP error! status: ${response.status}`);
+                }
+                
+                return result;
+            } catch (error) {
+                console.error('API call failed:', error);
+                throw error;
+            }
+        }
+    </script>
+
+    {{block "scripts" .}}{{end}}
 </body>
 </html>

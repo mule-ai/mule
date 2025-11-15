@@ -16,6 +16,7 @@ import (
 	"github.com/mule-ai/mule/pkg/agent"
 	"github.com/mule-ai/mule/pkg/integration/api"
 	"github.com/mule-ai/mule/pkg/integration/rss"
+	"github.com/mule-ai/mule/pkg/integration/rss_host"
 	"github.com/mule-ai/mule/pkg/log"
 	"github.com/mule-ai/mule/pkg/repository"
 
@@ -219,6 +220,43 @@ func registerIntegrationHandlers(mux *http.ServeMux, l logr.Logger) {
 					mux.HandleFunc(rssPath, rssIntegration.HandleRSS)
 					mux.HandleFunc(indexPath, rssIntegration.HandleIndex)
 					registeredPaths = append(registeredPaths, rssPath, indexPath)
+				}
+			}
+		}
+	}
+
+	// Register RSS host integration handlers for all RSS host instances
+	l.Info("Checking all integrations for RSS host instances", "total_integrations", len(state.State.Integrations))
+	for name, rssHostInteg := range state.State.Integrations {
+		l.Info("Checking integration", "name", name, "type", fmt.Sprintf("%T", rssHostInteg))
+		// Check if this is an RSS host integration
+		if rssHostIntegration, ok := rssHostInteg.(*rss_host.RSSHost); ok {
+			// Get config from settings - strip "rss-host-" prefix to get original config name
+			var rssHostConfig *rss_host.Config
+			if state.State.Settings.Integration.RSSHost != nil {
+				configName := name
+				if strings.HasPrefix(name, "rss-host-") {
+					configName = strings.TrimPrefix(name, "rss-host-")
+				}
+				rssHostConfig = state.State.Settings.Integration.RSSHost[configName]
+				l.Info("Looking for RSS host config", "integration_name", name, "config_name", configName, "found", rssHostConfig != nil)
+			}
+
+			if rssHostConfig != nil && rssHostConfig.Enabled {
+				rssPath := rssHostConfig.Path
+				indexPath := rssHostConfig.IndexPath
+				atomPath := rssPath + "-atom"
+
+				if !validatePath(rssPath, append(existingPaths, registeredPaths...), l) ||
+					!validatePath(indexPath, append(existingPaths, registeredPaths...), l) ||
+					!validatePath(atomPath, append(existingPaths, registeredPaths...), l) {
+					l.Error(fmt.Errorf("RSS host integration path validation failed"), "Skipping RSS host integration", "name", name, "rss_path", rssPath, "index_path", indexPath, "atom_path", atomPath)
+				} else {
+					l.Info("Registering RSS host integration handlers", "name", name, "rss_path", rssPath, "index_path", indexPath, "atom_path", atomPath)
+					mux.HandleFunc(rssPath, rssHostIntegration.HandleRSS)
+					mux.HandleFunc(atomPath, rssHostIntegration.HandleAtom)
+					mux.HandleFunc(indexPath, rssHostIntegration.HandleIndex)
+					registeredPaths = append(registeredPaths, rssPath, indexPath, atomPath)
 				}
 			}
 		}

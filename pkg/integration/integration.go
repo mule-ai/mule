@@ -10,20 +10,26 @@ import (
 	"github.com/mule-ai/mule/pkg/integration/matrix"
 	"github.com/mule-ai/mule/pkg/integration/memory"
 	"github.com/mule-ai/mule/pkg/integration/rss"
+	"github.com/mule-ai/mule/pkg/integration/rss_host"
+	"github.com/mule-ai/mule/pkg/integration/rss_monitor"
+	"github.com/mule-ai/mule/pkg/integration/rss_workflow"
 	"github.com/mule-ai/mule/pkg/integration/system"
 	"github.com/mule-ai/mule/pkg/integration/tasks"
 	"github.com/mule-ai/mule/pkg/types"
 )
 
 type Settings struct {
-	Matrix  map[string]*matrix.Config `json:"matrix,omitempty"`
-	Tasks   *tasks.Config             `json:"tasks,omitempty"`
-	Discord *discord.Config           `json:"discord,omitempty"`
-	Memory  *memory.Config            `json:"memory,omitempty"`
-	API     *api.Config               `json:"api,omitempty"`
-	System  *system.Config            `json:"system,omitempty"`
-	GRPC    *grpc.Config              `json:"grpc,omitempty"` // Generic config to avoid import cycles
-	RSS     map[string]*rss.Config    `json:"rss,omitempty"`  // Support multiple RSS instances
+	Matrix      map[string]*matrix.Config       `json:"matrix,omitempty" mapstructure:"matrix,omitempty"`
+	Tasks       *tasks.Config                   `json:"tasks,omitempty" mapstructure:"tasks,omitempty"`
+	Discord     *discord.Config                 `json:"discord,omitempty" mapstructure:"discord,omitempty"`
+	Memory      *memory.Config                  `json:"memory,omitempty" mapstructure:"memory,omitempty"`
+	API         *api.Config                     `json:"api,omitempty" mapstructure:"api,omitempty"`
+	System      *system.Config                  `json:"system,omitempty" mapstructure:"system,omitempty"`
+	GRPC        *grpc.Config                    `json:"grpc,omitempty" mapstructure:"grpc,omitempty"`                 // Generic config to avoid import cycles
+	RSS         map[string]*rss.Config          `json:"rss,omitempty" mapstructure:"rss,omitempty"`                   // Support multiple RSS instances
+	RSSMonitor  map[string]*rss_monitor.Config  `json:"rss_monitor,omitempty" mapstructure:"rss_monitor,omitempty"`   // Support multiple RSS monitor instances
+	RSSHost     map[string]*rss_host.Config     `json:"rss_host,omitempty" mapstructure:"rss_host,omitempty"`         // Support multiple RSS host instances
+	RSSWorkflow map[string]*rss_workflow.Config `json:"rss_workflow,omitempty" mapstructure:"rss_workflow,omitempty"` // RSS workflow configuration
 }
 
 type IntegrationInput struct {
@@ -170,6 +176,57 @@ func LoadIntegrations(input IntegrationInput) map[string]types.Integration {
 	} else {
 		integrations["workflow-memory"] = workflowMemory
 		l.Info("Workflow memory integration initialized with ChromeM", "dbPath", workflowMemoryConfig.DBPath)
+	}
+
+	// RSS monitor integrations (support multiple instances)
+	if settings.RSSMonitor != nil {
+		l.Info("Loading RSS monitor integrations", "count", len(settings.RSSMonitor))
+		for name, rssMonitorConfig := range settings.RSSMonitor {
+			if rssMonitorConfig == nil || !rssMonitorConfig.Enabled {
+				l.Info("Skipping RSS monitor integration", "name", name, "enabled", rssMonitorConfig != nil && rssMonitorConfig.Enabled)
+				continue
+			}
+			// Use "rss-monitor-" prefix to avoid naming conflicts
+			integrationName := "rss-monitor-" + name
+			rssMonitorLogger := l.WithName(integrationName + "-integration")
+			rssMonitorInteg := rss_monitor.New(rssMonitorConfig, rssMonitorLogger)
+			integrations[integrationName] = rssMonitorInteg
+			l.Info("Loaded RSS monitor integration", "name", name, "integration_name", integrationName, "feed_url", rssMonitorConfig.FeedURL)
+		}
+	}
+
+	// RSS host integrations (support multiple instances)
+	if settings.RSSHost != nil {
+		l.Info("Loading RSS host integrations", "count", len(settings.RSSHost))
+		for name, rssHostConfig := range settings.RSSHost {
+			if rssHostConfig == nil || !rssHostConfig.Enabled {
+				l.Info("Skipping RSS host integration", "name", name, "enabled", rssHostConfig != nil && rssHostConfig.Enabled)
+				continue
+			}
+			// Use "rss-host-" prefix to avoid naming conflicts
+			integrationName := "rss-host-" + name
+			rssHostLogger := l.WithName(integrationName + "-integration")
+			rssHostInteg := rss_host.New(rssHostConfig, rssHostLogger)
+			integrations[integrationName] = rssHostInteg
+			l.Info("Loaded RSS host integration", "name", name, "integration_name", integrationName)
+		}
+	}
+
+	// RSS workflow integrations (support multiple instances)
+	if settings.RSSWorkflow != nil {
+		l.Info("Loading RSS workflow integrations", "count", len(settings.RSSWorkflow))
+		for name, rssWorkflowConfig := range settings.RSSWorkflow {
+			if rssWorkflowConfig == nil || !rssWorkflowConfig.Enabled {
+				l.Info("Skipping RSS workflow integration", "name", name, "enabled", rssWorkflowConfig != nil && rssWorkflowConfig.Enabled)
+				continue
+			}
+			// Use "rss-workflow-" prefix to avoid naming conflicts
+			integrationName := "rss-workflow-" + name
+			rssWorkflowLogger := l.WithName(integrationName + "-integration")
+			rssWorkflowInteg := rss_workflow.New(rssWorkflowConfig, rssWorkflowLogger, input.Agents)
+			integrations[integrationName] = rssWorkflowInteg
+			l.Info("Loaded RSS workflow integration", "name", name, "integration_name", integrationName, "agentID", rssWorkflowConfig.AgentID)
+		}
 	}
 
 	l.Info("Final integrations loaded", "count", len(integrations))
