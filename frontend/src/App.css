@@ -1,0 +1,84 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.workflow-builder {
+  height: 600px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.node-card {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 150px;
+  text-align: center;
+}
+
+.agent-node {
+  background-color: #e3f2fd;
+  border-color: #2196f3;
+}
+
+.wasm-node {
+  background-color: #f3e5f5;
+  border-color: #9c27b0;
+}
+
+.status-badge {
+  font-size: 0.8em;
+  padding: 2px 6px;
+  border-radius: 12px;
+}
+
+.status-queued {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-running {
+  background-color: #cce5ff;
+  color: #004085;
+}
+
+.status-completed {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-failed {
+  background-color: #f8d7da;
+  color: #721c24;
+}

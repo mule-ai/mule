@@ -58,3 +58,8 @@ config.yaml
 config.json
 config.yml
 **/.claude/settings.local.json
+
+# Frontend build and dependencies
+frontend/build/
+frontend/node_modules/
+internal/frontend/build/
