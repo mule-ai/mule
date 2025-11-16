@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mule-postgres
+    environment:
+      POSTGRES_DB: mulev2
+      POSTGRES_USER: mule
+      POSTGRES_PASSWORD: mule
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./internal/db/migrations/0001_initial_schema.sql:/docker-entrypoint-initdb.d/0001_initial_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mule -d mulev2"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mule-network
+
+  mule:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mule-api
+    ports:
+      - "8080:8080"
+    command: ["-db", "postgres://mule:mule@postgres:5432/mulev2?sslmode=disable", "-listen", ":8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mule-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  mule-network:
+    driver: bridge
