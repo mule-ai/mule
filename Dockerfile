@@ -21,23 +21,29 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o mule ./cmd/api
 
-# Stage 2: Final stage with scratch
-FROM scratch
+# Stage 2: Final stage with alpine
+FROM alpine:latest
 
-# Copy CA certificates from builder
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Install ca-certificates for HTTPS requests
+RUN apk --no-cache add ca-certificates tzdata
 
-# Copy timezone data
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+# Create non-root user
+RUN adduser -D -s /bin/sh mule
 
 # Copy the binary from builder stage
-COPY --from=builder /app/mule /mule
+COPY --from=builder /app/mule /usr/local/bin/mule
+
+# Change ownership to non-root user
+RUN chown mule:mule /usr/local/bin/mule
+
+# Switch to non-root user
+USER mule
 
 # Expose port
 EXPOSE 8080
 
 # Set entrypoint
-ENTRYPOINT ["/mule"]
+ENTRYPOINT ["/usr/local/bin/mule"]
 
 # Default command with flags
 CMD ["-db", "postgres://mule:mule@postgres:5432/mulev2?sslmode=disable", "-listen", ":8080"]

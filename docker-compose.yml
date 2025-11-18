@@ -28,7 +28,7 @@ services:
       dockerfile: Dockerfile
     container_name: mule-api
     ports:
-      - "8080:8080"
+      - "8140:8080"
     command: ["-db", "postgres://mule:mule@postgres:5432/mulev2?sslmode=disable", "-listen", ":8080"]
     depends_on:
       postgres:
