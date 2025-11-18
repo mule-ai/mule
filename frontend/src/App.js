@@ -10,6 +10,7 @@ import Agents from './pages/Agents';
 import Providers from './pages/Providers';
 import Tools from './pages/Tools';
 import Jobs from './pages/Jobs';
+import Execute from './pages/Execute';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
                 <Nav.Link href="/providers">Providers</Nav.Link>
                 <Nav.Link href="/tools">Tools</Nav.Link>
                 <Nav.Link href="/jobs">Jobs</Nav.Link>
+                <Nav.Link href="/execute">Execute</Nav.Link>
               </Nav>
             </Navbar.Collapse>
           </Container>
@@ -40,6 +42,7 @@ function App() {
             <Route path="/providers" element={<Providers />} />
             <Route path="/tools" element={<Tools />} />
             <Route path="/jobs" element={<Jobs />} />
+            <Route path="/execute" element={<Execute />} />
           </Routes>
         </Container>
       </div>

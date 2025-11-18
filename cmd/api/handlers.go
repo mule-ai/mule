@@ -140,7 +140,12 @@ func (h *apiHandler) createProviderHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.store.CreateProvider(ctx, &provider); err != nil {
-		api.HandleError(w, fmt.Errorf("failed to create provider: %w", err), http.StatusInternalServerError)
+		// Check if it's a unique constraint violation
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+			api.HandleError(w, fmt.Errorf("a provider with this name already exists"), http.StatusConflict)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to create provider: %w", err), http.StatusInternalServerError)
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -2,138 +2,142 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"runtime/debug"
 
 	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
-	"github.com/mule-ai/mule/internal/primitive"
+	"github.com/mule-ai/mule/internal/database"
 )
 
 // WASMExecutor handles WebAssembly module execution
 type WASMExecutor struct {
-	runtime wazero.Runtime
-	store   primitive.PrimitiveStore
-	modules map[string]api.Module
+	db      *database.DB
+	modules map[string][]byte // Store compiled module bytes instead of instantiated modules
 }
 
 // NewWASMExecutor creates a new WASM executor
-func NewWASMExecutor(store primitive.PrimitiveStore) *WASMExecutor {
-	ctx := context.Background()
-	runtime := wazero.NewRuntime(ctx)
-
+func NewWASMExecutor(db *database.DB) *WASMExecutor {
 	return &WASMExecutor{
-		runtime: runtime,
-		store:   store,
-		modules: make(map[string]api.Module),
+		db:      db,
+		modules: make(map[string][]byte),
 	}
 }
 
 // Execute executes a WASM module with the given input data
 func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData map[string]interface{}) (map[string]interface{}, error) {
-	// Get module from cache or load it
-	module, err := e.getModule(ctx, moduleID)
+	// Get module data from cache or load it
+	moduleData, err := e.getModuleData(ctx, moduleID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get WASM module: %w", err)
+		return nil, fmt.Errorf("failed to get WASM module data: %w", err)
 	}
 
-	// Convert input data to JSON
-	inputJSON, err := json.Marshal(inputData)
+	// Add panic recovery for WASI-related issues
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Recovered from WASM execution panic: %v", r)
+			// Log stack trace for debugging
+			log.Printf("Stack trace: %s", debug.Stack())
+		}
+	}()
+
+	// Create a fresh runtime for each execution to avoid "randinit twice" error
+	// This is necessary for Go-compiled WASM modules which have single-execution lifecycle
+	runtime := wazero.NewRuntime(ctx)
+
+	// Instantiate WASI with proper system walltime
+	_, err = wasi_snapshot_preview1.Instantiate(ctx, runtime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal input data: %w", err)
+		runtime.Close(ctx)
+		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
 	}
 
-	// Call the main function
-	mainFunc := module.ExportedFunction("main")
+	// Create module configuration with system walltime
+	config := wazero.NewModuleConfig().WithSysWalltime().
+		WithStdout(os.Stdout).
+		WithStderr(os.Stderr)
+
+	// Compile and instantiate the module
+	module, err := runtime.InstantiateWithConfig(ctx, moduleData, config)
+	if err != nil {
+		runtime.Close(ctx)
+		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
+	}
+	defer func() {
+		module.Close(ctx)
+		runtime.Close(ctx)
+	}() // Clean up after execution
+
+	// Call the main function (or _start for WASI programs)
+	mainFunc := module.ExportedFunction("_start")
 	if mainFunc == nil {
-		return nil, fmt.Errorf("module does not export 'main' function")
+		// Fall back to main for compatibility
+		mainFunc = module.ExportedFunction("main")
+	}
+	if mainFunc == nil {
+		return nil, fmt.Errorf("module does not export '_start' or 'main' function")
 	}
 
-	// Allocate memory for input string
-	malloc := module.ExportedFunction("malloc")
-	if malloc == nil {
-		return nil, fmt.Errorf("module does not export 'malloc' function")
-	}
-
-	inputSize := uint64(len(inputJSON))
-	ptr, err := malloc.Call(ctx, inputSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to allocate memory: %w", err)
-	}
-
-	// Write input data to memory
-	memory := module.ExportedMemory("memory")
-	if memory == nil {
-		return nil, fmt.Errorf("module does not export 'memory'")
-	}
-
-	if !memory.Write(uint32(ptr[0]), inputJSON) {
-		return nil, fmt.Errorf("failed to write input data to memory")
-	}
-
-	// Call main function
-	results, err := mainFunc.Call(ctx, ptr[0], inputSize)
+	// For simple WASI programs, just call the entry point without memory management
+	// TODO: Implement proper data passing mechanism for more complex modules
+	_, err = mainFunc.Call(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call main function: %w", err)
 	}
 
-	// Read result from memory
-	resultPtr := uint32(results[0])
-
-	// Find null terminator to determine string length
-	var resultSize uint64 = 0
-	for {
-		b, ok := memory.ReadByte(resultPtr + uint32(resultSize))
-		if !ok || b == 0 {
-			break
-		}
-		resultSize++
-	}
-
-	// Read result string
-	resultBytes, ok := memory.Read(resultPtr, uint32(resultSize))
-	if !ok {
-		return nil, fmt.Errorf("failed to read result from memory")
-	}
-
-	// Free allocated memory
-	free := module.ExportedFunction("free")
-	if free != nil {
-		_, _ = free.Call(ctx, ptr[0])
-	}
-
-	// Parse result JSON
-	var result map[string]interface{}
-	if err := json.Unmarshal(resultBytes, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+	// For now, return a simple success result
+	// TODO: Capture and return actual program output
+	result := map[string]interface{}{
+		"success": true,
+		"message": "WASM module executed successfully",
 	}
 
 	return result, nil
 }
 
-// getModule retrieves a WASM module, loading it if necessary
-func (e *WASMExecutor) getModule(ctx context.Context, moduleID string) (api.Module, error) {
+// getModuleData retrieves WASM module data, loading it if necessary
+func (e *WASMExecutor) getModuleData(ctx context.Context, moduleID string) ([]byte, error) {
 	// Check cache first
-	if module, exists := e.modules[moduleID]; exists {
-		return module, nil
+	if moduleData, exists := e.modules[moduleID]; exists {
+		return moduleData, nil
 	}
 
-	// Load module from database (this would need to be implemented)
-	// For now, we'll return an error
-	return nil, fmt.Errorf("WASM module loading not yet implemented")
+	// Load module from database
+	query := `SELECT module_data FROM wasm_modules WHERE id = $1`
+	var moduleData []byte
+	err := e.db.QueryRowContext(ctx, query, moduleID).Scan(&moduleData)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("WASM module not found: %s", moduleID)
+		}
+		return nil, fmt.Errorf("failed to load WASM module from database: %w", err)
+	}
+
+	// Cache the module data
+	e.modules[moduleID] = moduleData
+
+	return moduleData, nil
 }
 
 // LoadModule loads a WASM module from the database
 func (e *WASMExecutor) LoadModule(ctx context.Context, moduleID string) error {
-	// This would load the module from the database and compile it
-	// For now, it's a placeholder
-	log.Printf("Loading WASM module %s", moduleID)
+	// Pre-load the module data
+	_, err := e.getModuleData(ctx, moduleID)
+	if err != nil {
+		return fmt.Errorf("failed to load WASM module: %w", err)
+	}
+
+	log.Printf("Pre-loaded WASM module %s", moduleID)
 	return nil
 }
 
-// Close closes the WASM runtime
+// Close closes the WASM executor and cleans up cached modules
 func (e *WASMExecutor) Close(ctx context.Context) error {
-	return e.runtime.Close(ctx)
+	// Clear the cache
+	e.modules = make(map[string][]byte)
+	return nil
 }

@@ -2,8 +2,10 @@ package frontend
 
 import (
 	"embed"
+	"io"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed build
@@ -48,5 +50,40 @@ npm run build
 		})
 	}
 
-	return http.FileServer(http.FS(buildFS))
+	// Create a file server that serves static files
+	fileServer := http.FileServer(http.FS(buildFS))
+
+	// Return a custom handler that serves index.html for non-static file routes
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Try to open the requested file
+		path := r.URL.Path
+		if path == "/" {
+			path = "/index.html"
+		} else {
+			// For SPA, we need to check if the file exists
+			// If it doesn't exist, serve index.html
+			path = strings.TrimPrefix(path, "/")
+		}
+
+		// Try to open the file
+		file, err := buildFS.Open(path)
+		if err != nil {
+			// If file doesn't exist, serve index.html for SPA routing
+			file, err = buildFS.Open("index.html")
+			if err != nil {
+				http.Error(w, "Failed to open index.html", http.StatusInternalServerError)
+				return
+			}
+			defer file.Close()
+
+			// Serve index.html
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.Copy(w, file)
+			return
+		}
+		defer file.Close()
+
+		// File exists, serve it normally
+		fileServer.ServeHTTP(w, r)
+	})
 }

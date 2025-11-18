@@ -1,6 +1,24 @@
 # Multi-stage Dockerfile for Mule AI Platform
 
-# Stage 1: Build stage
+# Stage 1: Frontend build stage
+FROM node:18-alpine AS frontend-builder
+
+# Set working directory
+WORKDIR /app
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+
+# Install frontend dependencies
+RUN npm install
+
+# Copy frontend source code
+COPY frontend/ .
+
+# Build the frontend
+RUN npm run build
+
+# Stage 2: Backend build stage
 FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
@@ -18,10 +36,13 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Copy built frontend files to the internal/frontend/build directory
+COPY --from=frontend-builder /app/build ./internal/frontend/build
+
 # Build the application
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o mule ./cmd/api
 
-# Stage 2: Final stage with alpine
+# Stage 3: Final stage with alpine
 FROM alpine:latest
 
 # Install ca-certificates for HTTPS requests
