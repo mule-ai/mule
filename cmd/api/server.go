@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,9 +17,59 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/mule-ai/mule/internal/api"
+	"github.com/mule-ai/mule/internal/database"
 	"github.com/mule-ai/mule/internal/frontend"
 	"github.com/mule-ai/mule/pkg/job"
 )
+
+// parseDBConfig parses a PostgreSQL connection string into a database.Config
+func parseDBConfig(connStr string) (database.Config, error) {
+	var config database.Config
+
+	u, err := url.Parse(connStr)
+	if err != nil {
+		return config, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+
+	// Extract host and port
+	host := u.Hostname()
+	portStr := u.Port()
+	if portStr == "" {
+		portStr = "5432" // default PostgreSQL port
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return config, fmt.Errorf("invalid port: %w", err)
+	}
+
+	// Extract username and password
+	username := u.User.Username()
+	password, _ := u.User.Password()
+
+	// Extract database name from path
+	dbName := u.Path
+	if len(dbName) > 0 && dbName[0] == '/' {
+		dbName = dbName[1:]
+	}
+
+	// Extract SSL mode from query parameters
+	sslMode := "disable" // default
+	query := u.Query()
+	if query.Get("sslmode") != "" {
+		sslMode = query.Get("sslmode")
+	}
+
+	config = database.Config{
+		Host:     host,
+		Port:     port,
+		User:     username,
+		Password: password,
+		DBName:   dbName,
+		SSLMode:  sslMode,
+	}
+
+	return config, nil
+}
 
 func main() {
 	var (
@@ -29,7 +81,14 @@ func main() {
 	flag.StringVar(&listenAddr, "listen", ":8080", "HTTP listen address")
 	flag.Parse()
 
-	db, err := sql.Open("postgres", dbConnStr)
+	// Parse the connection string to create database config
+	config, err := parseDBConfig(dbConnStr)
+	if err != nil {
+		log.Fatalf("failed to parse database connection string: %v", err)
+	}
+
+	// Create database connection using the database package
+	db, err := database.NewDB(config)
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
@@ -60,7 +119,7 @@ func main() {
 	go wsHub.Run()
 
 	// Initialize job streamer
-	jobStore := job.NewPGStore(db)
+	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
 	jobStreamer := api.NewJobStreamer(wsHub, jobStore)
 	jobStreamer.Start()
 	defer jobStreamer.Stop()
@@ -100,6 +159,13 @@ func main() {
 	router.HandleFunc("/api/v1/jobs", handler.listJobsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/jobs/{id}", handler.getJobHandler).Methods("GET")
 	router.HandleFunc("/api/v1/jobs/{id}/steps", handler.listJobStepsHandler).Methods("GET")
+
+	// WASM module APIs
+	router.HandleFunc("/api/v1/wasm-modules", handler.listWasmModulesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wasm-modules", handler.createWasmModuleHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wasm-modules/{id}", handler.getWasmModuleHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wasm-modules/{id}", handler.updateWasmModuleHandler).Methods("PUT")
+	router.HandleFunc("/api/v1/wasm-modules/{id}", handler.deleteWasmModuleHandler).Methods("DELETE")
 
 	// WebSocket endpoint
 	wsHandler := api.NewWebSocketHandler(wsHub)

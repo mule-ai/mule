@@ -54,6 +54,35 @@ export const jobsAPI = {
   getSteps: (id) => api.get(`/api/v1/jobs/${id}/steps`),
 };
 
+// WASM Module APIs
+export const wasmModulesAPI = {
+  list: () => api.get('/api/v1/wasm-modules'),
+  get: (id) => api.get(`/api/v1/wasm-modules/${id}`),
+  create: (data) => {
+    const formData = new FormData();
+    Object.keys(data).forEach(key => {
+      formData.append(key, data[key]);
+    });
+    return api.post('/api/v1/wasm-modules', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+  update: (id, data) => {
+    const formData = new FormData();
+    Object.keys(data).forEach(key => {
+      formData.append(key, data[key]);
+    });
+    return api.put(`/api/v1/wasm-modules/${id}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+  delete: (id) => api.delete(`/api/v1/wasm-modules/${id}`),
+};
+
 // Chat completion API
 export const chatAPI = {
   complete: (data) => api.post('/v1/chat/completions', data),

@@ -11,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-      - ./internal/db/migrations/0001_initial_schema.sql:/docker-entrypoint-initdb.d/0001_initial_schema.sql
+      - ./internal/database/migrations/0001_initial_schema.sql:/docker-entrypoint-initdb.d/0001_initial_schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mule -d mulev2"]
       interval: 10s

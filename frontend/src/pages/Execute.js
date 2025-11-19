@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Alert, Button, Form, Modal, ListGroup, Badge, Tabs, Tab } from 'react-bootstrap';
-import { chatAPI, jobsAPI } from '../services/api';
+import { chatAPI, jobsAPI, agentsAPI, wasmModulesAPI } from '../services/api';
 
 function Execute() {
   const [models, setModels] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [wasmModules, setWasmModules] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
+  const [selectedAgent, setSelectedAgent] = useState('');
+  const [selectedWasmModule, setSelectedWasmModule] = useState('');
   const [input, setInput] = useState('');
   const [executionHistory, setExecutionHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -16,6 +20,8 @@ function Execute() {
 
   useEffect(() => {
     loadModels();
+    loadAgents();
+    loadWasmModules();
   }, []);
 
   const loadModels = async () => {
@@ -24,6 +30,24 @@ function Execute() {
       setModels(response.data.data || []);
     } catch (err) {
       setError('Failed to load models');
+    }
+  };
+
+  const loadAgents = async () => {
+    try {
+      const response = await agentsAPI.list();
+      setAgents(response.data || []);
+    } catch (err) {
+      setError('Failed to load agents');
+    }
+  };
+
+  const loadWasmModules = async () => {
+    try {
+      const response = await wasmModulesAPI.list();
+      setWasmModules(response.data || []);
+    } catch (err) {
+      setError('Failed to load WASM modules');
     }
   };
 
@@ -106,6 +130,142 @@ function Execute() {
     poll();
   };
 
+  const handleExecuteAgent = async (e) => {
+    e.preventDefault();
+    if (!selectedAgent || !input.trim()) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Create a job for the agent execution
+      const jobResponse = await jobsAPI.create({
+        workflow_id: selectedAgent, // Assuming agent ID is used as workflow ID
+        input_data: { prompt: input },
+      });
+
+      const jobId = jobResponse.data.id;
+
+      // Add to execution history with job ID
+      const execution = {
+        id: Date.now().toString(),
+        agent: selectedAgent,
+        input: input,
+        jobId: jobId,
+        timestamp: new Date(),
+        type: 'agent',
+        status: 'queued',
+      };
+
+      setExecutionHistory(prev => [execution, ...prev]);
+
+      // Start monitoring the job
+      monitorJob(jobId, execution.id);
+
+      // Reset form
+      setSelectedAgent('');
+      setInput('');
+    } catch (err) {
+      setError('Failed to execute agent');
+      const execution = {
+        id: Date.now().toString(),
+        agent: selectedAgent,
+        input: input,
+        output: err.message,
+        timestamp: new Date(),
+        type: 'agent',
+        status: 'failed',
+      };
+      setExecutionHistory(prev => [execution, ...prev]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExecuteWasmModule = async (e) => {
+    e.preventDefault();
+    if (!selectedWasmModule || !input.trim()) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Create a job for the WASM module execution
+      const jobResponse = await jobsAPI.create({
+        workflow_id: selectedWasmModule, // Assuming WASM module ID is used as workflow ID
+        input_data: { input: input },
+      });
+
+      const jobId = jobResponse.data.id;
+
+      // Add to execution history with job ID
+      const execution = {
+        id: Date.now().toString(),
+        wasm_module: selectedWasmModule,
+        input: input,
+        jobId: jobId,
+        timestamp: new Date(),
+        type: 'wasm',
+        status: 'queued',
+      };
+
+      setExecutionHistory(prev => [execution, ...prev]);
+
+      // Start monitoring the job
+      monitorJob(jobId, execution.id);
+
+      // Reset form
+      setSelectedWasmModule('');
+      setInput('');
+    } catch (err) {
+      setError('Failed to execute WASM module');
+      const execution = {
+        id: Date.now().toString(),
+        wasm_module: selectedWasmModule,
+        input: input,
+        output: err.message,
+        timestamp: new Date(),
+        type: 'wasm',
+        status: 'failed',
+      };
+      setExecutionHistory(prev => [execution, ...prev]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Monitor job status and update execution history
+  const monitorJob = async (jobId, executionId) => {
+    const checkJobStatus = async () => {
+      try {
+        const jobResponse = await jobsAPI.get(jobId);
+        const job = jobResponse.data;
+
+        // Update execution history with job status
+        setExecutionHistory(prev => prev.map(execution => {
+          if (execution.id === executionId) {
+            return {
+              ...execution,
+              status: job.status.toLowerCase(),
+              output: job.output || execution.output,
+            };
+          }
+          return execution;
+        }));
+
+        // Continue monitoring if job is not completed
+        if (job.status.toLowerCase() !== 'completed' && job.status.toLowerCase() !== 'failed') {
+          setTimeout(checkJobStatus, 2000); // Check every 2 seconds
+        }
+      } catch (err) {
+        console.error('Failed to monitor job:', err);
+      }
+    };
+
+    // Start monitoring
+    setTimeout(checkJobStatus, 2000);
+  };
+
   const viewJobDetails = async (execution) => {
     if (!execution.jobId) return;
 
@@ -136,14 +296,19 @@ function Execute() {
     }
   };
 
-  const getModelType = (modelId) => {
-    if (modelId.startsWith('agent/')) return 'Agent';
-    if (modelId.startsWith('workflow/')) return 'Workflow';
-    return 'Unknown';
+  const getModelType = (identifier) => {
+    if (!identifier) return 'Unknown';
+    if (identifier.startsWith('agent/')) return 'Agent';
+    if (identifier.startsWith('workflow/')) return 'Workflow';
+    if (identifier.includes('agent')) return 'Agent';
+    if (identifier.includes('wasm')) return 'WASM Module';
+    return 'Model';
   };
 
   const handleRefresh = () => {
     loadModels();
+    loadAgents();
+    loadWasmModules();
   };
 
   return (
@@ -167,122 +332,213 @@ function Execute() {
       >
         <Tab eventKey="agents" title="Agents & Workflows">
           <Row>
-        <Col md={6}>
-          <Card>
-            <Card.Header>
-              <Card.Title>Execute Model</Card.Title>
-            </Card.Header>
-            <Card.Body>
-              <Form onSubmit={handleExecute}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Model</Form.Label>
-                  <Form.Select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    required
-                  >
-                    <option value="">Select a model...</option>
-                    {models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.id} ({getModelType(model.id)})
-                      </option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
+            <Col md={6}>
+              <Card className="mb-4">
+                <Card.Header>
+                  <Card.Title>Execute Model</Card.Title>
+                </Card.Header>
+                <Card.Body>
+                  <Form onSubmit={handleExecute}>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Model</Form.Label>
+                      <Form.Select
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        required
+                      >
+                        <option value="">Select a model...</option>
+                        {models.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.id} ({getModelType(model.id)})
+                          </option>
+                        ))}
+                      </Form.Select>
+                    </Form.Group>
 
-                <Form.Group className="mb-3">
-                  <Form.Label>Input</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={4}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Enter your input or prompt..."
-                    required
-                  />
-                </Form.Group>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Input</Form.Label>
+                      <Form.Control
+                        as="textarea"
+                        rows={4}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Enter your input or prompt..."
+                        required
+                      />
+                    </Form.Group>
 
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={loading || !selectedModel || !input.trim()}
-                  className="w-100"
-                >
-                  {loading ? 'Executing...' : 'Execute'}
-                </Button>
-              </Form>
-            </Card.Body>
-          </Card>
-        </Col>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={loading || !selectedModel || !input.trim()}
+                      className="w-100"
+                    >
+                      {loading ? 'Executing...' : 'Execute Model'}
+                    </Button>
+                  </Form>
+                </Card.Body>
+              </Card>
 
-        <Col md={6}>
-          <Card>
-            <Card.Header>
-              <Card.Title>Execution History</Card.Title>
-            </Card.Header>
-            <Card.Body style={{ height: '500px', overflowY: 'auto' }}
->
-              {executionHistory.length === 0 ? (
-                <p className="text-muted">No executions yet</p>
-              ) : (
-                <ListGroup>
-                  {executionHistory.map((execution) => (
-                    <ListGroup.Item key={execution.id} className="mb-2">
-                      <div className="d-flex justify-content-between align-items-start">
-                        <div className="flex-grow-1">
-                          <div className="d-flex align-items-center mb-1">
-                            <Badge bg={getStatusVariant(execution.status)} className="me-2">
-                              {execution.status}
-                            </Badge>
-                            <Badge bg="outline-secondary" className="me-2">
-                              {getModelType(execution.model)}
-                            </Badge>
-                            <small className="text-muted">
-                              {execution.timestamp.toLocaleTimeString()}
-                            </small>
-                          </div>
-                          <div className="mb-1">
-                            <strong>Model:</strong> {execution.model}
-                          </div>
-                          <div className="mb-2">
-                            <strong>Input:</strong>
-                            <div className="small text-muted mt-1">
-                              {execution.input.length > 100
-                                ? execution.input.substring(0, 100) + '...'
-                                : execution.input
-                              }
-                            </div>
-                          </div>
-                          {execution.output && (
-                            <div className="mb-2">
-                              <strong>Output:</strong>
-                              <div className="small text-muted mt-1">
-                                {execution.output.length > 100
-                                  ? execution.output.substring(0, 100) + '...'
-                                  : execution.output
-                                }
+              <Card className="mb-4">
+                <Card.Header>
+                  <Card.Title>Execute Agent</Card.Title>
+                </Card.Header>
+                <Card.Body>
+                  <Form onSubmit={handleExecuteAgent}>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Agent</Form.Label>
+                      <Form.Select
+                        value={selectedAgent}
+                        onChange={(e) => setSelectedAgent(e.target.value)}
+                        required
+                      >
+                        <option value="">Select an agent...</option>
+                        {agents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name}
+                          </option>
+                        ))}
+                      </Form.Select>
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Input</Form.Label>
+                      <Form.Control
+                        as="textarea"
+                        rows={4}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Enter your input or prompt..."
+                        required
+                      />
+                    </Form.Group>
+
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={loading || !selectedAgent || !input.trim()}
+                      className="w-100"
+                    >
+                      {loading ? 'Executing...' : 'Execute Agent'}
+                    </Button>
+                  </Form>
+                </Card.Body>
+              </Card>
+
+              <Card>
+                <Card.Header>
+                  <Card.Title>Execute WASM Module</Card.Title>
+                </Card.Header>
+                <Card.Body>
+                  <Form onSubmit={handleExecuteWasmModule}>
+                    <Form.Group className="mb-3">
+                      <Form.Label>WASM Module</Form.Label>
+                      <Form.Select
+                        value={selectedWasmModule}
+                        onChange={(e) => setSelectedWasmModule(e.target.value)}
+                        required
+                      >
+                        <option value="">Select a WASM module...</option>
+                        {wasmModules.map((module) => (
+                          <option key={module.id} value={module.id}>
+                            {module.name}
+                          </option>
+                        ))}
+                      </Form.Select>
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Input</Form.Label>
+                      <Form.Control
+                        as="textarea"
+                        rows={4}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Enter your input or prompt..."
+                        required
+                      />
+                    </Form.Group>
+
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={loading || !selectedWasmModule || !input.trim()}
+                      className="w-100"
+                    >
+                      {loading ? 'Executing...' : 'Execute WASM Module'}
+                    </Button>
+                  </Form>
+                </Card.Body>
+              </Card>
+            </Col>
+
+            <Col md={6}>
+              <Card>
+                <Card.Header>
+                  <Card.Title>Execution History</Card.Title>
+                </Card.Header>
+                <Card.Body style={{ height: '500px', overflowY: 'auto' }}>
+                  {executionHistory.length === 0 ? (
+                    <p className="text-muted">No executions yet</p>
+                  ) : (
+                    <ListGroup>
+                      {executionHistory.map((execution) => (
+                        <ListGroup.Item key={execution.id} className="mb-2">
+                          <div className="d-flex justify-content-between align-items-start">
+                            <div className="flex-grow-1">
+                              <div className="d-flex align-items-center mb-1">
+                                <Badge bg={getStatusVariant(execution.status)} className="me-2">
+                                  {execution.status}
+                                </Badge>
+                                <Badge bg="outline-secondary" className="me-2">
+                                  {getModelType(execution.model || execution.agent || execution.wasm_module)}
+                                </Badge>
+                                <small className="text-muted">
+                                  {execution.timestamp.toLocaleTimeString()}
+                                </small>
                               </div>
+                              <div className="mb-1">
+                                <strong>{execution.type === 'model' ? 'Model' : execution.type === 'agent' ? 'Agent' : 'WASM Module'}:</strong> {execution.model || execution.agent || execution.wasm_module}
+                              </div>
+                              <div className="mb-2">
+                                <strong>Input:</strong>
+                                <div className="small text-muted mt-1">
+                                  {execution.input.length > 100
+                                    ? execution.input.substring(0, 100) + '...'
+                                    : execution.input
+                                  }
+                                </div>
+                              </div>
+                              {execution.output && (
+                                <div className="mb-2">
+                                  <strong>Output:</strong>
+                                  <div className="small text-muted mt-1">
+                                    {execution.output.length > 100
+                                      ? execution.output.substring(0, 100) + '...'
+                                      : execution.output
+                                    }
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        {execution.jobId && (
-                          <Button
-                            variant="outline-primary"
-                            size="sm"
-                            onClick={() => viewJobDetails(execution)}
-                          >
-                            Details
-                          </Button>
-                        )}
-                      </div>
-                    </ListGroup.Item>
-                  ))}
-                </ListGroup>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+                            {execution.jobId && (
+                              <Button
+                                variant="outline-primary"
+                                size="sm"
+                                onClick={() => viewJobDetails(execution)}
+                              >
+                                Details
+                              </Button>
+                            )}
+                          </div>
+                        </ListGroup.Item>
+                      ))}
+                    </ListGroup>
+                  )}
+                </Card.Body>
+              </Card>
+            </Col>
+          </Row>
         </Tab>
       </Tabs>
 

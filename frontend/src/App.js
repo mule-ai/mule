@@ -11,6 +11,7 @@ import Providers from './pages/Providers';
 import Tools from './pages/Tools';
 import Jobs from './pages/Jobs';
 import Execute from './pages/Execute';
+import WasmModules from './pages/WasmModules';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
                 <Nav.Link href="/agents">Agents</Nav.Link>
                 <Nav.Link href="/providers">Providers</Nav.Link>
                 <Nav.Link href="/tools">Tools</Nav.Link>
+                <Nav.Link href="/wasm-modules">WASM Modules</Nav.Link>
                 <Nav.Link href="/jobs">Jobs</Nav.Link>
                 <Nav.Link href="/execute">Execute</Nav.Link>
               </Nav>
@@ -41,6 +43,7 @@ function App() {
             <Route path="/agents" element={<Agents />} />
             <Route path="/providers" element={<Providers />} />
             <Route path="/tools" element={<Tools />} />
+            <Route path="/wasm-modules" element={<WasmModules />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/execute" element={<Execute />} />
           </Routes>

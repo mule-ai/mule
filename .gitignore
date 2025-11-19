@@ -8,6 +8,7 @@ crypto*
 *.db
 *.db-shm
 *.db-wal
+*.wasm
 
 # Test binary, built with `go test -c`
 *.test

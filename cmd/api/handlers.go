@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,29 +9,34 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/mule-ai/mule/internal/agent"
 	"github.com/mule-ai/mule/internal/api"
+	"github.com/mule-ai/mule/internal/database"
+	"github.com/mule-ai/mule/internal/manager"
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
 type apiHandler struct {
-	store     primitive.PrimitiveStore
-	runtime   *agent.Runtime
-	jobStore  job.JobStore
-	validator *validation.Validator
+	store           primitive.PrimitiveStore
+	runtime         *agent.Runtime
+	jobStore        job.JobStore
+	validator       *validation.Validator
+	wasmModuleMgr   *manager.WasmModuleManager
 }
 
-func NewAPIHandler(db *sql.DB) *apiHandler {
-	store := primitive.NewPGStore(db)
+func NewAPIHandler(db *database.DB) *apiHandler {
+	store := primitive.NewPGStore(db.DB) // Access the underlying *sql.DB
 	runtime := agent.NewRuntime(store)
-	jobStore := job.NewPGStore(db)
+	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
 	validator := validation.NewValidator()
+	wasmModuleMgr := manager.NewWasmModuleManager(db)
 
 	return &apiHandler{
-		store:     store,
-		runtime:   runtime,
-		jobStore:  jobStore,
-		validator: validator,
+		store:         store,
+		runtime:       runtime,
+		jobStore:      jobStore,
+		validator:     validator,
+		wasmModuleMgr: wasmModuleMgr,
 	}
 }
 
@@ -544,4 +548,155 @@ func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(steps)
+}
+
+// WASM Module handlers
+func (h *apiHandler) listWasmModulesHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	modules, err := h.wasmModuleMgr.ListWasmModules(ctx)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to list WASM modules: %w", err), http.StatusInternalServerError)
+		return
+	}
+	
+	resp := map[string]interface{}{
+		"data": modules,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	
+	// Parse multipart form with 32MB max memory
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		api.HandleError(w, fmt.Errorf("failed to parse form: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Get form values
+	name := r.FormValue("name")
+	description := r.FormValue("description")
+	
+	// Get file
+	file, _, err := r.FormFile("module_data")
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to get module file: %w", err), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Read file data
+	moduleData := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := file.Read(buf)
+		if err != nil && err.Error() != "EOF" {
+			api.HandleError(w, fmt.Errorf("failed to read module file: %w", err), http.StatusBadRequest)
+			return
+		}
+		if n == 0 {
+			break
+		}
+		moduleData = append(moduleData, buf[:n]...)
+	}
+
+	// Create WASM module
+	module, err := h.wasmModuleMgr.CreateWasmModule(ctx, name, description, moduleData)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to create WASM module: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(module)
+}
+
+func (h *apiHandler) getWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	module, err := h.wasmModuleMgr.GetWasmModule(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			api.HandleError(w, fmt.Errorf("WASM module not found: %s", id), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to get WASM module: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(module)
+}
+
+func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	// Parse multipart form with 32MB max memory
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		api.HandleError(w, fmt.Errorf("failed to parse form: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Get form values
+	name := r.FormValue("name")
+	description := r.FormValue("description")
+	
+	// Get file (optional)
+	var moduleData []byte = nil
+	file, _, err := r.FormFile("module_data")
+	if err == nil && file != nil {
+		defer file.Close()
+		
+		// Read file data
+		buf := make([]byte, 1024)
+		for {
+			n, err := file.Read(buf)
+			if err != nil && err.Error() != "EOF" {
+				api.HandleError(w, fmt.Errorf("failed to read module file: %w", err), http.StatusBadRequest)
+				return
+			}
+			if n == 0 {
+				break
+			}
+			moduleData = append(moduleData, buf[:n]...)
+		}
+	}
+
+	// Update WASM module
+	module, err := h.wasmModuleMgr.UpdateWasmModule(ctx, id, name, description, moduleData)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			api.HandleError(w, fmt.Errorf("WASM module not found: %s", id), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to update WASM module: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(module)
+}
+
+func (h *apiHandler) deleteWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if err := h.wasmModuleMgr.DeleteWasmModule(ctx, id); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			api.HandleError(w, fmt.Errorf("WASM module not found: %s", id), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to delete WASM module: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+	
+	w.WriteHeader(http.StatusNoContent)
 }
