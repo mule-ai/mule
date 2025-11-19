@@ -25,19 +25,24 @@ func (s *PGStore) CreateProvider(ctx context.Context, p *Provider) error {
 		p.ID = uuid.New().String()
 	}
 	query := `INSERT INTO providers (id, name, api_base_url, api_key_encrypted, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())`
-	_, err := s.db.ExecContext(ctx, query, p.ID, p.Name, p.APIBaseURL, p.APIKeyEnc)
+	_, err := s.db.ExecContext(ctx, query, p.ID, p.Name, p.APIBaseURL, []byte(p.APIKeyEnc))
 	return err
 }
 
 func (s *PGStore) GetProvider(ctx context.Context, id string) (*Provider, error) {
 	p := &Provider{}
+	var apiKeyEncrypted []byte
 	query := `SELECT id, name, api_base_url, api_key_encrypted, created_at, updated_at FROM providers WHERE id = $1`
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&p.ID, &p.Name, &p.APIBaseURL, &p.APIKeyEnc, &p.CreatedAt, &p.UpdatedAt)
+		&p.ID, &p.Name, &p.APIBaseURL, &apiKeyEncrypted, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return p, err
+	if err != nil {
+		return nil, err
+	}
+	p.APIKeyEnc = string(apiKeyEncrypted)
+	return p, nil
 }
 
 func (s *PGStore) ListProviders(ctx context.Context) ([]*Provider, error) {
@@ -51,10 +56,12 @@ func (s *PGStore) ListProviders(ctx context.Context) ([]*Provider, error) {
 	providers := []*Provider{}
 	for rows.Next() {
 		p := &Provider{}
-		err := rows.Scan(&p.ID, &p.Name, &p.APIBaseURL, &p.APIKeyEnc, &p.CreatedAt, &p.UpdatedAt)
+		var apiKeyEncrypted []byte
+		err := rows.Scan(&p.ID, &p.Name, &p.APIBaseURL, &apiKeyEncrypted, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
+		p.APIKeyEnc = string(apiKeyEncrypted)
 		providers = append(providers, p)
 	}
 	return providers, rows.Err()
@@ -62,7 +69,7 @@ func (s *PGStore) ListProviders(ctx context.Context) ([]*Provider, error) {
 
 func (s *PGStore) UpdateProvider(ctx context.Context, p *Provider) error {
 	query := `UPDATE providers SET name = $1, api_base_url = $2, api_key_encrypted = $3, updated_at = NOW() WHERE id = $4`
-	res, err := s.db.ExecContext(ctx, query, p.Name, p.APIBaseURL, p.APIKeyEnc, p.ID)
+	res, err := s.db.ExecContext(ctx, query, p.Name, p.APIBaseURL, []byte(p.APIKeyEnc), p.ID)
 	if err != nil {
 		return err
 	}

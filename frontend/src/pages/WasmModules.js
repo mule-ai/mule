@@ -48,7 +48,7 @@ function WasmModules() {
 
       await wasmModulesAPI.create({
         ...newModule,
-        module_data: moduleData,
+        module_data: newModule.module_data,
       });
       
       setShowCreateModal(false);
@@ -87,7 +87,7 @@ function WasmModules() {
           reader.onerror = reject;
           reader.readAsDataURL(selectedModule.new_module_data);
         });
-        updateData.module_data = moduleData;
+        updateData.module_data = selectedModule.new_module_data;
       }
 
       await wasmModulesAPI.update(selectedModule.id, updateData);

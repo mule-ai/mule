@@ -8,57 +8,57 @@ import (
 
 // Provider represents AI provider configuration.
 type Provider struct {
-	ID         string
-	Name       string
-	APIBaseURL string
-	APIKeyEnc  string // encrypted API key
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	APIBaseURL string    `json:"api_base_url"`
+	APIKeyEnc  string    `json:"api_key_encrypted"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Tool represents an external or internal tool.
 type Tool struct {
-	ID          string
-	Name        string
-	Description string
-	Type        string
-	Config      map[string]interface{}
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Type        string                 `json:"type"`
+	Config      map[string]interface{} `json:"config"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
 // Agent represents an AI agent.
 type Agent struct {
-	ID           string
-	Name         string
-	Description  string
-	ProviderID   string
-	ModelID      string
-	SystemPrompt string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	ProviderID   string    `json:"provider_id"`
+	ModelID      string    `json:"model_id"`
+	SystemPrompt string    `json:"system_prompt"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Workflow represents an ordered sequence of steps.
 type Workflow struct {
-	ID          string
-	Name        string
-	Description string
-	IsAsync     bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	IsAsync     bool      `json:"is_async"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
-	ID           string
-	WorkflowID   string
-	StepOrder    int
-	StepType     string // "AGENT" or "WASM"
-	AgentID      *string
-	WasmModuleID *string
-	Config       map[string]interface{}
-	CreatedAt    time.Time
+	ID           string                 `json:"id"`
+	WorkflowID   string                 `json:"workflow_id"`
+	StepOrder    int                    `json:"step_order"`
+	StepType     string                 `json:"type"`
+	AgentID      *string                `json:"agent_id"`
+	WasmModuleID *string                `json:"wasm_module_id"`
+	Config       map[string]interface{} `json:"config"`
+	CreatedAt    time.Time              `json:"created_at"`
 }
 
 // PrimitiveStore defines interface for primitive management.

@@ -9,10 +9,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/mule-ai/mule/internal/agent"
 	"github.com/mule-ai/mule/internal/api"
-	"github.com/mule-ai/mule/internal/database"
+	internaldb "github.com/mule-ai/mule/internal/database"
 	"github.com/mule-ai/mule/internal/manager"
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
+	"github.com/mule-ai/mule/pkg/database"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
@@ -24,7 +25,7 @@ type apiHandler struct {
 	wasmModuleMgr   *manager.WasmModuleManager
 }
 
-func NewAPIHandler(db *database.DB) *apiHandler {
+func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	store := primitive.NewPGStore(db.DB) // Access the underlying *sql.DB
 	runtime := agent.NewRuntime(store)
 	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
@@ -558,7 +559,12 @@ func (h *apiHandler) listWasmModulesHandler(w http.ResponseWriter, r *http.Reque
 		api.HandleError(w, fmt.Errorf("failed to list WASM modules: %w", err), http.StatusInternalServerError)
 		return
 	}
-	
+
+	// Ensure we return an empty array instead of null when there are no modules
+	if modules == nil {
+		modules = make([]*database.WasmModule, 0)
+	}
+
 	resp := map[string]interface{}{
 		"data": modules,
 	}

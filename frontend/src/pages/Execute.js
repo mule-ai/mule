@@ -45,7 +45,7 @@ function Execute() {
   const loadWasmModules = async () => {
     try {
       const response = await wasmModulesAPI.list();
-      setWasmModules(response.data || []);
+      setWasmModules(response.data.data || []);
     } catch (err) {
       setError('Failed to load WASM modules');
     }
