@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"google.golang.org/adk/model"
+	"google.golang.org/genai"
 
 	"github.com/mule-ai/mule/internal/primitive"
+	"github.com/mule-ai/mule/internal/provider"
 )
 
 // Runtime handles agent execution using Google ADK
@@ -106,30 +107,66 @@ func (r *Runtime) ExecuteAgent(ctx context.Context, req *ChatCompletionRequest) 
 		}
 	}
 
-	// Execute using Google ADK
-	return r.executeWithGoogleADK(ctx, targetAgent, provider, prompt.String())
+	// Determine which execution method to use based on provider configuration
+	fmt.Printf("DEBUG: Provider APIBaseURL = '%s'\n", provider.APIBaseURL)
+	fmt.Printf("DEBUG: Contains googleapis.com = %v\n", strings.Contains(provider.APIBaseURL, "googleapis.com"))
+	fmt.Printf("DEBUG: Is empty = %v\n", provider.APIBaseURL == "")
+
+	if provider.APIBaseURL != "" && !strings.Contains(provider.APIBaseURL, "googleapis.com") {
+		// Use custom LLM provider for non-Google endpoints
+		fmt.Printf("DEBUG: Routing to executeWithCustomLLM\n")
+		return r.executeWithCustomLLM(ctx, targetAgent, provider, req.Messages)
+	} else {
+		// Use Google ADK for Google endpoints
+		fmt.Printf("DEBUG: Routing to executeWithGoogleADK\n")
+		return r.executeWithGoogleADK(ctx, targetAgent, provider, prompt.String())
+	}
 }
 
 // executeWithGoogleADK executes the agent using Google's Generative AI
 func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Agent, provider *primitive.Provider, prompt string) (*ChatCompletionResponse, error) {
-	// Create client with API key
-	client, err := genai.NewClient(ctx, option.WithAPIKey(string(provider.APIKeyEnc)))
+	// Create client config
+	config := &genai.ClientConfig{
+		APIKey: string(provider.APIKeyEnc),
+	}
+
+	// If a custom endpoint is provided, use it
+	if provider.APIBaseURL != "" {
+		config.HTTPOptions = genai.HTTPOptions{
+			BaseURL: provider.APIBaseURL,
+		}
+	}
+
+	// Log the endpoint being used for debugging
+	fmt.Printf("Creating genai client with endpoint: %s and API key: %s\n", provider.APIBaseURL, string(provider.APIKeyEnc))
+
+	client, err := genai.NewClient(ctx, config)
 	if err != nil {
+		fmt.Printf("Failed to create genai client: %v\n", err)
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
-	defer client.Close()
 
-	// Get the model - use a default model for now, in future this should come from agent config
-	model := client.GenerativeModel("gemini-1.5-flash")
-
-	// Set system prompt if provided
-	if agent.SystemPrompt != "" {
-		model.SystemInstruction = genai.NewUserContent(genai.Text(agent.SystemPrompt))
+	// Get the model - use the model from agent config if available, otherwise use a default
+	modelName := "gemini-1.5-flash"
+	if agent.ModelID != "" {
+		modelName = agent.ModelID
 	}
+	fmt.Printf("Using model: %s\n", modelName)
 
 	// Generate content
-	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+	fmt.Printf("Generating content with model: %s and prompt: %s\n", modelName, prompt)
+
+	// Create generate config with system instruction if provided
+	genConfig := &genai.GenerateContentConfig{}
+	if agent.SystemPrompt != "" {
+		genConfig.SystemInstruction = genai.NewContentFromText(agent.SystemPrompt, genai.RoleUser)
+	}
+
+	resp, err := client.Models.GenerateContent(ctx, modelName, genai.Text(prompt), genConfig)
 	if err != nil {
+		fmt.Printf("Failed to generate content: %v\n", err)
+		// Print the type of error for debugging
+		fmt.Printf("Error type: %T\n", err)
 		return nil, fmt.Errorf("failed to generate content: %w", err)
 	}
 
@@ -141,8 +178,8 @@ func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Age
 	var responseText string
 	if resp.Candidates[0].Content != nil {
 		for _, part := range resp.Candidates[0].Content.Parts {
-			if txt, ok := part.(genai.Text); ok {
-				responseText += string(txt)
+			if part.Text != "" {
+				responseText += part.Text
 			}
 		}
 	}
@@ -171,6 +208,111 @@ func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Age
 	}
 
 	return chatResp, nil
+}
+
+// executeWithCustomLLM executes the agent using a custom LLM provider
+func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Agent, providerInfo *primitive.Provider, messages []ChatCompletionMessage) (*ChatCompletionResponse, error) {
+	// Create custom LLM provider config
+	config := provider.ProviderConfig{
+		Name:    providerInfo.Name,
+		APIKey:  string(providerInfo.APIKeyEnc),
+		BaseURL: providerInfo.APIBaseURL,
+		Model:   agent.ModelID,
+	}
+
+	// Create the custom LLM provider
+	customProvider := provider.NewCustomLLMProvider(config)
+
+	// Convert ChatCompletionMessage array to ADK genai.Content format
+	contents := make([]*genai.Content, 0, len(messages))
+	for _, msg := range messages {
+		content := &genai.Content{
+			Role: msg.Role,
+			Parts: []*genai.Part{
+				{Text: msg.Content},
+			},
+		}
+		contents = append(contents, content)
+	}
+
+	// Create LLM request
+	llmReq := &model.LLMRequest{
+		Model:    agent.ModelID,
+		Contents: contents,
+	}
+
+	// Generate content
+	seq := customProvider.GenerateContent(ctx, llmReq, false)
+	for resp, err := range seq {
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate content: %w", err)
+		}
+
+		if resp.ErrorCode != "" {
+			return nil, fmt.Errorf("LLM error [%s]: %s", resp.ErrorCode, resp.ErrorMessage)
+		}
+
+		// Extract response text
+		var responseText string
+		if resp.Content != nil {
+			for _, part := range resp.Content.Parts {
+				if part.Text != "" {
+					responseText += part.Text
+				}
+			}
+		}
+
+		// Create OpenAI-compatible response
+		chatResp := &ChatCompletionResponse{
+			ID:      fmt.Sprintf("chatcmpl-%d", time.Now().Unix()),
+			Object:  "chat.completion",
+			Created: time.Now().Unix(),
+			Model:   fmt.Sprintf("agent/%s", strings.ToLower(agent.Name)),
+			Choices: []ChatCompletionChoice{
+				{
+					Index: 0,
+					Message: ChatCompletionMessage{
+						Role:    "assistant",
+						Content: responseText,
+					},
+					FinishReason: "stop",
+				},
+			},
+			Usage: ChatCompletionUsage{
+				PromptTokens:     int(getPromptTokenCount(resp)),
+				CompletionTokens: int(getCandidatesTokenCount(resp)),
+				TotalTokens:      int(getTotalTokenCount(resp)),
+			},
+		}
+
+		return chatResp, nil
+	}
+
+	return nil, fmt.Errorf("no response generated")
+}
+
+// getPromptTokenCount safely gets the prompt token count from LLMResponse
+func getPromptTokenCount(resp *model.LLMResponse) int32 {
+	if resp.UsageMetadata != nil {
+		return resp.UsageMetadata.PromptTokenCount
+	}
+	return 0
+}
+
+// getCandidatesTokenCount safely gets the candidates token count from LLMResponse
+func getCandidatesTokenCount(resp *model.LLMResponse) int32 {
+	if resp.UsageMetadata != nil {
+		return resp.UsageMetadata.CandidatesTokenCount
+	}
+	return 0
+}
+
+// getTotalTokenCount safely gets the total token count from LLMResponse
+func getTotalTokenCount(resp *model.LLMResponse) int32 {
+	if resp.UsageMetadata != nil {
+		return resp.UsageMetadata.TotalTokenCount
+	}
+	return 0
 }
 
 // estimateTokens provides a rough token estimation (in real implementation, use proper tokenizer)

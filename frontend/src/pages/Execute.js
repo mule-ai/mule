@@ -3,10 +3,8 @@ import { Card, Row, Col, Alert, Button, Form, Modal, ListGroup, Badge, Tabs, Tab
 import { chatAPI, jobsAPI, agentsAPI, wasmModulesAPI } from '../services/api';
 
 function Execute() {
-  const [models, setModels] = useState([]);
   const [agents, setAgents] = useState([]);
   const [wasmModules, setWasmModules] = useState([]);
-  const [selectedModel, setSelectedModel] = useState('');
   const [selectedAgent, setSelectedAgent] = useState('');
   const [selectedWasmModule, setSelectedWasmModule] = useState('');
   const [input, setInput] = useState('');
@@ -19,19 +17,9 @@ function Execute() {
   const [activeTab, setActiveTab] = useState('agents');
 
   useEffect(() => {
-    loadModels();
     loadAgents();
     loadWasmModules();
   }, []);
-
-  const loadModels = async () => {
-    try {
-      const response = await chatAPI.models();
-      setModels(response.data.data || []);
-    } catch (err) {
-      setError('Failed to load models');
-    }
-  };
 
   const loadAgents = async () => {
     try {
@@ -51,85 +39,6 @@ function Execute() {
     }
   };
 
-  const handleExecute = async (e) => {
-    e.preventDefault();
-    if (!selectedModel || !input.trim()) return;
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await chatAPI.complete({
-        model: selectedModel,
-        messages: [{ role: 'user', content: input }],
-        stream: false,
-      });
-
-      const execution = {
-        id: Date.now().toString(),
-        model: selectedModel,
-        input: input,
-        output: response.data.choices?.[0]?.message?.content || 'No response',
-        timestamp: new Date(),
-        type: 'direct',
-        status: 'completed',
-      };
-
-      setExecutionHistory([execution, ...executionHistory]);
-      setInput('');
-    } catch (err) {
-      // Check if this is an async job response
-      if (err.response?.data?.object === 'async.job') {
-        const jobData = err.response.data;
-        const execution = {
-          id: jobData.id,
-          model: selectedModel,
-          input: input,
-          output: null,
-          timestamp: new Date(),
-          type: 'workflow',
-          status: 'queued',
-          jobId: jobData.id,
-        };
-
-        setExecutionHistory([execution, ...executionHistory]);
-        setInput('');
-
-        // Start polling for job status
-        pollJobStatus(jobData.id, execution.id);
-      } else {
-        setError(err.response?.data?.error || 'Failed to execute');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const pollJobStatus = async (jobId, executionId) => {
-    const poll = async () => {
-      try {
-        const jobResponse = await jobsAPI.get(jobId);
-        const job = jobResponse.data;
-
-        setExecutionHistory(prev => prev.map(exec =>
-          exec.id === executionId
-            ? { ...exec, status: job.status.toLowerCase(), output: job.output_data }
-            : exec
-        ));
-
-        if (job.status === 'COMPLETED' || job.status === 'FAILED') {
-          return;
-        }
-
-        setTimeout(poll, 2000); // Poll every 2 seconds
-      } catch (err) {
-        console.error('Failed to poll job status:', err);
-      }
-    };
-
-    poll();
-  };
-
   const handleExecuteAgent = async (e) => {
     e.preventDefault();
     if (!selectedAgent || !input.trim()) return;
@@ -137,41 +46,46 @@ function Execute() {
     setLoading(true);
     setError('');
 
+    // Find the selected agent to get its name
+    const agent = agents.find(a => a.id === selectedAgent);
+    if (!agent) {
+      setError('Selected agent not found');
+      setLoading(false);
+      return;
+    }
+
     try {
-      // Create a job for the agent execution
-      const jobResponse = await jobsAPI.create({
-        workflow_id: selectedAgent, // Assuming agent ID is used as workflow ID
-        input_data: { prompt: input },
+      // Call chat completions API with agent model
+      const response = await chatAPI.complete({
+        model: `agent/${agent.name.toLowerCase()}`,
+        messages: [{ role: 'user', content: input }],
+        stream: false,
       });
 
-      const jobId = jobResponse.data.id;
-
-      // Add to execution history with job ID
+      // Add to execution history
       const execution = {
         id: Date.now().toString(),
         agent: selectedAgent,
         input: input,
-        jobId: jobId,
+        output: response.data.choices?.[0]?.message?.content || 'No response',
         timestamp: new Date(),
         type: 'agent',
-        status: 'queued',
+        status: 'completed',
       };
 
       setExecutionHistory(prev => [execution, ...prev]);
-
-      // Start monitoring the job
-      monitorJob(jobId, execution.id);
 
       // Reset form
       setSelectedAgent('');
       setInput('');
     } catch (err) {
-      setError('Failed to execute agent');
+      const errorMessage = err.response?.data?.error || err.message || 'Unknown error occurred';
+      setError(`Failed to execute agent: ${errorMessage}`);
       const execution = {
         id: Date.now().toString(),
         agent: selectedAgent,
         input: input,
-        output: err.message,
+        output: errorMessage,
         timestamp: new Date(),
         type: 'agent',
         status: 'failed',
@@ -218,12 +132,13 @@ function Execute() {
       setSelectedWasmModule('');
       setInput('');
     } catch (err) {
-      setError('Failed to execute WASM module');
+      const errorMessage = err.response?.data?.error || err.message || 'Unknown error occurred';
+      setError(`Failed to execute WASM module: ${errorMessage}`);
       const execution = {
         id: Date.now().toString(),
         wasm_module: selectedWasmModule,
         input: input,
-        output: err.message,
+        output: errorMessage,
         timestamp: new Date(),
         type: 'wasm',
         status: 'failed',
@@ -306,7 +221,6 @@ function Execute() {
   };
 
   const handleRefresh = () => {
-    loadModels();
     loadAgents();
     loadWasmModules();
   };
@@ -335,64 +249,18 @@ function Execute() {
             <Col md={6}>
               <Card className="mb-4">
                 <Card.Header>
-                  <Card.Title>Execute Model</Card.Title>
-                </Card.Header>
-                <Card.Body>
-                  <Form onSubmit={handleExecute}>
-                    <Form.Group className="mb-3">
-                      <Form.Label>Model</Form.Label>
-                      <Form.Select
-                        value={selectedModel}
-                        onChange={(e) => setSelectedModel(e.target.value)}
-                        required
-                      >
-                        <option value="">Select a model...</option>
-                        {models.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.id} ({getModelType(model.id)})
-                          </option>
-                        ))}
-                      </Form.Select>
-                    </Form.Group>
-
-                    <Form.Group className="mb-3">
-                      <Form.Label>Input</Form.Label>
-                      <Form.Control
-                        as="textarea"
-                        rows={4}
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Enter your input or prompt..."
-                        required
-                      />
-                    </Form.Group>
-
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      disabled={loading || !selectedModel || !input.trim()}
-                      className="w-100"
-                    >
-                      {loading ? 'Executing...' : 'Execute Model'}
-                    </Button>
-                  </Form>
-                </Card.Body>
-              </Card>
-
-              <Card className="mb-4">
-                <Card.Header>
-                  <Card.Title>Execute Agent</Card.Title>
+                  <Card.Title>Execute Agent / Workflow</Card.Title>
                 </Card.Header>
                 <Card.Body>
                   <Form onSubmit={handleExecuteAgent}>
                     <Form.Group className="mb-3">
-                      <Form.Label>Agent</Form.Label>
+                      <Form.Label>Agent / Workflow</Form.Label>
                       <Form.Select
                         value={selectedAgent}
                         onChange={(e) => setSelectedAgent(e.target.value)}
                         required
                       >
-                        <option value="">Select an agent...</option>
+                        <option value="">Select an agent or workflow...</option>
                         {agents.map((agent) => (
                           <option key={agent.id} value={agent.id}>
                             {agent.name}
@@ -419,13 +287,18 @@ function Execute() {
                       disabled={loading || !selectedAgent || !input.trim()}
                       className="w-100"
                     >
-                      {loading ? 'Executing...' : 'Execute Agent'}
+                      {loading ? 'Executing...' : 'Execute'}
                     </Button>
                   </Form>
                 </Card.Body>
               </Card>
-
-              <Card>
+            </Col>
+          </Row>
+        </Tab>
+        <Tab eventKey="wasm" title="WASM Modules">
+          <Row>
+            <Col md={6}>
+              <Card className="mb-4">
                 <Card.Header>
                   <Card.Title>Execute WASM Module</Card.Title>
                 </Card.Header>
@@ -465,7 +338,7 @@ function Execute() {
                       disabled={loading || !selectedWasmModule || !input.trim()}
                       className="w-100"
                     >
-                      {loading ? 'Executing...' : 'Execute WASM Module'}
+                      {loading ? 'Executing...' : 'Execute'}
                     </Button>
                   </Form>
                 </Card.Body>

@@ -88,7 +88,7 @@ else
           -d '{
             "name": "proxy",
             "api_base_url": "https://bifrost.butler.ooo/v1",
-            "api_key": "sk-bf-b235fddc-75ed-4679-ab6c-580487f873fa"
+            "api_key_enc": "sk-bf-b235fddc-75ed-4679-ab6c-580487f873fa"
           }')
 
         PROVIDER_ID=$(echo "$PROVIDER_RESPONSE" | jq -r '.id')

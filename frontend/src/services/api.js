@@ -52,6 +52,7 @@ export const jobsAPI = {
   list: () => api.get('/api/v1/jobs'),
   get: (id) => api.get(`/api/v1/jobs/${id}`),
   getSteps: (id) => api.get(`/api/v1/jobs/${id}/steps`),
+  create: (data) => api.post('/api/v1/jobs', data),
 };
 
 // WASM Module APIs

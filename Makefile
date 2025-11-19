@@ -48,7 +48,7 @@ clean:
 
 # Build backend
 build:
-	cd cmd/mule && CGO_ENABLED=1 GOOS=linux go build -o bin/mule
+	cd cmd/api && CGO_ENABLED=1 GOOS=linux go build -o bin/mule
 
 # Run the application
 run: all
