@@ -47,20 +47,29 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// This is necessary for Go-compiled WASM modules which have single-execution lifecycle
 	runtime := wazero.NewRuntime(ctx)
 
-	// Instantiate WASI with proper system walltime
+	// Instantiate WASI - provides system functions for Go WASM
 	_, err = wasi_snapshot_preview1.Instantiate(ctx, runtime)
 	if err != nil {
 		runtime.Close(ctx)
 		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
 	}
 
-	// Create module configuration with system walltime
-	config := wazero.NewModuleConfig().WithSysWalltime().
+	// Configure module with stdout/stderr and start function
+	// WithStartFunctions("_initialize") is CRITICAL for Go-compiled WASM
+	// It ensures the Go runtime is properly initialized before main() runs
+	config := wazero.NewModuleConfig().
 		WithStdout(os.Stdout).
-		WithStderr(os.Stderr)
+		WithStderr(os.Stderr).
+		WithStartFunctions("_initialize")
 
 	// Compile and instantiate the module
-	module, err := runtime.InstantiateWithConfig(ctx, moduleData, config)
+	compiledModule, err := runtime.CompileModule(ctx, moduleData)
+	if err != nil {
+		runtime.Close(ctx)
+		return nil, fmt.Errorf("failed to compile WASM module: %w", err)
+	}
+
+	module, err := runtime.InstantiateModule(ctx, compiledModule, config)
 	if err != nil {
 		runtime.Close(ctx)
 		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)

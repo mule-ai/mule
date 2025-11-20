@@ -164,6 +164,7 @@ func main() {
 
 	// Job management APIs
 	router.HandleFunc("/api/v1/jobs", handler.listJobsHandler).Methods("GET")
+	router.HandleFunc("/api/v1/jobs", handler.createJobHandler).Methods("POST")
 	router.HandleFunc("/api/v1/jobs/{id}", handler.getJobHandler).Methods("GET")
 	router.HandleFunc("/api/v1/jobs/{id}/steps", handler.listJobStepsHandler).Methods("GET")
 

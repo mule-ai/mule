@@ -112,6 +112,7 @@ func (db *DB) InitSchema() error {
 	CREATE TABLE IF NOT EXISTS jobs (
 		id VARCHAR(255) PRIMARY KEY,
 		workflow_id VARCHAR(255) REFERENCES workflows(id) ON DELETE CASCADE,
+		wasm_module_id VARCHAR(255) REFERENCES wasm_modules(id) ON DELETE SET NULL,
 		status VARCHAR(20) NOT NULL CHECK (status IN ('QUEUED', 'RUNNING', 'COMPLETED', 'FAILED')),
 		input_data JSONB,
 		output_data JSONB,
@@ -144,6 +145,7 @@ func (db *DB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_agents_provider_id ON agents(provider_id);
 	CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow_id ON workflow_steps(workflow_id);
 	CREATE INDEX IF NOT EXISTS idx_jobs_workflow_id ON jobs(workflow_id);
+	CREATE INDEX IF NOT EXISTS idx_jobs_wasm_module_id ON jobs(wasm_module_id);
 	CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id);
 	CREATE INDEX IF NOT EXISTS idx_artifacts_job_id ON artifacts(job_id);
 	`

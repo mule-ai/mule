@@ -32,10 +32,16 @@ func (s *PGStore) CreateJob(job *Job) error {
 		return fmt.Errorf("failed to marshal output data: %w", err)
 	}
 
-	query := `INSERT INTO jobs (id, workflow_id, status, input_data, output_data, created_at) 
-			  VALUES ($1, $2, $3, $4, $5, NOW())`
+	// Handle NULL values for workflow_id and wasm_module_id
+	var workflowID interface{} = job.WorkflowID
+	if job.WorkflowID == "" {
+		workflowID = nil
+	}
 
-	_, err = s.db.Exec(query, job.ID, job.WorkflowID, job.Status, inputDataJSON, outputDataJSON)
+	query := `INSERT INTO jobs (id, workflow_id, wasm_module_id, status, input_data, output_data, created_at)
+			  VALUES ($1, $2, $3, $4, $5, $6, NOW())`
+
+	_, err = s.db.Exec(query, job.ID, workflowID, job.WasmModuleID, job.Status, inputDataJSON, outputDataJSON)
 	return err
 }
 
@@ -43,13 +49,21 @@ func (s *PGStore) CreateJob(job *Job) error {
 func (s *PGStore) GetJob(id string) (*Job, error) {
 	job := &Job{}
 	var inputDataJSON, outputDataJSON []byte
+	var workflowID sql.NullString
 
-	query := `SELECT id, workflow_id, status, input_data, output_data, created_at, started_at, completed_at 
+	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, created_at, started_at, completed_at
 			  FROM jobs WHERE id = $1`
 
 	err := s.db.QueryRow(query, id).Scan(
-		&job.ID, &job.WorkflowID, &job.Status, &inputDataJSON, &outputDataJSON,
+		&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON,
 		&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
+
+	// Convert NULL workflow_id to empty string
+	if workflowID.Valid {
+		job.WorkflowID = workflowID.String
+	} else {
+		job.WorkflowID = ""
+	}
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("job not found")
@@ -71,7 +85,7 @@ func (s *PGStore) GetJob(id string) (*Job, error) {
 
 // ListJobs retrieves all jobs
 func (s *PGStore) ListJobs() ([]*Job, error) {
-	query := `SELECT id, workflow_id, status, input_data, output_data, created_at, started_at, completed_at 
+	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, created_at, started_at, completed_at
 			  FROM jobs ORDER BY created_at DESC`
 
 	rows, err := s.db.Query(query)
@@ -84,9 +98,17 @@ func (s *PGStore) ListJobs() ([]*Job, error) {
 	for rows.Next() {
 		job := &Job{}
 		var inputDataJSON, outputDataJSON []byte
+		var workflowID sql.NullString
 
-		err := rows.Scan(&job.ID, &job.WorkflowID, &job.Status, &inputDataJSON, &outputDataJSON,
+		err := rows.Scan(&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON,
 			&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
+
+		// Convert NULL workflow_id to empty string
+		if workflowID.Valid {
+			job.WorkflowID = workflowID.String
+		} else {
+			job.WorkflowID = ""
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -117,10 +139,16 @@ func (s *PGStore) UpdateJob(job *Job) error {
 		return fmt.Errorf("failed to marshal output data: %w", err)
 	}
 
-	query := `UPDATE jobs SET workflow_id = $1, status = $2, input_data = $3, output_data = $4, 
-			  started_at = $5, completed_at = $6 WHERE id = $7`
+	// Handle NULL values for workflow_id
+	var workflowID interface{} = job.WorkflowID
+	if job.WorkflowID == "" {
+		workflowID = nil
+	}
 
-	result, err := s.db.Exec(query, job.WorkflowID, job.Status, inputDataJSON, outputDataJSON,
+	query := `UPDATE jobs SET workflow_id = $1, wasm_module_id = $2, status = $3, input_data = $4, output_data = $5,
+			  started_at = $6, completed_at = $7 WHERE id = $8`
+
+	result, err := s.db.Exec(query, workflowID, job.WasmModuleID, job.Status, inputDataJSON, outputDataJSON,
 		job.StartedAt, job.CompletedAt, job.ID)
 	if err != nil {
 		return err
@@ -304,10 +332,18 @@ func (s *PGStore) GetNextQueuedJob() (*Job, error) {
 
 	job := &Job{}
 	var inputDataJSON, outputDataJSON []byte
+	var workflowID sql.NullString
 
 	err := s.db.QueryRow(query).Scan(
-		&job.ID, &job.WorkflowID, &job.Status, &inputDataJSON, &outputDataJSON,
+		&job.ID, &workflowID, &job.Status, &inputDataJSON, &outputDataJSON,
 		&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
+
+	// Convert NULL workflow_id to empty string
+	if workflowID.Valid {
+		job.WorkflowID = workflowID.String
+	} else {
+		job.WorkflowID = ""
+	}
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil // No queued jobs

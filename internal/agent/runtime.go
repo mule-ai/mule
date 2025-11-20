@@ -250,6 +250,19 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 		Contents: contents,
 	}
 
+	// Add system prompt if available
+	if agent.SystemPrompt != "" {
+		// Create a system message as the first content
+		systemContent := &genai.Content{
+			Role: "system",
+			Parts: []*genai.Part{
+				{Text: agent.SystemPrompt},
+			},
+		}
+		// Insert system content at the beginning
+		llmReq.Contents = append([]*genai.Content{systemContent}, llmReq.Contents...)
+	}
+
 	// Generate content
 	seq := customProvider.GenerateContent(ctx, llmReq, false)
 	for resp, err := range seq {

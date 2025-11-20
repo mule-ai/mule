@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/mule-ai/mule/internal/agent"
 	"github.com/mule-ai/mule/internal/api"
@@ -613,6 +615,25 @@ func (h *apiHandler) createWorkflowStepHandler(w http.ResponseWriter, r *http.Re
 	}
 	step.WorkflowID = workflowID
 
+	// If step_order is not provided or is 0, auto-assign the next available order
+	if step.StepOrder <= 0 {
+		// Get existing steps to determine the next step_order
+		existingSteps, err := h.store.ListWorkflowSteps(ctx, workflowID)
+		if err != nil {
+			api.HandleError(w, fmt.Errorf("failed to list existing workflow steps: %w", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Find the maximum step_order and increment by 1
+		maxOrder := 0
+		for _, existingStep := range existingSteps {
+			if existingStep.StepOrder > maxOrder {
+				maxOrder = existingStep.StepOrder
+			}
+		}
+		step.StepOrder = maxOrder + 1
+	}
+
 	if err := h.store.CreateWorkflowStep(ctx, &step); err != nil {
 		api.HandleError(w, fmt.Errorf("failed to create workflow step: %w", err), http.StatusInternalServerError)
 		return
@@ -631,6 +652,109 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(jobs)
+}
+
+func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkflowID string                 `json:"workflow_id"`
+		InputData  map[string]interface{} `json:"input_data"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.HandleError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Check if this is a WASM module execution (workflow_id is a WASM module ID)
+	// Try to get the workflow first
+	workflow, err := h.store.GetWorkflow(ctx, req.WorkflowID)
+
+	var newJob *job.Job
+
+	if err == nil && workflow != nil {
+		// This is a valid workflow ID, create a queued job for workflow execution
+		newJob = &job.Job{
+			ID:         uuid.New().String(),
+			WorkflowID: req.WorkflowID,
+			Status:     job.StatusQueued,
+			InputData:  req.InputData,
+			CreatedAt:  time.Now(),
+		}
+
+		if err := h.jobStore.CreateJob(newJob); err != nil {
+			api.HandleError(w, fmt.Errorf("failed to create job: %w", err), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Not a valid workflow ID, check if it's a WASM module ID
+		_, err := h.wasmModuleMgr.GetWasmModule(ctx, req.WorkflowID)
+		if err != nil {
+			api.HandleError(w, fmt.Errorf("invalid workflow_id or wasm_module_id: %s", req.WorkflowID), http.StatusBadRequest)
+			return
+		}
+
+		// This is a WASM module, execute it directly
+		wasmModuleID := req.WorkflowID // The frontend sends WASM module ID in workflow_id field
+		newJob = &job.Job{
+			ID:           uuid.New().String(),
+			WorkflowID:   "", // Empty for WASM executions
+			WasmModuleID: &wasmModuleID,
+			Status:       job.StatusRunning, // Start as running since we're executing immediately
+			InputData:    req.InputData,
+			CreatedAt:    time.Now(),
+		}
+
+		// Create the job record first
+		if err := h.jobStore.CreateJob(newJob); err != nil {
+			api.HandleError(w, fmt.Errorf("failed to create job: %w", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Execute the WASM module directly
+		go func() {
+			// Create a new context that isn't tied to the HTTP request
+			execCtx := context.Background()
+
+			now := time.Now()
+			// Update job status to running
+			newJob.Status = job.StatusRunning
+			newJob.StartedAt = &now
+			if err := h.jobStore.UpdateJob(newJob); err != nil {
+				log.Printf("Failed to update job status: %v", err)
+			}
+
+			// Execute the WASM module with the new context
+			result, err := h.workflowEngine.GetWASMExecutor().Execute(execCtx, *newJob.WasmModuleID, req.InputData)
+
+			// Update job with results
+			now = time.Now()
+			if err != nil {
+				newJob.Status = job.StatusFailed
+				newJob.OutputData = map[string]interface{}{
+					"error": err.Error(),
+				}
+			} else {
+				newJob.Status = job.StatusCompleted
+				newJob.OutputData = result
+			}
+			newJob.CompletedAt = &now
+
+			if updateErr := h.jobStore.UpdateJob(newJob); updateErr != nil {
+				log.Printf("Failed to update job after WASM execution: %v", updateErr)
+			}
+		}()
+	}
+
+	// Return response in format expected by frontend: {data: {...}}
+	response := map[string]interface{}{
+		"data": newJob,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {

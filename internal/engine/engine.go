@@ -259,10 +259,9 @@ func (e *Engine) processAgentStep(ctx context.Context, step *primitive.WorkflowS
 		return nil, fmt.Errorf("failed to execute agent: %w", err)
 	}
 
-	// Return response
+	// Return response as prompt for next step
 	return map[string]interface{}{
-		"response": resp.Choices[0].Message.Content,
-		"usage":    resp.Usage,
+		"prompt": resp.Choices[0].Message.Content,
 	}, nil
 }
 
@@ -284,4 +283,9 @@ func (e *Engine) processWASMStep(ctx context.Context, step *primitive.WorkflowSt
 	}
 
 	return result, nil
+}
+
+// GetWASMExecutor returns the WASM executor instance
+func (e *Engine) GetWASMExecutor() *WASMExecutor {
+	return e.wasmExecutor
 }

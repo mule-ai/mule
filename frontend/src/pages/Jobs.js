@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Badge, Button, Modal, ListGroup } from 'react-bootstrap';
+import { Card, Row, Col, Badge, Button, Modal, ListGroup, Form } from 'react-bootstrap';
 import { jobsAPI } from '../services/api';
 
 function Jobs() {
@@ -97,18 +97,28 @@ function Jobs() {
                 {job.input_data && (
                   <div className="mb-3">
                     <strong>Input:</strong>
-                    <pre className="small text-muted mt-1">
-                      {JSON.stringify(job.input_data, null, 2)}
-                    </pre>
+                    <Form.Control
+                      as="textarea"
+                      rows={3}
+                      readOnly
+                      value={JSON.stringify(job.input_data, null, 2)}
+                      className="mt-1 small"
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    />
                   </div>
                 )}
 
                 {job.output_data && (
                   <div className="mb-3">
                     <strong>Output:</strong>
-                    <pre className="small text-muted mt-1">
-                      {JSON.stringify(job.output_data, null, 2)}
-                    </pre>
+                    <Form.Control
+                      as="textarea"
+                      rows={4}
+                      readOnly
+                      value={JSON.stringify(job.output_data, null, 2)}
+                      className="mt-1 small"
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    />
                   </div>
                 )}
 
@@ -173,6 +183,38 @@ function Jobs() {
                 </Col>
               </Row>
 
+              {selectedJob.input_data && (
+                <Row className="mb-3">
+                  <Col md={12}>
+                    <strong>Input Data:</strong>
+                    <Form.Control
+                      as="textarea"
+                      rows={4}
+                      readOnly
+                      value={JSON.stringify(selectedJob.input_data, null, 2)}
+                      className="mt-1 small"
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    />
+                  </Col>
+                </Row>
+              )}
+
+              {selectedJob.output_data && (
+                <Row className="mb-3">
+                  <Col md={12}>
+                    <strong>Output Data:</strong>
+                    <Form.Control
+                      as="textarea"
+                      rows={6}
+                      readOnly
+                      value={JSON.stringify(selectedJob.output_data, null, 2)}
+                      className="mt-1 small"
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    />
+                  </Col>
+                </Row>
+              )}
+
               <h5 className="mt-4">Job Steps</h5>
               {jobSteps.length === 0 ? (
                 <p className="text-muted">No steps found for this job</p>
@@ -199,18 +241,28 @@ function Jobs() {
                       {step.input_data && (
                         <div className="mt-2">
                           <strong>Input:</strong>
-                          <pre className="small text-muted mt-1">
-                            {JSON.stringify(step.input_data, null, 2)}
-                          </pre>
+                          <Form.Control
+                            as="textarea"
+                            rows={3}
+                            readOnly
+                            value={JSON.stringify(step.input_data, null, 2)}
+                            className="mt-1 small"
+                            style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                          />
                         </div>
                       )}
 
                       {step.output_data && (
                         <div className="mt-2">
                           <strong>Output:</strong>
-                          <pre className="small text-muted mt-1">
-                            {JSON.stringify(step.output_data, null, 2)}
-                          </pre>
+                          <Form.Control
+                            as="textarea"
+                            rows={3}
+                            readOnly
+                            value={JSON.stringify(step.output_data, null, 2)}
+                            className="mt-1 small"
+                            style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                          />
                         </div>
                       )}
                     </ListGroup.Item>

@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS agent_tools (
 -- Jobs table
 CREATE TABLE IF NOT EXISTS jobs (
     id VARCHAR(255) PRIMARY KEY,
-    workflow_id VARCHAR(255) REFERENCES workflows(id),
+    workflow_id VARCHAR(255) REFERENCES workflows(id) ON DELETE CASCADE,
+    wasm_module_id VARCHAR(255) REFERENCES wasm_modules(id) ON DELETE SET NULL,
     agent_id VARCHAR(255) REFERENCES agents(id),
     status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')) DEFAULT 'queued',
     input_data JSONB,

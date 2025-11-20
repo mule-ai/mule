@@ -167,7 +167,7 @@ function Dashboard() {
         input_data: { input: wasmInput },
       });
 
-      const jobId = jobResponse.data?.id || jobResponse.data?.job_id || jobResponse.data?.job?.id;
+      const jobId = jobResponse.data?.data?.id || jobResponse.data?.id;
 
       // Update execution in history with job ID
       const queuedExecution = {
@@ -208,7 +208,7 @@ function Dashboard() {
     const checkJobStatus = async () => {
       try {
         const jobResponse = await jobsAPI.get(jobId);
-        const job = jobResponse.data;
+        const job = jobResponse.data?.data || jobResponse.data;
 
         // Update execution history with job status
         setExecutionHistory(prev => prev.map(execution => {
@@ -368,12 +368,16 @@ function Dashboard() {
                               {execution.output && (
                                 <div className="mb-2">
                                   <strong>Output:</strong>
-                                  <div className="small text-muted mt-1">
-                                    {execution.output.length > 100
-                                      ? execution.output.substring(0, 100) + '...'
-                                      : execution.output
-                                    }
-                                  </div>
+                                  <Form.Control
+                                    as="textarea"
+                                    rows={3}
+                                    readOnly
+                                    value={typeof execution.output === 'object'
+                                      ? JSON.stringify(execution.output, null, 2)
+                                      : execution.output}
+                                    className="mt-1 small"
+                                    style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                                  />
                                 </div>
                               )}
                             </div>
@@ -482,12 +486,16 @@ function Dashboard() {
                               {execution.output && (
                                 <div className="mb-2">
                                   <strong>Output:</strong>
-                                  <div className="small text-muted mt-1">
-                                    {execution.output.length > 100
-                                      ? execution.output.substring(0, 100) + '...'
-                                      : execution.output
-                                    }
-                                  </div>
+                                  <Form.Control
+                                    as="textarea"
+                                    rows={3}
+                                    readOnly
+                                    value={typeof execution.output === 'object'
+                                      ? JSON.stringify(execution.output, null, 2)
+                                      : execution.output}
+                                    className="mt-1 small"
+                                    style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                                  />
                                 </div>
                               )}
                             </div>
