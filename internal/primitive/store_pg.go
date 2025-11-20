@@ -339,13 +339,13 @@ func (s *PGStore) CreateWorkflowStep(ctx context.Context, step *WorkflowStep) er
 	if err != nil {
 		return fmt.Errorf("failed to marshal workflow step config: %w", err)
 	}
-	query := `INSERT INTO workflow_steps (id, workflow_id, step_order, type, agent_id, wasm_module_id, config, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`
+	query := `INSERT INTO workflow_steps (id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`
 	_, err = s.db.ExecContext(ctx, query, step.ID, step.WorkflowID, step.StepOrder, step.StepType, step.AgentID, step.WasmModuleID, configJSON)
 	return err
 }
 
 func (s *PGStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*WorkflowStep, error) {
-	query := `SELECT id, workflow_id, step_order, type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order`
+	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order`
 	rows, err := s.db.QueryContext(ctx, query, workflowID)
 	if err != nil {
 		return nil, err

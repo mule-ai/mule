@@ -184,7 +184,7 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 			Message: "Step type is required",
 		})
 	} else {
-		validTypes := []string{"AGENT", "WASM"}
+		validTypes := []string{"agent", "wasm_module"}
 		isValid := false
 		for _, validType := range validTypes {
 			if step.StepType == validType {
@@ -195,19 +195,19 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 		if !isValid {
 			errors = append(errors, ValidationError{
 				Field:   "type",
-				Message: "Step type must be either AGENT or WASM",
+				Message: "Step type must be either agent or wasm_module",
 			})
 		}
 	}
 
-	if step.StepType == "AGENT" && (step.AgentID == nil || strings.TrimSpace(*step.AgentID) == "") {
+	if step.StepType == "agent" && (step.AgentID == nil || strings.TrimSpace(*step.AgentID) == "") {
 		errors = append(errors, ValidationError{
 			Field:   "agent_id",
 			Message: "Agent ID is required for agent steps",
 		})
 	}
 
-	if step.StepType == "WASM" && (step.WasmModuleID == nil || strings.TrimSpace(*step.WasmModuleID) == "") {
+	if step.StepType == "wasm_module" && (step.WasmModuleID == nil || strings.TrimSpace(*step.WasmModuleID) == "") {
 		errors = append(errors, ValidationError{
 			Field:   "wasm_module_id",
 			Message: "WASM module ID is required for WASM steps",

@@ -299,8 +299,8 @@ func (s *PGStore) DeleteJobStep(id string) error {
 
 // GetNextQueuedJob retrieves the next queued job for processing
 func (s *PGStore) GetNextQueuedJob() (*Job, error) {
-	query := `SELECT id, workflow_id, status, input_data, output_data, created_at, started_at, completed_at 
-			  FROM jobs WHERE status = 'QUEUED' ORDER BY created_at ASC LIMIT 1`
+	query := `SELECT id, workflow_id, status, input_data, output_data, created_at, started_at, completed_at
+			  FROM jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1`
 
 	job := &Job{}
 	var inputDataJSON, outputDataJSON []byte
@@ -330,7 +330,7 @@ func (s *PGStore) GetNextQueuedJob() (*Job, error) {
 // MarkJobRunning marks a job as running
 func (s *PGStore) MarkJobRunning(jobID string) error {
 	now := time.Now()
-	query := `UPDATE jobs SET status = 'RUNNING', started_at = $1 WHERE id = $2`
+	query := `UPDATE jobs SET status = 'running', started_at = $1 WHERE id = $2`
 
 	result, err := s.db.Exec(query, now, jobID)
 	if err != nil {
@@ -357,7 +357,7 @@ func (s *PGStore) MarkJobCompleted(jobID string, outputData map[string]interface
 		return fmt.Errorf("failed to marshal output data: %w", err)
 	}
 
-	query := `UPDATE jobs SET status = 'COMPLETED', output_data = $1, completed_at = $2 WHERE id = $3`
+	query := `UPDATE jobs SET status = 'completed', output_data = $1, completed_at = $2 WHERE id = $3`
 
 	result, err := s.db.Exec(query, outputDataJSON, now, jobID)
 	if err != nil {
@@ -386,7 +386,7 @@ func (s *PGStore) MarkJobFailed(jobID string, err error) error {
 		return fmt.Errorf("failed to marshal error data: %w", marshalErr)
 	}
 
-	query := `UPDATE jobs SET status = 'FAILED', output_data = $1, completed_at = $2 WHERE id = $3`
+	query := `UPDATE jobs SET status = 'failed', output_data = $1, completed_at = $2 WHERE id = $3`
 
 	result, execErr := s.db.Exec(query, outputDataJSON, now, jobID)
 	if execErr != nil {

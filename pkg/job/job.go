@@ -15,10 +15,10 @@ var (
 type Status string
 
 const (
-	StatusQueued    Status = "QUEUED"
-	StatusRunning   Status = "RUNNING"
-	StatusCompleted Status = "COMPLETED"
-	StatusFailed    Status = "FAILED"
+	StatusQueued    Status = "queued"
+	StatusRunning   Status = "running"
+	StatusCompleted Status = "completed"
+	StatusFailed    Status = "failed"
 )
 
 // String returns string representation of status

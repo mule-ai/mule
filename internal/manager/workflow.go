@@ -158,7 +158,7 @@ func (wm *WorkflowManager) CreateWorkflowStep(ctx context.Context, workflowID st
 		CreatedAt:    now,
 	}
 
-	query := `INSERT INTO workflow_steps (id, workflow_id, step_order, type, agent_id, wasm_module_id, config, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	query := `INSERT INTO workflow_steps (id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 	_, err = wm.db.ExecContext(ctx, query, step.ID, step.WorkflowID, step.StepOrder, step.Type, step.AgentID, step.WasmModuleID, step.Config, step.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert workflow step: %w", err)
@@ -169,7 +169,7 @@ func (wm *WorkflowManager) CreateWorkflowStep(ctx context.Context, workflowID st
 
 // GetWorkflowSteps gets all steps for a workflow
 func (wm *WorkflowManager) GetWorkflowSteps(ctx context.Context, workflowID string) ([]*dbmodels.WorkflowStep, error) {
-	query := `SELECT id, workflow_id, step_order, type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order ASC`
+	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order ASC`
 	rows, err := wm.db.QueryContext(ctx, query, workflowID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflow steps: %w", err)
@@ -216,7 +216,7 @@ func (wm *WorkflowManager) UpdateWorkflowStep(ctx context.Context, id string, st
 	step.WasmModuleID = wasmModuleID
 	step.Config = configBytes
 
-	query := `UPDATE workflow_steps SET step_order = $1, type = $2, agent_id = $3, wasm_module_id = $4, config = $5 WHERE id = $6`
+	query := `UPDATE workflow_steps SET step_order = $1, step_type = $2, agent_id = $3, wasm_module_id = $4, config = $5 WHERE id = $6`
 	_, err = wm.db.ExecContext(ctx, query, step.StepOrder, step.Type, step.AgentID, step.WasmModuleID, step.Config, step.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update workflow step: %w", err)
@@ -227,7 +227,7 @@ func (wm *WorkflowManager) UpdateWorkflowStep(ctx context.Context, id string, st
 
 // GetWorkflowStep retrieves a workflow step by ID
 func (wm *WorkflowManager) GetWorkflowStep(ctx context.Context, id string) (*dbmodels.WorkflowStep, error) {
-	query := `SELECT id, workflow_id, step_order, type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE id = $1`
+	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE id = $1`
 	step := &dbmodels.WorkflowStep{}
 	err := wm.db.QueryRowContext(ctx, query, id).Scan(
 		&step.ID,

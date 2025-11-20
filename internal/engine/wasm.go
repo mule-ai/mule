@@ -10,18 +10,16 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-
-	"github.com/mule-ai/mule/internal/database"
 )
 
 // WASMExecutor handles WebAssembly module execution
 type WASMExecutor struct {
-	db      *database.DB
+	db      *sql.DB
 	modules map[string][]byte // Store compiled module bytes instead of instantiated modules
 }
 
 // NewWASMExecutor creates a new WASM executor
-func NewWASMExecutor(db *database.DB) *WASMExecutor {
+func NewWASMExecutor(db *sql.DB) *WASMExecutor {
 	return &WASMExecutor{
 		db:      db,
 		modules: make(map[string][]byte),

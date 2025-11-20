@@ -26,7 +26,7 @@ func TestWorkflowExecution(t *testing.T) {
 			{
 				ID:         "step-1",
 				WorkflowID: "workflow-1",
-				StepType:   "AGENT",
+				StepType:   "agent",
 				AgentID:    &[]string{"agent-1"}[0],
 				StepOrder:  1,
 			},

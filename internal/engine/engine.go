@@ -216,9 +216,9 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 // processStep processes a single workflow step
 func (e *Engine) processStep(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}) (map[string]interface{}, error) {
 	switch step.StepType {
-	case "AGENT":
+	case "agent":
 		return e.processAgentStep(ctx, step, inputData)
-	case "WASM":
+	case "wasm_module":
 		return e.processWASMStep(ctx, step, inputData)
 	default:
 		return nil, fmt.Errorf("unknown step type: %s", step.StepType)

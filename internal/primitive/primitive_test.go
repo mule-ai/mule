@@ -333,7 +333,7 @@ func TestMockStore(t *testing.T) {
 		ID:         "step1",
 		WorkflowID: "test-workflow",
 		StepOrder:  1,
-		StepType:   "AGENT",
+		StepType:   "agent",
 		AgentID:    &[]string{"test-agent"}[0],
 		Config:     map[string]interface{}{},
 		CreatedAt:  time.Now(),

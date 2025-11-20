@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/mule-ai/mule/internal/agent"
 	"github.com/mule-ai/mule/internal/api"
 	internaldb "github.com/mule-ai/mule/internal/database"
+	"github.com/mule-ai/mule/internal/engine"
 	"github.com/mule-ai/mule/internal/manager"
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
@@ -23,14 +26,28 @@ type apiHandler struct {
 	jobStore        job.JobStore
 	validator       *validation.Validator
 	wasmModuleMgr   *manager.WasmModuleManager
+	workflowEngine  *engine.Engine
 }
 
 func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	store := primitive.NewPGStore(db.DB) // Access the underlying *sql.DB
-	runtime := agent.NewRuntime(store)
 	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
 	validator := validation.NewValidator()
 	wasmModuleMgr := manager.NewWasmModuleManager(db)
+
+	// Create WASM executor
+	wasmExecutor := engine.NewWASMExecutor(db.DB)
+
+	// Create agent runtime (without workflow engine initially)
+	runtime := agent.NewRuntime(store, jobStore)
+
+	// Create workflow engine
+	workflowEngine := engine.NewEngine(store, jobStore, runtime, wasmExecutor, engine.Config{
+		Workers: 5, // Default to 5 workers
+	})
+
+	// Set workflow engine on runtime (requires a setter method)
+	runtime.SetWorkflowEngine(workflowEngine)
 
 	return &apiHandler{
 		store:         store,
@@ -38,6 +55,7 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 		jobStore:      jobStore,
 		validator:     validator,
 		wasmModuleMgr: wasmModuleMgr,
+		workflowEngine: workflowEngine,
 	}
 }
 
@@ -110,11 +128,105 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	} else if strings.HasPrefix(req.Model, "workflow/") {
-		// Execute workflow (async)
-		resp, err := h.runtime.ExecuteWorkflow(ctx, &req)
+		// Submit workflow job
+		newJob, err := h.runtime.ExecuteWorkflow(ctx, &req)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute workflow: %w", err), http.StatusInternalServerError)
 			return
+		}
+
+		// For synchronous execution (stream: false), wait for completion and return ChatCompletionResponse
+		if !req.Stream {
+			// Wait for job completion with timeout
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
+
+			for {
+				select {
+				case <-ctx.Done():
+					api.HandleError(w, fmt.Errorf("workflow execution timed out"), http.StatusInternalServerError)
+					return
+				case <-time.After(500 * time.Millisecond):
+					// Check job status
+					updatedJob, err := h.jobStore.GetJob(newJob.ID)
+					if err != nil {
+						api.HandleError(w, fmt.Errorf("failed to get job status: %w", err), http.StatusInternalServerError)
+						return
+					}
+
+					switch updatedJob.Status {
+					case job.StatusCompleted:
+						// Extract response and usage from output_data
+						responseText := ""
+						if resp, exists := updatedJob.OutputData["response"]; exists {
+							responseText = fmt.Sprintf("%v", resp)
+						}
+
+						// Extract usage if available
+						usage := agent.ChatCompletionUsage{
+							PromptTokens:     0,
+							CompletionTokens: 0,
+							TotalTokens:      0,
+						}
+
+						if usageData, exists := updatedJob.OutputData["usage"]; exists {
+							if usageMap, ok := usageData.(map[string]interface{}); ok {
+								if promptTokens, ok := usageMap["prompt_tokens"].(float64); ok {
+									usage.PromptTokens = int(promptTokens)
+								}
+								if completionTokens, ok := usageMap["completion_tokens"].(float64); ok {
+									usage.CompletionTokens = int(completionTokens)
+								}
+								if totalTokens, ok := usageMap["total_tokens"].(float64); ok {
+									usage.TotalTokens = int(totalTokens)
+								}
+							}
+						}
+
+						// Return OpenAI-compatible completion response
+						resp := &agent.ChatCompletionResponse{
+							ID:      fmt.Sprintf("chatcmpl-%s", updatedJob.ID),
+							Object:  "chat.completion",
+							Created: time.Now().Unix(),
+							Model:   req.Model,
+							Choices: []agent.ChatCompletionChoice{
+								{
+									Index: 0,
+									Message: agent.ChatCompletionMessage{
+										Role:    "assistant",
+										Content: responseText,
+									},
+									FinishReason: "stop",
+								},
+							},
+							Usage: usage,
+						}
+
+						w.Header().Set("Content-Type", "application/json")
+						_ = json.NewEncoder(w).Encode(resp)
+						return
+					case job.StatusFailed:
+						// Extract error from output_data
+						errorMsg := "unknown error"
+						if errData, exists := updatedJob.OutputData["error"]; exists {
+							errorMsg = fmt.Sprintf("%v", errData)
+						}
+						api.HandleError(w, fmt.Errorf("workflow execution failed: %s", errorMsg), http.StatusInternalServerError)
+						return
+					case job.StatusRunning, job.StatusQueued:
+						// Continue waiting
+						continue
+					}
+				}
+			}
+		}
+
+		// For asynchronous execution, return job info immediately
+		resp := &agent.AsyncJobResponse{
+			ID:      newJob.ID,
+			Object:  "async.job",
+			Status:  string(newJob.Status),
+			Message: "The workflow has been started",
 		}
 
 		w.Header().Set("Content-Type", "application/json")

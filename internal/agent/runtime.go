@@ -11,18 +11,27 @@ import (
 
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/provider"
+	"github.com/mule-ai/mule/pkg/job"
 )
 
 // Runtime handles agent execution using Google ADK
 type Runtime struct {
-	store primitive.PrimitiveStore
+	store          primitive.PrimitiveStore
+	workflowEngine WorkflowEngine
+	jobStore       job.JobStore
 }
 
 // NewRuntime creates a new agent runtime
-func NewRuntime(store primitive.PrimitiveStore) *Runtime {
+func NewRuntime(store primitive.PrimitiveStore, jobStore job.JobStore) *Runtime {
 	return &Runtime{
-		store: store,
+		store:    store,
+		jobStore: jobStore,
 	}
+}
+
+// SetWorkflowEngine sets the workflow engine for the runtime
+func (r *Runtime) SetWorkflowEngine(engine WorkflowEngine) {
+	r.workflowEngine = engine
 }
 
 // ChatCompletionRequest represents the OpenAI-compatible request
@@ -321,8 +330,8 @@ func estimateTokens(text string) int {
 	return len(text) / 4
 }
 
-// ExecuteWorkflow executes a workflow with the given request
-func (r *Runtime) ExecuteWorkflow(ctx context.Context, req *ChatCompletionRequest) (*AsyncJobResponse, error) {
+// ExecuteWorkflow submits a workflow for execution and returns the job
+func (r *Runtime) ExecuteWorkflow(ctx context.Context, req *ChatCompletionRequest) (*job.Job, error) {
 	// Parse model name to extract workflow name
 	workflowName := strings.TrimPrefix(req.Model, "workflow/")
 
@@ -344,14 +353,24 @@ func (r *Runtime) ExecuteWorkflow(ctx context.Context, req *ChatCompletionReques
 		return nil, fmt.Errorf("workflow '%s' not found", workflowName)
 	}
 
-	// Create job through workflow engine (this would be injected)
-	// For now, return a placeholder async response
-	jobID := fmt.Sprintf("job-%d", time.Now().Unix())
+	// Concatenate messages for input data
+	var prompt strings.Builder
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			prompt.WriteString(msg.Content + "\n")
+		}
+	}
 
-	return &AsyncJobResponse{
-		ID:      jobID,
-		Object:  "async.job",
-		Status:  "queued",
-		Message: "The workflow has been started",
-	}, nil
+	// Prepare input data
+	inputData := map[string]interface{}{
+		"prompt": prompt.String(),
+	}
+
+	// Check if workflow engine is available
+	if r.workflowEngine == nil {
+		return nil, fmt.Errorf("workflow engine not available")
+	}
+
+	// Submit job to workflow engine
+	return r.workflowEngine.SubmitJob(ctx, targetWorkflow.ID, inputData)
 }

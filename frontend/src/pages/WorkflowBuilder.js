@@ -10,7 +10,7 @@ function WorkflowBuilder() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showStepModal, setShowStepModal] = useState(false);
   const [newWorkflow, setNewWorkflow] = useState({ name: '', description: '' });
-  const [newStep, setNewStep] = useState({ type: 'AGENT', agent_id: '', config: {} });
+  const [newStep, setNewStep] = useState({ type: 'agent', agent_id: '', config: {} });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -64,7 +64,7 @@ function WorkflowBuilder() {
     try {
       await workflowsAPI.createStep(selectedWorkflow.id, newStep);
       setShowStepModal(false);
-      setNewStep({ type: 'AGENT', agent_id: '', config: {} });
+      setNewStep({ type: 'agent', agent_id: '', config: {} });
       loadWorkflowSteps(selectedWorkflow.id);
     } catch (error) {
       console.error('Failed to create step:', error);
@@ -217,12 +217,12 @@ function WorkflowBuilder() {
                 value={newStep.type}
                 onChange={(e) => setNewStep({ ...newStep, type: e.target.value })}
               >
-                <option value="AGENT">Agent</option>
-                <option value="WASM">WASM Module</option>
+                <option value="agent">Agent</option>
+                <option value="wasm_module">WASM Module</option>
               </Form.Select>
             </Form.Group>
 
-            {newStep.type === 'AGENT' && (
+            {newStep.type === 'agent' && (
               <Form.Group className="mb-3">
                 <Form.Label>Agent</Form.Label>
                 <Form.Select

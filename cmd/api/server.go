@@ -124,6 +124,13 @@ func main() {
 	jobStreamer.Start()
 	defer jobStreamer.Stop()
 
+	// Start the workflow engine
+	ctx := context.Background()
+	if err := handler.workflowEngine.Start(ctx); err != nil {
+		log.Fatalf("Failed to start workflow engine: %v", err)
+	}
+	defer handler.workflowEngine.Stop()
+
 	router.HandleFunc("/v1/models", handler.modelsHandler).Methods("GET")
 	router.HandleFunc("/v1/chat/completions", handler.chatCompletionsHandler).Methods("POST")
 
