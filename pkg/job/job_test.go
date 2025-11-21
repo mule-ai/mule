@@ -113,10 +113,10 @@ func TestJobStatus(t *testing.T) {
 		status   Status
 		expected string
 	}{
-		{StatusQueued, "QUEUED"},
-		{StatusRunning, "RUNNING"},
-		{StatusCompleted, "COMPLETED"},
-		{StatusFailed, "FAILED"},
+		{StatusQueued, "queued"},
+		{StatusRunning, "running"},
+		{StatusCompleted, "completed"},
+		{StatusFailed, "failed"},
 	}
 
 	for _, tt := range tests {

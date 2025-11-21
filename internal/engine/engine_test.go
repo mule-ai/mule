@@ -56,8 +56,8 @@ func TestWorkflowExecution(t *testing.T) {
 	}
 
 	// Create components
-	agentRuntime := agent.NewRuntime(mockStore)
-	wasmExecutor := NewWASMExecutor(mockStore)
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil) // Use nil DB for testing
 
 	// Create engine with single worker for testing
 	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
@@ -97,16 +97,16 @@ func TestWorkflowExecution(t *testing.T) {
 func TestEngineConfiguration(t *testing.T) {
 	mockStore := &MockPrimitiveStore{}
 	mockJobStore := &MockJobStore{Jobs: make(map[string]*job.Job)}
-	agentRuntime := agent.NewRuntime(mockStore)
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
 
 	// Test engine creation with different configurations
 	t.Run("single worker", func(t *testing.T) {
-		engine := NewEngine(mockStore, mockJobStore, agentRuntime, NewWASMExecutor(mockStore), Config{Workers: 1})
+		engine := NewEngine(mockStore, mockJobStore, agentRuntime, NewWASMExecutor(nil), Config{Workers: 1})
 		assert.Equal(t, 1, engine.workers)
 	})
 
 	t.Run("multiple workers", func(t *testing.T) {
-		engine := NewEngine(mockStore, mockJobStore, agentRuntime, NewWASMExecutor(mockStore), Config{Workers: 5})
+		engine := NewEngine(mockStore, mockJobStore, agentRuntime, NewWASMExecutor(nil), Config{Workers: 5})
 		assert.Equal(t, 5, engine.workers)
 	})
 }

@@ -346,7 +346,13 @@ func estimateTokens(text string) int {
 // ExecuteWorkflow submits a workflow for execution and returns the job
 func (r *Runtime) ExecuteWorkflow(ctx context.Context, req *ChatCompletionRequest) (*job.Job, error) {
 	// Parse model name to extract workflow name
-	workflowName := strings.TrimPrefix(req.Model, "workflow/")
+	// Handle both "workflow/" and "async/workflow/" prefixes
+	workflowName := req.Model
+	if strings.HasPrefix(workflowName, "async/workflow/") {
+		workflowName = strings.TrimPrefix(workflowName, "async/workflow/")
+	} else if strings.HasPrefix(workflowName, "workflow/") {
+		workflowName = strings.TrimPrefix(workflowName, "workflow/")
+	}
 
 	// Find the workflow by name
 	workflows, err := r.store.ListWorkflows(ctx)

@@ -170,21 +170,27 @@ func TestChatCompletionsEndpoint(t *testing.T) {
 }
 
 func TestPrimitiveManagementEndpointsComprehensive(t *testing.T) {
+	mockStore := &MockPrimitiveStore{}
+
+	handler := &apiHandler{
+		store:     mockStore,
+		validator: validation.NewValidator(),
+	}
+
+	router := mux.NewRouter()
+
+	// Provider endpoints
+	router.HandleFunc("/api/v1/providers", handler.listProvidersHandler).Methods("GET")
+	router.HandleFunc("/api/v1/providers", handler.createProviderHandler).Methods("POST")
+	router.HandleFunc("/api/v1/providers/{id}", handler.getProviderHandler).Methods("GET")
+	router.HandleFunc("/api/v1/providers/{id}", handler.updateProviderHandler).Methods("PUT")
+	router.HandleFunc("/api/v1/providers/{id}", handler.deleteProviderHandler).Methods("DELETE")
+
+	// Agent endpoints
+	router.HandleFunc("/api/v1/agents", handler.listAgentsHandler).Methods("GET")
+	router.HandleFunc("/api/v1/agents", handler.createAgentHandler).Methods("POST")
+
 	t.Run("provider CRUD operations", func(t *testing.T) {
-		mockStore := &MockPrimitiveStore{}
-		handler := &apiHandler{
-			store:     mockStore,
-			validator: validation.NewValidator(),
-		}
-
-		router := mux.NewRouter()
-		// Provider endpoints
-		router.HandleFunc("/api/v1/providers", handler.listProvidersHandler).Methods("GET")
-		router.HandleFunc("/api/v1/providers", handler.createProviderHandler).Methods("POST")
-		router.HandleFunc("/api/v1/providers/{id}", handler.getProviderHandler).Methods("GET")
-		router.HandleFunc("/api/v1/providers/{id}", handler.updateProviderHandler).Methods("PUT")
-		router.HandleFunc("/api/v1/providers/{id}", handler.deleteProviderHandler).Methods("DELETE")
-
 		// Create provider
 		provider := primitive.Provider{
 			Name:       "Test Provider",
@@ -266,17 +272,6 @@ func TestPrimitiveManagementEndpointsComprehensive(t *testing.T) {
 	})
 
 	t.Run("agent creation", func(t *testing.T) {
-		mockStore := &MockPrimitiveStore{}
-		handler := &apiHandler{
-			store:     mockStore,
-			validator: validation.NewValidator(),
-		}
-
-		router := mux.NewRouter()
-		// Agent endpoints
-		router.HandleFunc("/api/v1/agents", handler.listAgentsHandler).Methods("GET")
-		router.HandleFunc("/api/v1/agents", handler.createAgentHandler).Methods("POST")
-
 		// First create a provider
 		provider := primitive.Provider{
 			Name:       "Test Provider for Agent",
@@ -428,6 +423,68 @@ type MockPrimitiveStore struct {
 	Tools     []*primitive.Tool
 }
 
+func (m *MockJobStore) CreateJobStep(s *job.JobStep) error {
+	return nil
+}
+
+func (m *MockJobStore) GetJobStep(id string) (*job.JobStep, error) {
+	return nil, job.ErrJobStepNotFound
+}
+
+func (m *MockJobStore) ListJobSteps(jobID string) ([]*job.JobStep, error) {
+	return nil, nil
+}
+
+func (m *MockJobStore) UpdateJobStep(s *job.JobStep) error {
+	return nil
+}
+
+func (m *MockJobStore) DeleteJobStep(id string) error {
+	return nil
+}
+
+func (m *MockJobStore) GetNextQueuedJob() (*job.Job, error) {
+	for _, j := range m.Jobs {
+		if j.Status == job.StatusQueued {
+			return j, nil
+		}
+	}
+	return nil, job.ErrJobNotFound
+}
+
+func (m *MockJobStore) MarkJobRunning(jobID string) error {
+	if jobItem, exists := m.Jobs[jobID]; exists {
+		jobItem.Status = job.StatusRunning
+		return nil
+	}
+	return job.ErrJobNotFound
+}
+
+func (m *MockJobStore) MarkJobCompleted(jobID string, outputData map[string]interface{}) error {
+	if jobItem, exists := m.Jobs[jobID]; exists {
+		jobItem.Status = job.StatusCompleted
+		jobItem.OutputData = outputData
+		return nil
+	}
+	return job.ErrJobNotFound
+}
+
+func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
+	if jobItem, exists := m.Jobs[jobID]; exists {
+		jobItem.Status = job.StatusFailed
+		return nil
+	}
+	return job.ErrJobNotFound
+}
+
+// MockPrimitiveStore implements primitive.PrimitiveStore for testing
+type MockPrimitiveStore struct {
+	Agents    []*primitive.Agent
+	Workflows []*primitive.Workflow
+	Providers []*primitive.Provider
+	Tools     []*primitive.Tool
+}
+
 func (m *MockPrimitiveStore) CreateProvider(ctx context.Context, p *primitive.Provider) error {
 	// Generate a simple ID for testing
 	if p.ID == "" {
@@ -455,14 +512,7 @@ func (m *MockPrimitiveStore) UpdateProvider(ctx context.Context, p *primitive.Pr
 }
 
 func (m *MockPrimitiveStore) DeleteProvider(ctx context.Context, id string) error {
-	for i, p := range m.Providers {
-		if p.ID == id {
-			// Remove the provider from the slice
-			m.Providers = append(m.Providers[:i], m.Providers[i+1:]...)
-			return nil
-		}
-	}
-	return primitive.ErrNotFound
+	return nil
 }
 
 func (m *MockPrimitiveStore) CreateTool(ctx context.Context, t *primitive.Tool) error {
@@ -492,14 +542,7 @@ func (m *MockPrimitiveStore) UpdateTool(ctx context.Context, t *primitive.Tool) 
 }
 
 func (m *MockPrimitiveStore) DeleteTool(ctx context.Context, id string) error {
-	for i, t := range m.Tools {
-		if t.ID == id {
-			// Remove the tool from the slice
-			m.Tools = append(m.Tools[:i], m.Tools[i+1:]...)
-			return nil
-		}
-	}
-	return primitive.ErrNotFound
+	return nil
 }
 
 func (m *MockPrimitiveStore) CreateAgent(ctx context.Context, a *primitive.Agent) error {
@@ -529,14 +572,7 @@ func (m *MockPrimitiveStore) UpdateAgent(ctx context.Context, a *primitive.Agent
 }
 
 func (m *MockPrimitiveStore) DeleteAgent(ctx context.Context, id string) error {
-	for i, a := range m.Agents {
-		if a.ID == id {
-			// Remove the agent from the slice
-			m.Agents = append(m.Agents[:i], m.Agents[i+1:]...)
-			return nil
-		}
-	}
-	return primitive.ErrNotFound
+	return nil
 }
 
 func (m *MockPrimitiveStore) CreateWorkflow(ctx context.Context, w *primitive.Workflow) error {
@@ -566,14 +602,7 @@ func (m *MockPrimitiveStore) UpdateWorkflow(ctx context.Context, w *primitive.Wo
 }
 
 func (m *MockPrimitiveStore) DeleteWorkflow(ctx context.Context, id string) error {
-	for i, w := range m.Workflows {
-		if w.ID == id {
-			// Remove the workflow from the slice
-			m.Workflows = append(m.Workflows[:i], m.Workflows[i+1:]...)
-			return nil
-		}
-	}
-	return primitive.ErrNotFound
+	return nil
 }
 
 func (m *MockPrimitiveStore) CreateWorkflowStep(ctx context.Context, s *primitive.WorkflowStep) error {

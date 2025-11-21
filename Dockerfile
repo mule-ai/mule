@@ -39,6 +39,9 @@ COPY . .
 # Copy built frontend files to the internal/frontend/build directory
 COPY --from=frontend-builder /app/build ./internal/frontend/build
 
+# Run tests before building
+RUN go test ./...
+
 # Build the application
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o mule ./cmd/api
 
