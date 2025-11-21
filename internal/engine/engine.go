@@ -322,7 +322,7 @@ func (e *Engine) processWASMStep(ctx context.Context, step *primitive.WorkflowSt
 	// We only want the "output" field to pass to the next step
 	if output, ok := result["output"]; ok {
 		return map[string]interface{}{
-			"output": output,
+			"prompt": output,
 		}, nil
 	}
 

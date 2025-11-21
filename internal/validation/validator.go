@@ -227,11 +227,11 @@ func (v *Validator) ValidateChatCompletionRequest(model string, messages []map[s
 			Message: "Model is required",
 		})
 	} else {
-		// Check if model starts with agent/ or workflow/
-		if !strings.HasPrefix(model, "agent/") && !strings.HasPrefix(model, "workflow/") {
+		// Check if model starts with agent/, workflow/, or async/workflow/
+		if !strings.HasPrefix(model, "agent/") && !strings.HasPrefix(model, "workflow/") && !strings.HasPrefix(model, "async/workflow/") {
 			errors = append(errors, ValidationError{
 				Field:   "model",
-				Message: "Model must start with 'agent/' or 'workflow/'",
+				Message: "Model must start with 'agent/', 'workflow/', or 'async/workflow/'",
 			})
 		}
 	}

@@ -129,101 +129,15 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	} else if strings.HasPrefix(req.Model, "workflow/") {
-		// Submit workflow job
+	} else if strings.HasPrefix(req.Model, "async/workflow/") {
+		// Async workflow execution - submit job and return immediately
 		newJob, err := h.runtime.ExecuteWorkflow(ctx, &req)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute workflow: %w", err), http.StatusInternalServerError)
 			return
 		}
 
-		// For synchronous execution (stream: false), wait for completion and return ChatCompletionResponse
-		if !req.Stream {
-			// Wait for job completion with timeout
-			ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			defer cancel()
-
-			for {
-				select {
-				case <-ctx.Done():
-					api.HandleError(w, fmt.Errorf("workflow execution timed out"), http.StatusInternalServerError)
-					return
-				case <-time.After(500 * time.Millisecond):
-					// Check job status
-					updatedJob, err := h.jobStore.GetJob(newJob.ID)
-					if err != nil {
-						api.HandleError(w, fmt.Errorf("failed to get job status: %w", err), http.StatusInternalServerError)
-						return
-					}
-
-					switch updatedJob.Status {
-					case job.StatusCompleted:
-						// Extract response and usage from output_data
-						responseText := ""
-						if resp, exists := updatedJob.OutputData["prompt"]; exists {
-							responseText = fmt.Sprintf("%v", resp)
-						}
-
-						// Extract usage if available
-						usage := agent.ChatCompletionUsage{
-							PromptTokens:     0,
-							CompletionTokens: 0,
-							TotalTokens:      0,
-						}
-
-						if usageData, exists := updatedJob.OutputData["usage"]; exists {
-							if usageMap, ok := usageData.(map[string]interface{}); ok {
-								if promptTokens, ok := usageMap["prompt_tokens"].(float64); ok {
-									usage.PromptTokens = int(promptTokens)
-								}
-								if completionTokens, ok := usageMap["completion_tokens"].(float64); ok {
-									usage.CompletionTokens = int(completionTokens)
-								}
-								if totalTokens, ok := usageMap["total_tokens"].(float64); ok {
-									usage.TotalTokens = int(totalTokens)
-								}
-							}
-						}
-
-						// Return OpenAI-compatible completion response
-						resp := &agent.ChatCompletionResponse{
-							ID:      fmt.Sprintf("chatcmpl-%s", updatedJob.ID),
-							Object:  "chat.completion",
-							Created: time.Now().Unix(),
-							Model:   req.Model,
-							Choices: []agent.ChatCompletionChoice{
-								{
-									Index: 0,
-									Message: agent.ChatCompletionMessage{
-										Role:    "assistant",
-										Content: responseText,
-									},
-									FinishReason: "stop",
-								},
-							},
-							Usage: usage,
-						}
-
-						w.Header().Set("Content-Type", "application/json")
-						_ = json.NewEncoder(w).Encode(resp)
-						return
-					case job.StatusFailed:
-						// Extract error from output_data
-						errorMsg := "unknown error"
-						if errData, exists := updatedJob.OutputData["error"]; exists {
-							errorMsg = fmt.Sprintf("%v", errData)
-						}
-						api.HandleError(w, fmt.Errorf("workflow execution failed: %s", errorMsg), http.StatusInternalServerError)
-						return
-					case job.StatusRunning, job.StatusQueued:
-						// Continue waiting
-						continue
-					}
-				}
-			}
-		}
-
-		// For asynchronous execution, return job info immediately
+		// Return job info immediately for async execution
 		resp := &agent.AsyncJobResponse{
 			ID:      newJob.ID,
 			Object:  "async.job",
@@ -233,8 +147,98 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
+	} else if strings.HasPrefix(req.Model, "workflow/") {
+		// Sync workflow execution - wait for completion and return ChatCompletionResponse
+		newJob, err := h.runtime.ExecuteWorkflow(ctx, &req)
+		if err != nil {
+			api.HandleError(w, fmt.Errorf("failed to execute workflow: %w", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Wait for job completion with timeout
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				api.HandleError(w, fmt.Errorf("workflow execution timed out"), http.StatusInternalServerError)
+				return
+			case <-time.After(500 * time.Millisecond):
+				// Check job status
+				updatedJob, err := h.jobStore.GetJob(newJob.ID)
+				if err != nil {
+					api.HandleError(w, fmt.Errorf("failed to get job status: %w", err), http.StatusInternalServerError)
+					return
+				}
+
+				switch updatedJob.Status {
+				case job.StatusCompleted:
+					// Extract response and usage from output_data
+					responseText := ""
+					if resp, exists := updatedJob.OutputData["prompt"]; exists {
+						responseText = fmt.Sprintf("%v", resp)
+					}
+
+					// Extract usage if available
+					usage := agent.ChatCompletionUsage{
+						PromptTokens:     0,
+						CompletionTokens: 0,
+						TotalTokens:      0,
+					}
+
+					if usageData, exists := updatedJob.OutputData["usage"]; exists {
+						if usageMap, ok := usageData.(map[string]interface{}); ok {
+							if promptTokens, ok := usageMap["prompt_tokens"].(float64); ok {
+								usage.PromptTokens = int(promptTokens)
+							}
+							if completionTokens, ok := usageMap["completion_tokens"].(float64); ok {
+								usage.CompletionTokens = int(completionTokens)
+							}
+							if totalTokens, ok := usageMap["total_tokens"].(float64); ok {
+								usage.TotalTokens = int(totalTokens)
+							}
+						}
+					}
+
+					// Return OpenAI-compatible completion response
+					resp := &agent.ChatCompletionResponse{
+						ID:      fmt.Sprintf("chatcmpl-%s", updatedJob.ID),
+						Object:  "chat.completion",
+						Created: time.Now().Unix(),
+						Model:   req.Model,
+						Choices: []agent.ChatCompletionChoice{
+							{
+								Index: 0,
+								Message: agent.ChatCompletionMessage{
+									Role:    "assistant",
+									Content: responseText,
+								},
+								FinishReason: "stop",
+							},
+						},
+						Usage: usage,
+					}
+
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(resp)
+					return
+				case job.StatusFailed:
+					// Extract error from output_data
+					errorMsg := "unknown error"
+					if errData, exists := updatedJob.OutputData["error"]; exists {
+						errorMsg = fmt.Sprintf("%v", errData)
+					}
+					api.HandleError(w, fmt.Errorf("workflow execution failed: %s", errorMsg), http.StatusInternalServerError)
+					return
+				case job.StatusRunning, job.StatusQueued:
+					// Continue waiting
+					continue
+				}
+			}
+		}
 	} else {
-		api.HandleError(w, fmt.Errorf("model must start with 'agent/' or 'workflow/'"), http.StatusBadRequest)
+		api.HandleError(w, fmt.Errorf("model must start with 'agent/', 'workflow/', or 'async/workflow/'"), http.StatusBadRequest)
 		return
 	}
 }
