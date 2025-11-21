@@ -160,7 +160,7 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 					case job.StatusCompleted:
 						// Extract response and usage from output_data
 						responseText := ""
-						if resp, exists := updatedJob.OutputData["response"]; exists {
+						if resp, exists := updatedJob.OutputData["prompt"]; exists {
 							responseText = fmt.Sprintf("%v", resp)
 						}
 
@@ -939,6 +939,6 @@ func (h *apiHandler) deleteWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 		}
 		return
 	}
-	
+
 	w.WriteHeader(http.StatusNoContent)
 }
