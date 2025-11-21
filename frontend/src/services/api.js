@@ -16,6 +16,7 @@ export const providersAPI = {
   create: (data) => api.post('/api/v1/providers', data),
   update: (id, data) => api.put(`/api/v1/providers/${id}`, data),
   delete: (id) => api.delete(`/api/v1/providers/${id}`),
+  getModels: (id) => api.get(`/api/v1/providers/${id}/models`),
 };
 
 // Tool APIs

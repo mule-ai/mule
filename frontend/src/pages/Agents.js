@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Button, Form, Modal, ListGroup } from 'react-bootstrap';
-import { agentsAPI, providersAPI } from '../services/api';
+import { agentsAPI, providersAPI, chatAPI } from '../services/api';
+import FilterableDropdown from '../components/FilterableDropdown';
 
 function Agents() {
   const [agents, setAgents] = useState([]);
   const [providers, setProviders] = useState([]);
+  const [models, setModels] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
@@ -37,6 +39,31 @@ function Agents() {
       setProviders(response.data || []);
     } catch (error) {
       console.error('Failed to load providers:', error);
+    }
+  };
+
+  const loadModels = async (providerId) => {
+    if (!providerId) {
+      setModels([]);
+      return;
+    }
+
+    try {
+      const response = await providersAPI.getModels(providerId);
+      console.log('Provider models API raw response:', response);
+
+      // The API returns { data: [...models] }
+      // Axios wraps this, so response.data is { data: [...models] }
+      const modelsData = response.data?.data || [];
+
+      console.log('Extracted models array:', modelsData);
+      console.log('Is array?', Array.isArray(modelsData));
+
+      // Ensure we always set an array
+      setModels(Array.isArray(modelsData) ? modelsData : []);
+    } catch (error) {
+      console.error('Failed to load models from provider:', error);
+      setModels([]);
     }
   };
 
@@ -88,6 +115,10 @@ function Agents() {
   const openEditModal = (agent) => {
     setSelectedAgent(agent);
     setShowEditModal(true);
+    // Load models for the agent's provider
+    if (agent.provider_id) {
+      loadModels(agent.provider_id);
+    }
   };
 
   return (
@@ -177,9 +208,11 @@ function Agents() {
               <Form.Label>Provider</Form.Label>
               <Form.Select
                 value={newAgent.provider_id}
-                onChange={(e) =>
-                  setNewAgent({ ...newAgent, provider_id: e.target.value })
-                }
+                onChange={(e) => {
+                  const providerId = e.target.value;
+                  setNewAgent({ ...newAgent, provider_id: providerId, model_id: '' });
+                  loadModels(providerId);
+                }}
                 required
               >
                 <option value="">Select a provider...</option>
@@ -192,13 +225,14 @@ function Agents() {
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Model ID</Form.Label>
-              <Form.Control
-                type="text"
+              <FilterableDropdown
+                options={(Array.isArray(models) ? models : []).map((model) => ({
+                  value: model.id,
+                  label: `${model.id} ${model.owned_by ? `(${model.owned_by})` : ''}`
+                }))}
                 value={newAgent.model_id}
-                onChange={(e) =>
-                  setNewAgent({ ...newAgent, model_id: e.target.value })
-                }
-                placeholder="e.g., gpt-4, gemini-pro"
+                onChange={(value) => setNewAgent({ ...newAgent, model_id: value })}
+                placeholder="Type to search models..."
                 required
               />
             </Form.Group>
@@ -260,9 +294,11 @@ function Agents() {
                 <Form.Label>Provider</Form.Label>
                 <Form.Select
                   value={selectedAgent.provider_id}
-                  onChange={(e) =>
-                    setSelectedAgent({ ...selectedAgent, provider_id: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const providerId = e.target.value;
+                    setSelectedAgent({ ...selectedAgent, provider_id: providerId, model_id: '' });
+                    loadModels(providerId);
+                  }}
                   required
                 >
                   <option value="">Select a provider...</option>
@@ -275,12 +311,14 @@ function Agents() {
               </Form.Group>
               <Form.Group className="mb-3">
                 <Form.Label>Model ID</Form.Label>
-                <Form.Control
-                  type="text"
+                <FilterableDropdown
+                  options={(Array.isArray(models) ? models : []).map((model) => ({
+                    value: model.id,
+                    label: `${model.id} ${model.owned_by ? `(${model.owned_by})` : ''}`
+                  }))}
                   value={selectedAgent.model_id}
-                  onChange={(e) =>
-                    setSelectedAgent({ ...selectedAgent, model_id: e.target.value })
-                  }
+                  onChange={(value) => setSelectedAgent({ ...selectedAgent, model_id: value })}
+                  placeholder="Type to search models..."
                   required
                 />
               </Form.Group>

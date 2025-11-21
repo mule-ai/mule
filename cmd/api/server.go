@@ -140,6 +140,7 @@ func main() {
 	router.HandleFunc("/api/v1/providers/{id}", handler.getProviderHandler).Methods("GET")
 	router.HandleFunc("/api/v1/providers/{id}", handler.updateProviderHandler).Methods("PUT")
 	router.HandleFunc("/api/v1/providers/{id}", handler.deleteProviderHandler).Methods("DELETE")
+	router.HandleFunc("/api/v1/providers/{id}/models", handler.getProviderModelsHandler).Methods("GET")
 
 	router.HandleFunc("/api/v1/tools", handler.listToolsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/tools", handler.createToolHandler).Methods("POST")

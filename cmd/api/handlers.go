@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -332,6 +333,54 @@ func (h *apiHandler) deleteProviderHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *apiHandler) getProviderModelsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	// Get the provider
+	provider, err := h.store.GetProvider(ctx, id)
+	if err != nil {
+		if err == primitive.ErrNotFound {
+			api.HandleError(w, fmt.Errorf("provider not found: %s", id), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to get provider: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Make request to provider's /v1/models endpoint
+	client := &http.Client{}
+	req, err := http.NewRequestWithContext(ctx, "GET", provider.APIBaseURL+"/models", nil)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to create request: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Add API key if available
+	if provider.APIKeyEnc != "" {
+		req.Header.Set("Authorization", "Bearer "+provider.APIKeyEnc)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to fetch models from provider: %w", err), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read and return the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to read response: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
 }
 
 // Tool handlers
