@@ -36,7 +36,7 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		return nil, fmt.Errorf("failed to get WASM module data: %w", err)
 	}
 
-	log.Printf("Executing WASM module %s (size: %d bytes)", moduleID, len(moduleData))
+	log.Printf("Executing WASM module %s (size: %d bytes) with input data: %+v", moduleID, len(moduleData), inputData)
 
 	// Add panic recovery for WASI-related issues
 	defer func() {
@@ -47,7 +47,20 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		}
 	}()
 
-	// Create buffers to capture stdout and stderr
+	// Serialize input data to JSON for passing to WASM module via stdin
+	var stdinData []byte
+	if inputData != nil && len(inputData) > 0 {
+		stdinData, err = json.Marshal(inputData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize input data: %w", err)
+		}
+		log.Printf("Passing %d bytes of input data to WASM module via stdin: %s", len(stdinData), string(stdinData))
+	} else {
+		log.Printf("No input data provided to WASM module (inputData: %+v)", inputData)
+	}
+
+	// Create buffers for stdin, stdout, and stderr
+	stdinBuf := bytes.NewReader(stdinData)
 	var stdoutBuf, stderrBuf bytes.Buffer
 
 	// Create a fresh runtime for each execution to avoid "randinit twice" error
@@ -63,10 +76,11 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
 	}
 
-	// Configure module with captured stdout/stderr and start function
+	// Configure module with captured stdin/stdout/stderr and start function
 	// WithStartFunctions("_initialize") is CRITICAL for Go-compiled WASM
 	// It ensures the Go runtime is properly initialized before main() runs
 	config := wazero.NewModuleConfig().
+		WithStdin(stdinBuf).
 		WithStdout(&stdoutBuf).
 		WithStderr(&stderrBuf).
 		WithStartFunctions("_initialize")

@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Button, Form, Modal, ListGroup } from 'react-bootstrap';
-import { workflowsAPI, agentsAPI } from '../services/api';
+import { workflowsAPI, agentsAPI, wasmModulesAPI } from '../services/api';
 
 function WorkflowBuilder() {
   const [workflows, setWorkflows] = useState([]);
   const [agents, setAgents] = useState([]);
+  const [wasmModules, setWasmModules] = useState([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showStepModal, setShowStepModal] = useState(false);
   const [newWorkflow, setNewWorkflow] = useState({ name: '', description: '' });
-  const [newStep, setNewStep] = useState({ type: 'agent', agent_id: '', config: {} });
+  const [newStep, setNewStep] = useState({ type: 'agent', agent_id: '', wasm_module_id: '', config: {} });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadWorkflows();
     loadAgents();
+    loadWasmModules();
   }, []);
 
   const loadWorkflows = async () => {
@@ -33,6 +35,31 @@ function WorkflowBuilder() {
       setAgents(response.data || []);
     } catch (error) {
       console.error('Failed to load agents:', error);
+    }
+  };
+
+  const loadWasmModules = async () => {
+    try {
+      const response = await wasmModulesAPI.list();
+      console.log('WASM modules API response:', response);
+
+      // Handle different response structures
+      let modules = [];
+      if (Array.isArray(response.data)) {
+        modules = response.data;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        // Some APIs wrap data in {data: [...]}
+        modules = response.data.data;
+      } else if (response.data && typeof response.data === 'object') {
+        // If it's a single object, wrap in array
+        modules = [response.data];
+      }
+
+      setWasmModules(modules);
+      console.log('Loaded WASM modules:', modules);
+    } catch (error) {
+      console.error('Failed to load WASM modules:', error);
+      setWasmModules([]); // Set empty array on error
     }
   };
 
@@ -62,9 +89,20 @@ function WorkflowBuilder() {
   const handleCreateStep = async () => {
     setLoading(true);
     try {
-      await workflowsAPI.createStep(selectedWorkflow.id, newStep);
+      // Clean up step data based on type to avoid foreign key constraint errors
+      const stepData = { ...newStep };
+
+      if (stepData.type === 'wasm_module') {
+        // For WASM module steps, remove agent_id to avoid FK constraint
+        delete stepData.agent_id;
+      } else if (stepData.type === 'agent') {
+        // For agent steps, remove wasm_module_id
+        delete stepData.wasm_module_id;
+      }
+
+      await workflowsAPI.createStep(selectedWorkflow.id, stepData);
       setShowStepModal(false);
-      setNewStep({ type: 'agent', agent_id: '', config: {} });
+      setNewStep({ type: 'agent', agent_id: '', wasm_module_id: '', config: {} });
       loadWorkflowSteps(selectedWorkflow.id);
     } catch (error) {
       console.error('Failed to create step:', error);
@@ -141,6 +179,11 @@ function WorkflowBuilder() {
                             {step.agent_id && (
                               <span className="ms-2 badge bg-primary">
                                 {agents.find(a => a.id === step.agent_id)?.name || 'Unknown Agent'}
+                              </span>
+                            )}
+                            {step.wasm_module_id && (
+                              <span className="ms-2 badge bg-success">
+                                {wasmModules.find(m => m.id === step.wasm_module_id)?.name || 'Unknown WASM Module'}
                               </span>
                             )}
                           </div>
@@ -235,6 +278,25 @@ function WorkflowBuilder() {
                   {agents.map((agent) => (
                     <option key={agent.id} value={agent.id}>
                       {agent.name}
+                    </option>
+                  ))}
+                </Form.Select>
+              </Form.Group>
+            )}
+
+            {newStep.type === 'wasm_module' && (
+              <Form.Group className="mb-3">
+                <Form.Label>WASM Module</Form.Label>
+                <Form.Select
+                  value={newStep.wasm_module_id}
+                  onChange={(e) =>
+                    setNewStep({ ...newStep, wasm_module_id: e.target.value })
+                  }
+                >
+                  <option value="">Select a WASM module...</option>
+                  {Array.isArray(wasmModules) && wasmModules.map((module) => (
+                    <option key={module.id} value={module.id}>
+                      {module.name}
                     </option>
                   ))}
                 </Form.Select>

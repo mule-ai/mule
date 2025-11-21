@@ -311,6 +311,8 @@ func (e *Engine) processWASMStep(ctx context.Context, step *primitive.WorkflowSt
 		return nil, fmt.Errorf("wasm_module_id not found in step")
 	}
 
+	log.Printf("WASM step processing with inputData: %+v", inputData)
+
 	// Execute WASM module
 	result, err := e.wasmExecutor.Execute(ctx, *step.WasmModuleID, inputData)
 	if err != nil {

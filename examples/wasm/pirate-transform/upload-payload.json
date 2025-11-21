@@ -1,0 +1,5 @@
+{
+  "name": "pirate-transform",
+  "description": "Appends pirate speak instruction to text",
+  "module_data": "<base64-encoded-content-of-pirate-transform.wasm>"
+}
