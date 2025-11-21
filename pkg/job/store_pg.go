@@ -198,10 +198,10 @@ func (s *PGStore) CreateJobStep(step *JobStep) error {
 		return fmt.Errorf("failed to marshal output data: %w", err)
 	}
 
-	query := `INSERT INTO job_steps (id, job_id, workflow_step_id, status, input_data, output_data) 
-			  VALUES ($1, $2, $3, $4, $5, $6)`
+	query := `INSERT INTO job_steps (id, job_id, workflow_step_id, step_order, status, input_data, output_data)
+			  VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
-	_, err = s.db.Exec(query, step.ID, step.JobID, step.WorkflowStepID, step.Status,
+	_, err = s.db.Exec(query, step.ID, step.JobID, step.WorkflowStepID, step.StepOrder, step.Status,
 		inputDataJSON, outputDataJSON)
 	return err
 }
@@ -238,7 +238,7 @@ func (s *PGStore) GetJobStep(id string) (*JobStep, error) {
 
 // ListJobSteps retrieves all steps for a job
 func (s *PGStore) ListJobSteps(jobID string) ([]*JobStep, error) {
-	query := `SELECT id, job_id, workflow_step_id, status, input_data, output_data, started_at, completed_at 
+	query := `SELECT id, job_id, workflow_step_id, step_order, status, input_data, output_data, started_at, completed_at, error_message
 			  FROM job_steps WHERE job_id = $1 ORDER BY created_at`
 
 	rows, err := s.db.Query(query, jobID)
@@ -252,8 +252,8 @@ func (s *PGStore) ListJobSteps(jobID string) ([]*JobStep, error) {
 		step := &JobStep{}
 		var inputDataJSON, outputDataJSON []byte
 
-		err := rows.Scan(&step.ID, &step.JobID, &step.WorkflowStepID, &step.Status, &inputDataJSON, &outputDataJSON,
-			&step.StartedAt, &step.CompletedAt)
+		err := rows.Scan(&step.ID, &step.JobID, &step.WorkflowStepID, &step.StepOrder, &step.Status, &inputDataJSON, &outputDataJSON,
+			&step.StartedAt, &step.CompletedAt, &step.ErrorMessage)
 		if err != nil {
 			return nil, err
 		}
@@ -284,11 +284,11 @@ func (s *PGStore) UpdateJobStep(step *JobStep) error {
 		return fmt.Errorf("failed to marshal output data: %w", err)
 	}
 
-	query := `UPDATE job_steps SET status = $1, input_data = $2, output_data = $3, 
-			  started_at = $4, completed_at = $5 WHERE id = $6`
+	query := `UPDATE job_steps SET status = $1, input_data = $2, output_data = $3,
+			  started_at = $4, completed_at = $5, step_order = $6, error_message = $7 WHERE id = $8`
 
 	result, err := s.db.Exec(query, step.Status, inputDataJSON, outputDataJSON,
-		step.StartedAt, step.CompletedAt, step.ID)
+		step.StartedAt, step.CompletedAt, step.StepOrder, step.ErrorMessage, step.ID)
 	if err != nil {
 		return err
 	}

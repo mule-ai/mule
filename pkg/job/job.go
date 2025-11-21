@@ -58,11 +58,13 @@ type JobStep struct {
 	ID             string                 `json:"id" db:"id"`
 	JobID          string                 `json:"job_id" db:"job_id"`
 	WorkflowStepID string                 `json:"workflow_step_id" db:"workflow_step_id"`
+	StepOrder      int                    `json:"step_order" db:"step_order"`
 	Status         Status                 `json:"status" db:"status"`
 	InputData      map[string]interface{} `json:"input_data" db:"input_data"`
 	OutputData     map[string]interface{} `json:"output_data" db:"output_data"`
 	StartedAt      *time.Time             `json:"started_at,omitempty" db:"started_at"`
 	CompletedAt    *time.Time             `json:"completed_at,omitempty" db:"completed_at"`
+	ErrorMessage   string                 `json:"error_message,omitempty" db:"error_message"`
 }
 
 // JobStore defines interface for job persistence

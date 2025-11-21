@@ -196,11 +196,46 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	// Process each step
 	stepOutput := currentJob.InputData
 	for _, step := range steps {
+		// Create job step record
+		jobStep := &job.JobStep{
+			ID:             uuid.New().String(),
+			JobID:          jobID,
+			WorkflowStepID: step.ID,
+			StepOrder:      step.StepOrder,
+			Status:         "queued",
+			InputData:      stepOutput,
+		}
+
+		if err := e.jobStore.CreateJobStep(jobStep); err != nil {
+			_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("failed to create job step: %w", err))
+			return fmt.Errorf("failed to create job step: %w", err)
+		}
+
+		// Mark step as running
+		jobStep.Status = "running"
+		if err := e.jobStore.UpdateJobStep(jobStep); err != nil {
+			log.Printf("Warning: failed to update job step status to running: %v", err)
+		}
+
+		// Process the step
 		stepResult, err := e.processStep(ctx, step, stepOutput)
 		if err != nil {
+			jobStep.Status = "failed"
+			jobStep.ErrorMessage = err.Error()
+			if updateErr := e.jobStore.UpdateJobStep(jobStep); updateErr != nil {
+				log.Printf("Warning: failed to update failed job step: %v", updateErr)
+			}
 			_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("step %d failed: %w", step.StepOrder, err))
 			return fmt.Errorf("step %d failed: %w", step.StepOrder, err)
 		}
+
+		// Mark step as completed
+		jobStep.Status = "completed"
+		jobStep.OutputData = stepResult
+		if err := e.jobStore.UpdateJobStep(jobStep); err != nil {
+			log.Printf("Warning: failed to update completed job step: %v", err)
+		}
+
 		stepOutput = stepResult
 	}
 
@@ -282,6 +317,16 @@ func (e *Engine) processWASMStep(ctx context.Context, step *primitive.WorkflowSt
 		return nil, fmt.Errorf("failed to execute WASM module: %w", err)
 	}
 
+	// Extract just the output value from the result
+	// The WASM executor returns a map with "output", "stdout", "stderr", etc.
+	// We only want the "output" field to pass to the next step
+	if output, ok := result["output"]; ok {
+		return map[string]interface{}{
+			"output": output,
+		}, nil
+	}
+
+	// If no output field, return the whole result (backward compatibility)
 	return result, nil
 }
 
