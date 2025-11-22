@@ -10,8 +10,10 @@ function Tools() {
   const [newTool, setNewTool] = useState({
     name: '',
     description: '',
-    type: 'http',
-    config: {},
+    metadata: {
+      tool_type: 'http',
+      config: {},
+    },
   });
   const [loading, setLoading] = useState(false);
 
@@ -36,8 +38,10 @@ function Tools() {
       setNewTool({
         name: '',
         description: '',
-        type: 'http',
-        config: {},
+        metadata: {
+          tool_type: 'http',
+          config: {},
+        },
       });
       loadTools();
     } catch (error) {
@@ -97,12 +101,14 @@ function Tools() {
                 <p className="text-muted">{tool.description}</p>
                 <div className="mb-2">
                   <strong>Type:</strong>{' '}
-                  <span className="badge bg-secondary">{tool.type}</span>
+                  <span className="badge bg-secondary">
+                    {tool.metadata?.tool_type || 'unknown'}
+                  </span>
                 </div>
                 <div className="mb-3">
                   <strong>Configuration:</strong>
                   <pre className="small text-muted mt-1">
-                    {JSON.stringify(tool.config, null, 2)}
+                    {JSON.stringify(tool.metadata?.config || {}, null, 2)}
                   </pre>
                 </div>
                 <div className="d-flex gap-2">
@@ -159,9 +165,12 @@ function Tools() {
             <Form.Group className="mb-3">
               <Form.Label>Type</Form.Label>
               <Form.Select
-                value={newTool.type}
+                value={newTool.metadata.tool_type}
                 onChange={(e) =>
-                  setNewTool({ ...newTool, type: e.target.value })
+                  setNewTool({
+                    ...newTool,
+                    metadata: { ...newTool.metadata, tool_type: e.target.value }
+                  })
                 }
               >
                 <option value="http">HTTP</option>
@@ -175,11 +184,14 @@ function Tools() {
               <Form.Control
                 as="textarea"
                 rows={4}
-                value={JSON.stringify(newTool.config, null, 2)}
+                value={JSON.stringify(newTool.metadata.config, null, 2)}
                 onChange={(e) => {
                   try {
                     const config = JSON.parse(e.target.value);
-                    setNewTool({ ...newTool, config });
+                    setNewTool({
+                      ...newTool,
+                      metadata: { ...newTool.metadata, config }
+                    });
                   } catch (err) {
                     // Invalid JSON, don't update state
                   }
@@ -232,9 +244,12 @@ function Tools() {
               <Form.Group className="mb-3">
                 <Form.Label>Type</Form.Label>
                 <Form.Select
-                  value={selectedTool.type}
+                  value={selectedTool.metadata?.tool_type || 'http'}
                   onChange={(e) =>
-                    setSelectedTool({ ...selectedTool, type: e.target.value })
+                    setSelectedTool({
+                      ...selectedTool,
+                      metadata: { ...selectedTool.metadata, tool_type: e.target.value }
+                    })
                   }
                 >
                   <option value="http">HTTP</option>
@@ -248,11 +263,14 @@ function Tools() {
                 <Form.Control
                   as="textarea"
                   rows={4}
-                  value={JSON.stringify(selectedTool.config, null, 2)}
+                  value={JSON.stringify(selectedTool.metadata?.config || {}, null, 2)}
                   onChange={(e) => {
                     try {
                       const config = JSON.parse(e.target.value);
-                      setSelectedTool({ ...selectedTool, config });
+                      setSelectedTool({
+                        ...selectedTool,
+                        metadata: { ...selectedTool.metadata, config }
+                      });
                     } catch (err) {
                       // Invalid JSON, don't update state
                     }

@@ -422,10 +422,11 @@ func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
 
 // MockPrimitiveStore implements primitive.PrimitiveStore for testing
 type MockPrimitiveStore struct {
-	Agents    []*primitive.Agent
-	Workflows []*primitive.Workflow
-	Providers []*primitive.Provider
-	Tools     []*primitive.Tool
+	Agents        []*primitive.Agent
+	Workflows     []*primitive.Workflow
+	Providers     []*primitive.Provider
+	Tools         []*primitive.Tool
+	WorkflowSteps []*primitive.WorkflowStep
 }
 
 func (m *MockPrimitiveStore) CreateProvider(ctx context.Context, p *primitive.Provider) error {
@@ -581,7 +582,28 @@ func (m *MockPrimitiveStore) CreateWorkflowStep(ctx context.Context, s *primitiv
 }
 
 func (m *MockPrimitiveStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*primitive.WorkflowStep, error) {
-	return nil, nil
+	var steps []*primitive.WorkflowStep
+	for _, step := range m.WorkflowSteps {
+		if step.WorkflowID == workflowID {
+			steps = append(steps, step)
+		}
+	}
+	return steps, nil
+}
+
+func (m *MockPrimitiveStore) GetAgentTools(ctx context.Context, agentID string) ([]*primitive.Tool, error) {
+	// Return empty tools for testing - no tools by default
+	return []*primitive.Tool{}, nil
+}
+
+func (m *MockPrimitiveStore) AssignToolToAgent(ctx context.Context, agentID, toolID string) error {
+	// Mock implementation - can be extended for testing
+	return nil
+}
+
+func (m *MockPrimitiveStore) RemoveToolFromAgent(ctx context.Context, agentID, toolID string) error {
+	// Mock implementation - can be extended for testing
+	return nil
 }
 
 // MockWorkflowEngine implements agent.WorkflowEngine for testing

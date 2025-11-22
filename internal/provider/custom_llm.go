@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	adkTool "google.golang.org/adk/tool"
 	"google.golang.org/adk/model"
 	"google.golang.org/genai"
 )
@@ -107,17 +108,49 @@ func (p *CustomLLMProvider) generateStream(ctx context.Context, req *model.LLMRe
 
 // OpenAIRequest represents an OpenAI-compatible request
 type OpenAIRequest struct {
-	Model       string          `json:"model"`
-	Messages    []OpenAIMessage `json:"messages"`
-	Stream      bool            `json:"stream"`
-	Temperature float64         `json:"temperature,omitempty"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
+	Model       string                    `json:"model"`
+	Messages    []OpenAIMessage           `json:"messages"`
+	Stream      bool                      `json:"stream"`
+	Temperature float64                   `json:"temperature,omitempty"`
+	MaxTokens   int                       `json:"max_tokens,omitempty"`
+	Tools       []OpenAITool              `json:"tools,omitempty"`
+	ToolChoice  interface{}               `json:"tool_choice,omitempty"`
+}
+
+// OpenAITool represents a tool in OpenAI format
+type OpenAITool struct {
+	Type     string                    `json:"type"`
+	Function OpenAIFunctionDeclaration `json:"function"`
+}
+
+// OpenAIFunctionDeclaration represents a function declaration in OpenAI format
+type OpenAIFunctionDeclaration struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 }
 
 // OpenAIMessage represents a message in OpenAI format
 type OpenAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content,omitempty"`
+	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Name       string          `json:"name,omitempty"`
+}
+
+// OpenAIToolCall represents a tool call in OpenAI format
+type OpenAIToolCall struct {
+	ID       string               `json:"id"`
+	Type     string               `json:"type"`
+	Function OpenAIFunctionCall  `json:"function"`
+	Index    int                  `json:"index,omitempty"`
+}
+
+// OpenAIFunctionCall represents a function call in OpenAI format
+type OpenAIFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // OpenAIResponse represents an OpenAI-compatible response
@@ -130,6 +163,7 @@ type OpenAIResponse struct {
 type OpenAIChoice struct {
 	Message      OpenAIMessage `json:"message"`
 	FinishReason string        `json:"finish_reason"`
+	ToolCalls    []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
 // OpenAIUsage represents token usage in OpenAI response
@@ -144,11 +178,10 @@ func (p *CustomLLMProvider) convertToOpenAIRequest(req *model.LLMRequest) OpenAI
 	messages := make([]OpenAIMessage, 0, len(req.Contents))
 
 	for _, content := range req.Contents {
-		message := OpenAIMessage{
-			Role:    content.Role,
-			Content: p.extractTextFromContent(content),
+		message := p.convertContentToOpenAIMessage(content)
+		if message != nil {
+			messages = append(messages, *message)
 		}
-		messages = append(messages, message)
 	}
 
 	openaiReq := OpenAIRequest{
@@ -167,7 +200,160 @@ func (p *CustomLLMProvider) convertToOpenAIRequest(req *model.LLMRequest) OpenAI
 		}
 	}
 
+	// Convert tools if present
+	if req.Tools != nil && len(req.Tools) > 0 {
+		tools := make([]OpenAITool, 0, len(req.Tools))
+		for name, tool := range req.Tools {
+			// Extract tool information
+			if t, ok := tool.(adkTool.Tool); ok {
+				var parameters map[string]interface{}
+
+				// First try to get underlying tool via GetTool() method (for our adapters)
+				if toolWithGetTool, ok := tool.(interface{ GetTool() interface{} }); ok {
+					underlyingTool := toolWithGetTool.GetTool()
+					// Now check if the underlying tool has GetSchema
+					if toolWithSchema, ok := underlyingTool.(interface{ GetSchema() map[string]interface{} }); ok {
+						parameters = toolWithSchema.GetSchema()
+						fmt.Printf("Tool %s: Using schema from underlying tool\n", t.Name())
+					} else {
+						parameters = map[string]interface{}{"type": "object"}
+						fmt.Printf("Tool %s: Underlying tool has no schema\n", t.Name())
+					}
+				} else {
+					// Fallback to empty parameters
+					parameters = map[string]interface{}{"type": "object"}
+					fmt.Printf("Tool %s: No GetTool method, using empty parameters\n", t.Name())
+				}
+
+				toolDecl := OpenAITool{
+					Type: "function",
+					Function: OpenAIFunctionDeclaration{
+						Name:        t.Name(),
+						Description: t.Description(),
+						Parameters:  parameters,
+					},
+				}
+				tools = append(tools, toolDecl)
+			} else {
+				// Fallback for other tool types
+				toolDecl := OpenAITool{
+					Type: "function",
+					Function: OpenAIFunctionDeclaration{
+						Name: name,
+					},
+				}
+				tools = append(tools, toolDecl)
+			}
+		}
+		openaiReq.Tools = tools
+		fmt.Printf("Converted %d tools to OpenAI format\n", len(tools))
+	}
+
 	return openaiReq
+}
+
+// convertContentToOpenAIMessage converts a genai.Content to OpenAIMessage
+func (p *CustomLLMProvider) convertContentToOpenAIMessage(content *genai.Content) *OpenAIMessage {
+	// Check if this is a tool response (role="tool")
+	if content.Role == "tool" {
+		// Extract tool response content from FunctionResponse parts
+		var toolResponse strings.Builder
+		toolCallID := ""
+
+		for _, part := range content.Parts {
+			if part.FunctionResponse != nil {
+				// Marshal the response to JSON string
+				if part.FunctionResponse.Response != nil {
+					responseJSON, err := json.Marshal(part.FunctionResponse.Response)
+					if err == nil {
+						toolResponse.WriteString(string(responseJSON))
+					} else {
+						toolResponse.WriteString(fmt.Sprintf("{\"error\": \"failed to marshal response\"}"))
+					}
+				}
+				// Get the tool call ID from the FunctionResponse
+				if part.FunctionResponse.ID != "" {
+					toolCallID = part.FunctionResponse.ID
+				}
+			}
+		}
+
+		// If we still don't have content, use a default message
+		contentStr := toolResponse.String()
+		if contentStr == "" {
+			contentStr = "Tool execution completed"
+		}
+
+		// If we still don't have a tool call ID, generate one
+		if toolCallID == "" {
+			toolCallID = "call_" + content.Role
+		}
+
+		return &OpenAIMessage{
+			Role:       "tool",
+			Content:    contentStr,
+			ToolCallID: toolCallID,
+		}
+	}
+
+	// Check for tool calls in the parts
+	var toolCalls []OpenAIToolCall
+	var textContent strings.Builder
+
+	for _, part := range content.Parts {
+		if part.Text != "" {
+			textContent.WriteString(part.Text)
+		}
+
+		// Check if this is a function call
+		if part.FunctionCall != nil {
+			// Convert Args map to JSON string
+			argsJSON, err := json.Marshal(part.FunctionCall.Args)
+			if err != nil {
+				// If marshaling fails, use empty object
+				argsJSON = []byte("{}")
+			}
+
+			toolCall := OpenAIToolCall{
+				ID:   "call_" + part.FunctionCall.Name,
+				Type: "function",
+				Function: OpenAIFunctionCall{
+					Name:      part.FunctionCall.Name,
+					Arguments: string(argsJSON),
+				},
+			}
+			toolCalls = append(toolCalls, toolCall)
+		}
+	}
+
+	// If we have tool calls, return a message with tool calls
+	if len(toolCalls) > 0 {
+		// Map "model" role to "assistant" for OpenAI compatibility
+		role := content.Role
+		if role == "model" {
+			role = "assistant"
+		}
+		return &OpenAIMessage{
+			Role:      role,
+			Content:   "", // Empty content is required even with tool calls
+			ToolCalls: toolCalls,
+		}
+	}
+
+	// Otherwise, return a regular text message
+	if textContent.Len() > 0 {
+		// Map "model" role to "assistant" for OpenAI compatibility
+		role := content.Role
+		if role == "model" {
+			role = "assistant"
+		}
+		return &OpenAIMessage{
+			Role:    role,
+			Content: textContent.String(),
+		}
+	}
+
+	return nil
 }
 
 // extractTextFromContent extracts text content from genai.Content
@@ -187,6 +373,16 @@ func (p *CustomLLMProvider) makeHTTPRequest(ctx context.Context, req OpenAIReque
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Debug: Print the request being sent
+	fmt.Printf("DEBUG: Sending OpenAI request with %d messages\n", len(req.Messages))
+	for i, msg := range req.Messages {
+		fmt.Printf("DEBUG: Message %d - Role: %s, Content: '%s', ToolCalls: %d, ToolCallID: '%s'\n",
+			i, msg.Role, msg.Content, len(msg.ToolCalls), msg.ToolCallID)
+		for j, tc := range msg.ToolCalls {
+			fmt.Printf("DEBUG:   ToolCall %d - ID: %s, Name: %s\n", j, tc.ID, tc.Function.Name)
+		}
 	}
 
 	// Create HTTP request
@@ -225,16 +421,46 @@ func (p *CustomLLMProvider) convertOpenAIResponseToADK(body []byte) (*model.LLMR
 
 	// Convert to ADK format
 	adkResp := &model.LLMResponse{
-		Content: &genai.Content{
-			Role:  "model",
-			Parts: []*genai.Part{{Text: choice.Message.Content}},
-		},
 		UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
 			PromptTokenCount:     int32(openaiResp.Usage.PromptTokens),
 			CandidatesTokenCount: int32(openaiResp.Usage.CompletionTokens),
 			TotalTokenCount:      int32(openaiResp.Usage.TotalTokens),
 		},
 		FinishReason: genai.FinishReasonStop,
+	}
+
+	// Handle content and tool calls
+	if len(choice.Message.ToolCalls) > 0 {
+		// This is a tool call response
+		adkResp.Content = &genai.Content{
+			Role: "model",
+		}
+
+		// Convert tool calls to genai.Parts
+		for _, toolCall := range choice.Message.ToolCalls {
+			// Parse the arguments JSON string into a map
+			var args map[string]interface{}
+			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+				// If parsing fails, use empty args
+				args = make(map[string]interface{})
+			}
+
+			part := &genai.Part{
+				FunctionCall: &genai.FunctionCall{
+					ID:   toolCall.ID,
+					Name: toolCall.Function.Name,
+					Args: args,
+				},
+			}
+			adkResp.Content.Parts = append(adkResp.Content.Parts, part)
+		}
+		fmt.Printf("Converted %d tool calls to ADK format\n", len(choice.Message.ToolCalls))
+	} else {
+		// This is a regular text response
+		adkResp.Content = &genai.Content{
+			Role:  "model",
+			Parts: []*genai.Part{{Text: choice.Message.Content}},
+		}
 	}
 
 	// Map finish reason

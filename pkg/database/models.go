@@ -19,8 +19,7 @@ type Tool struct {
 	ID          string    `json:"id" db:"id"`
 	Name        string    `json:"name" db:"name"`
 	Description string    `json:"description" db:"description"`
-	Type        string    `json:"type" db:"type"`
-	Config      []byte    `json:"config" db:"config"` // JSON configuration
+	Metadata    []byte    `json:"metadata" db:"metadata"` // JSON metadata
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }

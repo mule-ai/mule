@@ -26,9 +26,15 @@ func NewToolManager(db *database.DB) *ToolManager {
 func (tm *ToolManager) CreateTool(ctx context.Context, name, description, toolType string, config map[string]interface{}) (*dbmodels.Tool, error) {
 	id := uuid.New().String()
 
-	configBytes, err := json.Marshal(config)
+	// Create metadata object combining type and config
+	metadata := map[string]interface{}{
+		"tool_type": toolType,
+		"config":    config,
+	}
+
+	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal config: %w", err)
+		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
 	now := time.Now()
@@ -36,14 +42,13 @@ func (tm *ToolManager) CreateTool(ctx context.Context, name, description, toolTy
 		ID:          id,
 		Name:        name,
 		Description: description,
-		Type:        toolType,
-		Config:      configBytes,
+		Metadata:    metadataBytes,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 
-	query := `INSERT INTO tools (id, name, description, type, config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
-	_, err = tm.db.ExecContext(ctx, query, tool.ID, tool.Name, tool.Description, tool.Type, tool.Config, tool.CreatedAt, tool.UpdatedAt)
+	query := `INSERT INTO tools (id, name, description, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
+	_, err = tm.db.ExecContext(ctx, query, tool.ID, tool.Name, tool.Description, tool.Metadata, tool.CreatedAt, tool.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert tool: %w", err)
 	}
@@ -53,14 +58,13 @@ func (tm *ToolManager) CreateTool(ctx context.Context, name, description, toolTy
 
 // GetTool retrieves a tool by ID
 func (tm *ToolManager) GetTool(ctx context.Context, id string) (*dbmodels.Tool, error) {
-	query := `SELECT id, name, description, type, config, created_at, updated_at FROM tools WHERE id = $1`
+	query := `SELECT id, name, description, metadata, created_at, updated_at FROM tools WHERE id = $1`
 	tool := &dbmodels.Tool{}
 	err := tm.db.QueryRowContext(ctx, query, id).Scan(
 		&tool.ID,
 		&tool.Name,
 		&tool.Description,
-		&tool.Type,
-		&tool.Config,
+		&tool.Metadata,
 		&tool.CreatedAt,
 		&tool.UpdatedAt,
 	)
@@ -76,7 +80,7 @@ func (tm *ToolManager) GetTool(ctx context.Context, id string) (*dbmodels.Tool, 
 
 // ListTools lists all tools
 func (tm *ToolManager) ListTools(ctx context.Context) ([]*dbmodels.Tool, error) {
-	query := `SELECT id, name, description, type, config, created_at, updated_at FROM tools ORDER BY created_at DESC`
+	query := `SELECT id, name, description, metadata, created_at, updated_at FROM tools ORDER BY created_at DESC`
 	rows, err := tm.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tools: %w", err)
@@ -90,8 +94,7 @@ func (tm *ToolManager) ListTools(ctx context.Context) ([]*dbmodels.Tool, error) 
 			&tool.ID,
 			&tool.Name,
 			&tool.Description,
-			&tool.Type,
-			&tool.Config,
+			&tool.Metadata,
 			&tool.CreatedAt,
 			&tool.UpdatedAt,
 		)
@@ -111,19 +114,24 @@ func (tm *ToolManager) UpdateTool(ctx context.Context, id, name, description, to
 		return nil, err
 	}
 
-	configBytes, err := json.Marshal(config)
+	// Create metadata object combining type and config
+	metadata := map[string]interface{}{
+		"tool_type": toolType,
+		"config":    config,
+	}
+
+	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal config: %w", err)
+		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
 	tool.Name = name
 	tool.Description = description
-	tool.Type = toolType
-	tool.Config = configBytes
+	tool.Metadata = metadataBytes
 	tool.UpdatedAt = time.Now()
 
-	query := `UPDATE tools SET name = $1, description = $2, type = $3, config = $4, updated_at = $5 WHERE id = $6`
-	_, err = tm.db.ExecContext(ctx, query, tool.Name, tool.Description, tool.Type, tool.Config, tool.UpdatedAt, tool.ID)
+	query := `UPDATE tools SET name = $1, description = $2, metadata = $3, updated_at = $4 WHERE id = $5`
+	_, err = tm.db.ExecContext(ctx, query, tool.Name, tool.Description, tool.Metadata, tool.UpdatedAt, tool.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update tool: %w", err)
 	}
@@ -158,9 +166,15 @@ func (tm *ToolManager) GetToolConfig(ctx context.Context, id string) (map[string
 		return nil, err
 	}
 
-	var config map[string]interface{}
-	if err := json.Unmarshal(tool.Config, &config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tool config: %w", err)
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(tool.Metadata, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tool metadata: %w", err)
+	}
+
+	// Extract config from metadata
+	config, ok := metadata["config"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("tool metadata missing config field")
 	}
 
 	return config, nil

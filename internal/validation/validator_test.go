@@ -68,10 +68,12 @@ func TestValidateTool(t *testing.T) {
 			name: "valid tool",
 			tool: &primitive.Tool{
 				Name:        "weather",
-				Type:        "http",
 				Description: "Get weather information",
-				Config: map[string]interface{}{
-					"url": "https://api.weather.com",
+				Metadata: map[string]interface{}{
+					"tool_type": "http",
+					"config": map[string]interface{}{
+						"url": "https://api.weather.com",
+					},
 				},
 			},
 			wantErr: false,
@@ -79,10 +81,12 @@ func TestValidateTool(t *testing.T) {
 		{
 			name: "missing name",
 			tool: &primitive.Tool{
-				Type:        "http",
 				Description: "Get weather information",
-				Config: map[string]interface{}{
-					"url": "https://api.weather.com",
+				Metadata: map[string]interface{}{
+					"tool_type": "http",
+					"config": map[string]interface{}{
+						"url": "https://api.weather.com",
+					},
 				},
 			},
 			wantErr: true,
@@ -92,8 +96,10 @@ func TestValidateTool(t *testing.T) {
 			tool: &primitive.Tool{
 				Name:        "weather",
 				Description: "Get weather information",
-				Config: map[string]interface{}{
-					"url": "https://api.weather.com",
+				Metadata: map[string]interface{}{
+					"config": map[string]interface{}{
+						"url": "https://api.weather.com",
+					},
 				},
 			},
 			wantErr: true,
@@ -102,10 +108,12 @@ func TestValidateTool(t *testing.T) {
 			name: "invalid type",
 			tool: &primitive.Tool{
 				Name:        "weather",
-				Type:        "invalid",
 				Description: "Get weather information",
-				Config: map[string]interface{}{
-					"url": "https://api.weather.com",
+				Metadata: map[string]interface{}{
+					"tool_type": "invalid",
+					"config": map[string]interface{}{
+						"url": "https://api.weather.com",
+					},
 				},
 			},
 			wantErr: true,

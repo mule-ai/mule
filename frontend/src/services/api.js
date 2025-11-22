@@ -35,6 +35,9 @@ export const agentsAPI = {
   create: (data) => api.post('/api/v1/agents', data),
   update: (id, data) => api.put(`/api/v1/agents/${id}`, data),
   delete: (id) => api.delete(`/api/v1/agents/${id}`),
+  getTools: (id) => api.get(`/api/v1/agents/${id}/tools`),
+  assignTool: (id, toolId) => api.post(`/api/v1/agents/${id}/tools`, { tool_id: toolId }),
+  removeTool: (id, toolId) => api.delete(`/api/v1/agents/${id}/tools/${toolId}`),
 };
 
 // Workflow APIs

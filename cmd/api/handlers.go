@@ -555,6 +555,59 @@ func (h *apiHandler) deleteAgentHandler(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *apiHandler) getAgentToolsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	agentID := vars["id"]
+
+	tools, err := h.store.GetAgentTools(ctx, agentID)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to get agent tools: %w", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(tools)
+}
+
+func (h *apiHandler) assignToolToAgentHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	agentID := vars["id"]
+
+	var request struct {
+		ToolID string `json:"tool_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		api.HandleError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	if err := h.store.AssignToolToAgent(ctx, agentID, request.ToolID); err != nil {
+		api.HandleError(w, fmt.Errorf("failed to assign tool to agent: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *apiHandler) removeToolFromAgentHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	agentID := vars["id"]
+	toolID := vars["toolId"]
+
+	if err := h.store.RemoveToolFromAgent(ctx, agentID, toolID); err != nil {
+		if err == primitive.ErrNotFound {
+			api.HandleError(w, fmt.Errorf("tool not assigned to agent"), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to remove tool from agent: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Workflow handlers
 func (h *apiHandler) listWorkflowsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

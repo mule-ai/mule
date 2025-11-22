@@ -153,6 +153,9 @@ func main() {
 	router.HandleFunc("/api/v1/agents/{id}", handler.getAgentHandler).Methods("GET")
 	router.HandleFunc("/api/v1/agents/{id}", handler.updateAgentHandler).Methods("PUT")
 	router.HandleFunc("/api/v1/agents/{id}", handler.deleteAgentHandler).Methods("DELETE")
+	router.HandleFunc("/api/v1/agents/{id}/tools", handler.getAgentToolsHandler).Methods("GET")
+	router.HandleFunc("/api/v1/agents/{id}/tools", handler.assignToolToAgentHandler).Methods("POST")
+	router.HandleFunc("/api/v1/agents/{id}/tools/{toolId}", handler.removeToolFromAgentHandler).Methods("DELETE")
 
 	router.HandleFunc("/api/v1/workflows", handler.listWorkflowsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/workflows", handler.createWorkflowHandler).Methods("POST")

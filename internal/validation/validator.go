@@ -86,25 +86,34 @@ func (v *Validator) ValidateTool(tool *primitive.Tool) ValidationErrors {
 		})
 	}
 
-	if strings.TrimSpace(tool.Type) == "" {
+	if tool.Metadata == nil {
 		errors = append(errors, ValidationError{
-			Field:   "type",
-			Message: "Type is required",
+			Field:   "metadata",
+			Message: "Metadata is required",
 		})
 	} else {
-		validTypes := []string{"http", "database", "memory", "filesystem"}
-		isValid := false
-		for _, validType := range validTypes {
-			if tool.Type == validType {
-				isValid = true
-				break
-			}
-		}
-		if !isValid {
+		// Extract tool_type from metadata
+		toolType, ok := tool.Metadata["tool_type"].(string)
+		if !ok || strings.TrimSpace(toolType) == "" {
 			errors = append(errors, ValidationError{
-				Field:   "type",
-				Message: "Type must be one of: http, database, memory, filesystem",
+				Field:   "metadata.tool_type",
+				Message: "Tool type is required in metadata",
 			})
+		} else {
+			validTypes := []string{"http", "database", "memory", "filesystem"}
+			isValid := false
+			for _, validType := range validTypes {
+				if toolType == validType {
+					isValid = true
+					break
+				}
+			}
+			if !isValid {
+				errors = append(errors, ValidationError{
+					Field:   "metadata.tool_type",
+					Message: "Tool type must be one of: http, database, memory, filesystem",
+				})
+			}
 		}
 	}
 

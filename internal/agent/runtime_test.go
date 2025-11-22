@@ -256,6 +256,21 @@ func (m *MockAgentStore) ListWorkflowSteps(ctx context.Context, workflowID strin
 	return nil, nil
 }
 
+func (m *MockAgentStore) GetAgentTools(ctx context.Context, agentID string) ([]*primitive.Tool, error) {
+	// Return empty tools for testing - no tools by default
+	return []*primitive.Tool{}, nil
+}
+
+func (m *MockAgentStore) AssignToolToAgent(ctx context.Context, agentID, toolID string) error {
+	// Mock implementation - can be extended for testing
+	return nil
+}
+
+func (m *MockAgentStore) RemoveToolFromAgent(ctx context.Context, agentID, toolID string) error {
+	// Mock implementation - can be extended for testing
+	return nil
+}
+
 // MockJobStore implements job.JobStore for testing
 type MockJobStore struct{}
 

@@ -103,34 +103,34 @@ func (s *PGStore) CreateTool(ctx context.Context, t *Tool) error {
 	if t.ID == "" {
 		t.ID = uuid.New().String()
 	}
-	configJSON, err := json.Marshal(t.Config)
+	metadataJSON, err := json.Marshal(t.Metadata)
 	if err != nil {
-		return fmt.Errorf("failed to marshal tool config: %w", err)
+		return fmt.Errorf("failed to marshal tool metadata: %w", err)
 	}
-	query := `INSERT INTO tools (id, name, description, type, config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
-	_, err = s.db.ExecContext(ctx, query, t.ID, t.Name, t.Description, t.Type, configJSON)
+	query := `INSERT INTO tools (id, name, description, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())`
+	_, err = s.db.ExecContext(ctx, query, t.ID, t.Name, t.Description, metadataJSON)
 	return err
 }
 
 func (s *PGStore) GetTool(ctx context.Context, id string) (*Tool, error) {
 	t := &Tool{}
-	var configJSON []byte
-	query := `SELECT id, name, description, type, config, created_at, updated_at FROM tools WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&t.ID, &t.Name, &t.Description, &t.Type, &configJSON, &t.CreatedAt, &t.UpdatedAt)
+	var metadataJSON []byte
+	query := `SELECT id, name, description, metadata, created_at, updated_at FROM tools WHERE id = $1`
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&t.ID, &t.Name, &t.Description, &metadataJSON, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err = json.Unmarshal(configJSON, &t.Config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tool config: %w", err)
+	if err = json.Unmarshal(metadataJSON, &t.Metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tool metadata: %w", err)
 	}
 	return t, nil
 }
 
 func (s *PGStore) ListTools(ctx context.Context) ([]*Tool, error) {
-	query := `SELECT id, name, description, type, config, created_at, updated_at FROM tools ORDER BY name`
+	query := `SELECT id, name, description, metadata, created_at, updated_at FROM tools ORDER BY name`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -140,13 +140,13 @@ func (s *PGStore) ListTools(ctx context.Context) ([]*Tool, error) {
 	var tools []*Tool
 	for rows.Next() {
 		t := &Tool{}
-		var configJSON []byte
-		err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Type, &configJSON, &t.CreatedAt, &t.UpdatedAt)
+		var metadataJSON []byte
+		err := rows.Scan(&t.ID, &t.Name, &t.Description, &metadataJSON, &t.CreatedAt, &t.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
-		if err = json.Unmarshal(configJSON, &t.Config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal tool config: %w", err)
+		if err = json.Unmarshal(metadataJSON, &t.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tool metadata: %w", err)
 		}
 		tools = append(tools, t)
 	}
@@ -154,12 +154,12 @@ func (s *PGStore) ListTools(ctx context.Context) ([]*Tool, error) {
 }
 
 func (s *PGStore) UpdateTool(ctx context.Context, t *Tool) error {
-	configJSON, err := json.Marshal(t.Config)
+	metadataJSON, err := json.Marshal(t.Metadata)
 	if err != nil {
-		return fmt.Errorf("failed to marshal tool config: %w", err)
+		return fmt.Errorf("failed to marshal tool metadata: %w", err)
 	}
-	query := `UPDATE tools SET name = $1, description = $2, type = $3, config = $4, updated_at = NOW() WHERE id = $5`
-	res, err := s.db.ExecContext(ctx, query, t.Name, t.Description, t.Type, configJSON, t.ID)
+	query := `UPDATE tools SET name = $1, description = $2, metadata = $3, updated_at = NOW() WHERE id = $4`
+	res, err := s.db.ExecContext(ctx, query, t.Name, t.Description, metadataJSON, t.ID)
 	if err != nil {
 		return err
 	}
@@ -366,4 +366,79 @@ func (s *PGStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*
 		steps = append(steps, step)
 	}
 	return steps, rows.Err()
+}
+
+// GetAgentTools retrieves tools associated with an agent
+func (s *PGStore) GetAgentTools(ctx context.Context, agentID string) ([]*Tool, error) {
+	query := `
+		SELECT t.id, t.name, t.description, t.metadata, t.created_at, t.updated_at
+		FROM tools t
+		JOIN agent_tools at ON t.id = at.tool_id
+		WHERE at.agent_id = $1
+		ORDER BY t.created_at DESC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query agent tools: %w", err)
+	}
+	defer rows.Close()
+
+	var tools []*Tool
+	for rows.Next() {
+		tool := &Tool{}
+		var metadataJSON []byte
+		err := rows.Scan(
+			&tool.ID,
+			&tool.Name,
+			&tool.Description,
+			&metadataJSON,
+			&tool.CreatedAt,
+			&tool.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan tool: %w", err)
+		}
+		if err = json.Unmarshal(metadataJSON, &tool.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tool metadata: %w", err)
+		}
+		tools = append(tools, tool)
+	}
+
+	return tools, rows.Err()
+}
+
+// AssignToolToAgent assigns a tool to an agent
+func (s *PGStore) AssignToolToAgent(ctx context.Context, agentID, toolID string) error {
+	query := `INSERT INTO agent_tools (agent_id, tool_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	_, err := s.db.ExecContext(ctx, query, agentID, toolID)
+	if err != nil {
+		return fmt.Errorf("failed to assign tool to agent: %w", err)
+	}
+	return nil
+}
+
+// RemoveToolFromAgent removes a tool from an agent
+func (s *PGStore) RemoveToolFromAgent(ctx context.Context, agentID, toolID string) error {
+	query := `DELETE FROM agent_tools WHERE agent_id = $1 AND tool_id = $2`
+	result, err := s.db.ExecContext(ctx, query, agentID, toolID)
+	if err != nil {
+		return fmt.Errorf("failed to remove tool from agent: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// DB returns the underlying database connection
+func (s *PGStore) DB() *sql.DB {
+	return s.db
 }

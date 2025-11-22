@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Button, Form, Modal, ListGroup } from 'react-bootstrap';
-import { agentsAPI, providersAPI, chatAPI } from '../services/api';
+import { agentsAPI, providersAPI, chatAPI, toolsAPI } from '../services/api';
 import FilterableDropdown from '../components/FilterableDropdown';
 
 function Agents() {
   const [agents, setAgents] = useState([]);
   const [providers, setProviders] = useState([]);
   const [models, setModels] = useState([]);
+  const [tools, setTools] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showToolsModal, setShowToolsModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  const [selectedAgentTools, setSelectedAgentTools] = useState([]);
   const [newAgent, setNewAgent] = useState({
     name: '',
     description: '',
@@ -22,6 +25,7 @@ function Agents() {
   useEffect(() => {
     loadAgents();
     loadProviders();
+    loadTools();
   }, []);
 
   const loadAgents = async () => {
@@ -39,6 +43,25 @@ function Agents() {
       setProviders(response.data || []);
     } catch (error) {
       console.error('Failed to load providers:', error);
+    }
+  };
+
+  const loadTools = async () => {
+    try {
+      const response = await toolsAPI.list();
+      setTools(response.data || []);
+    } catch (error) {
+      console.error('Failed to load tools:', error);
+    }
+  };
+
+  const loadAgentTools = async (agentId) => {
+    try {
+      const response = await agentsAPI.getTools(agentId);
+      setSelectedAgentTools(response.data || []);
+    } catch (error) {
+      console.error('Failed to load agent tools:', error);
+      setSelectedAgentTools([]);
     }
   };
 
@@ -121,6 +144,40 @@ function Agents() {
     }
   };
 
+  const openToolsModal = async (agent) => {
+    setSelectedAgent(agent);
+    await loadAgentTools(agent.id);
+    setShowToolsModal(true);
+  };
+
+  const handleAssignTool = async (toolId) => {
+    if (!selectedAgent) return;
+
+    setLoading(true);
+    try {
+      await agentsAPI.assignTool(selectedAgent.id, toolId);
+      await loadAgentTools(selectedAgent.id);
+    } catch (error) {
+      console.error('Failed to assign tool:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveTool = async (toolId) => {
+    if (!selectedAgent) return;
+
+    setLoading(true);
+    try {
+      await agentsAPI.removeTool(selectedAgent.id, toolId);
+      await loadAgentTools(selectedAgent.id);
+    } catch (error) {
+      console.error('Failed to remove tool:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
@@ -160,6 +217,13 @@ function Agents() {
                     onClick={() => openEditModal(agent)}
                   >
                     Edit
+                  </Button>
+                  <Button
+                    variant="outline-info"
+                    size="sm"
+                    onClick={() => openToolsModal(agent)}
+                  >
+                    Tools
                   </Button>
                   <Button
                     variant="outline-danger"
@@ -342,6 +406,75 @@ function Agents() {
           </Button>
           <Button variant="primary" onClick={handleUpdateAgent} disabled={loading}>
             {loading ? 'Updating...' : 'Update'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Tools Management Modal */}
+      <Modal show={showToolsModal} onHide={() => setShowToolsModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Manage Tools for {selectedAgent?.name}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {selectedAgent && (
+            <>
+              <h6>Assigned Tools</h6>
+              {selectedAgentTools.length > 0 ? (
+                <ListGroup className="mb-4">
+                  {selectedAgentTools.map((tool) => (
+                    <ListGroup.Item key={tool.id} className="d-flex justify-content-between align-items-center">
+                      <div>
+                        <strong>{tool.name}</strong>
+                        <div className="small text-muted">{tool.description}</div>
+                        <div className="small text-muted">
+                          Type: {tool.metadata?.tool_type || 'N/A'}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline-danger"
+                        size="sm"
+                        onClick={() => handleRemoveTool(tool.id)}
+                        disabled={loading}
+                      >
+                        Remove
+                      </Button>
+                    </ListGroup.Item>
+                  ))}
+                </ListGroup>
+              ) : (
+                <p className="text-muted mb-4">No tools assigned to this agent.</p>
+              )}
+
+              <h6>Available Tools</h6>
+              <ListGroup>
+                {tools
+                  .filter((tool) => !selectedAgentTools.find((t) => t.id === tool.id))
+                  .map((tool) => (
+                    <ListGroup.Item key={tool.id} className="d-flex justify-content-between align-items-center">
+                      <div>
+                        <strong>{tool.name}</strong>
+                        <div className="small text-muted">{tool.description}</div>
+                        <div className="small text-muted">
+                          Type: {tool.metadata?.tool_type || 'N/A'}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline-success"
+                        size="sm"
+                        onClick={() => handleAssignTool(tool.id)}
+                        disabled={loading}
+                      >
+                        Assign
+                      </Button>
+                    </ListGroup.Item>
+                  ))}
+              </ListGroup>
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowToolsModal(false)}>
+            Close
           </Button>
         </Modal.Footer>
       </Modal>

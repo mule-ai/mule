@@ -169,7 +169,7 @@ func (am *AgentManager) RemoveToolFromAgent(ctx context.Context, agentID, toolID
 // GetAgentTools gets all tools for an agent
 func (am *AgentManager) GetAgentTools(ctx context.Context, agentID string) ([]*dbmodels.Tool, error) {
 	query := `
-		SELECT t.id, t.name, t.description, t.type, t.config, t.created_at, t.updated_at
+		SELECT t.id, t.name, t.description, t.metadata, t.created_at, t.updated_at
 		FROM tools t
 		JOIN agent_tools at ON t.id = at.tool_id
 		WHERE at.agent_id = $1
@@ -189,8 +189,7 @@ func (am *AgentManager) GetAgentTools(ctx context.Context, agentID string) ([]*d
 			&tool.ID,
 			&tool.Name,
 			&tool.Description,
-			&tool.Type,
-			&tool.Config,
+			&tool.Metadata,
 			&tool.CreatedAt,
 			&tool.UpdatedAt,
 		)

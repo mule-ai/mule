@@ -211,10 +211,12 @@ func TestTool(t *testing.T) {
 	tool := &Tool{
 		ID:          "test-tool",
 		Name:        "Test Tool",
-		Type:        "api",
 		Description: "Test tool",
-		Config: map[string]interface{}{
-			"url": "https://api.example.com",
+		Metadata: map[string]interface{}{
+			"tool_type": "api",
+			"config": map[string]interface{}{
+				"url": "https://api.example.com",
+			},
 		},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -222,8 +224,9 @@ func TestTool(t *testing.T) {
 
 	assert.Equal(t, "test-tool", tool.ID)
 	assert.Equal(t, "Test Tool", tool.Name)
-	assert.Equal(t, "api", tool.Type)
-	assert.Equal(t, "https://api.example.com", tool.Config["url"])
+	assert.Equal(t, "api", tool.Metadata["tool_type"])
+	config := tool.Metadata["config"].(map[string]interface{})
+	assert.Equal(t, "https://api.example.com", config["url"])
 }
 
 func TestAgent(t *testing.T) {
@@ -297,9 +300,8 @@ func TestMockStore(t *testing.T) {
 	tool := &Tool{
 		ID:          "test-tool",
 		Name:        "Test Tool",
-		Type:        "api",
 		Description: "Test tool",
-		Config:      map[string]interface{}{"url": "https://api.example.com"},
+		Metadata:    map[string]interface{}{"tool_type": "api", "config": map[string]interface{}{"url": "https://api.example.com"}},
 	}
 
 	err = store.CreateTool(ctx, tool)

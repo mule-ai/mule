@@ -21,8 +21,7 @@ type Tool struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
-	Type        string                 `json:"type"`
-	Config      map[string]interface{} `json:"config"`
+	Metadata    map[string]interface{} `json:"metadata"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
@@ -89,6 +88,15 @@ type PrimitiveStore interface {
 
 	CreateWorkflowStep(ctx context.Context, s *WorkflowStep) error
 	ListWorkflowSteps(ctx context.Context, workflowID string) ([]*WorkflowStep, error)
+
+	// GetAgentTools retrieves tools associated with an agent
+	GetAgentTools(ctx context.Context, agentID string) ([]*Tool, error)
+
+	// AssignToolToAgent assigns a tool to an agent
+	AssignToolToAgent(ctx context.Context, agentID, toolID string) error
+
+	// RemoveToolFromAgent removes a tool from an agent
+	RemoveToolFromAgent(ctx context.Context, agentID, toolID string) error
 }
 
 // ErrNotFound is returned when a requested primitive is not found.
