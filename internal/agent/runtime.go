@@ -558,9 +558,7 @@ func (r *Runtime) ExecuteWorkflow(ctx context.Context, req *ChatCompletionReques
 	// Concatenate messages for input data
 	var prompt strings.Builder
 	for _, msg := range req.Messages {
-		if msg.Role == "user" {
-			prompt.WriteString(msg.Content + "\n")
-		}
+		prompt.WriteString(msg.Content + "\n")
 	}
 
 	// Prepare input data
