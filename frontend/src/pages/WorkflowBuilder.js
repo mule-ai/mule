@@ -10,6 +10,8 @@ function WorkflowBuilder() {
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showStepModal, setShowStepModal] = useState(false);
+  const [showEditStepModal, setShowEditStepModal] = useState(false);
+  const [editingStep, setEditingStep] = useState(null);
   const [newWorkflow, setNewWorkflow] = useState({ name: '', description: '' });
   const [newStep, setNewStep] = useState({ type: 'agent', agent_id: '', wasm_module_id: '', config: {} });
   const [loading, setLoading] = useState(false);
@@ -111,6 +113,59 @@ function WorkflowBuilder() {
     }
   };
 
+  const handleEditStep = (step) => {
+    setEditingStep(step);
+    setShowEditStepModal(true);
+  };
+
+  const handleUpdateStep = async () => {
+    if (!editingStep || !selectedWorkflow) return;
+
+    setLoading(true);
+    try {
+      // Transform step_type to type for backend compatibility
+      const stepData = {
+        ...editingStep,
+        type: editingStep.step_type
+      };
+      delete stepData.step_type;
+
+      // Clean up the data based on step type
+      if (stepData.type === 'wasm_module') {
+        delete stepData.agent_id;
+      } else if (stepData.type === 'agent') {
+        delete stepData.wasm_module_id;
+      }
+
+      await workflowsAPI.updateStep(selectedWorkflow.id, editingStep.id, stepData);
+      setShowEditStepModal(false);
+      setEditingStep(null);
+      loadWorkflowSteps(selectedWorkflow.id);
+    } catch (error) {
+      console.error('Failed to update step:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteStep = async (stepId) => {
+    if (!selectedWorkflow) return;
+
+    if (!window.confirm('Are you sure you want to delete this step?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await workflowsAPI.deleteStep(selectedWorkflow.id, stepId);
+      loadWorkflowSteps(selectedWorkflow.id);
+    } catch (error) {
+      console.error('Failed to delete step:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const selectWorkflow = (workflow) => {
     setSelectedWorkflow(workflow);
     loadWorkflowSteps(workflow.id);
@@ -187,7 +242,24 @@ function WorkflowBuilder() {
                               </span>
                             )}
                           </div>
-                          <small className="text-muted">Order: {step.step_order}</small>
+                          <div>
+                            <small className="text-muted me-2">Order: {step.step_order}</small>
+                            <Button
+                              variant="outline-primary"
+                              size="sm"
+                              className="me-1"
+                              onClick={() => handleEditStep(step)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline-danger"
+                              size="sm"
+                              onClick={() => handleDeleteStep(step.id)}
+                            >
+                              Delete
+                            </Button>
+                          </div>
                         </div>
                       </ListGroup.Item>
                     ))}
@@ -310,6 +382,86 @@ function WorkflowBuilder() {
           </Button>
           <Button variant="primary" onClick={handleCreateStep} disabled={loading}>
             {loading ? 'Adding...' : 'Add Step'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Edit Step Modal */}
+      <Modal show={showEditStepModal} onHide={() => setShowEditStepModal(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Edit Workflow Step</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {editingStep && (
+            <Form>
+              <Form.Group className="mb-3">
+                <Form.Label>Step Order</Form.Label>
+                <Form.Control
+                  type="number"
+                  value={editingStep.step_order}
+                  onChange={(e) =>
+                    setEditingStep({ ...editingStep, step_order: parseInt(e.target.value) || 0 })
+                  }
+                  required
+                />
+              </Form.Group>
+              <Form.Group className="mb-3">
+                <Form.Label>Step Type</Form.Label>
+                <Form.Select
+                  value={editingStep.step_type}
+                  onChange={(e) => setEditingStep({ ...editingStep, step_type: e.target.value })}
+                >
+                  <option value="agent">Agent</option>
+                  <option value="wasm_module">WASM Module</option>
+                </Form.Select>
+              </Form.Group>
+
+              {editingStep.step_type === 'agent' && (
+                <Form.Group className="mb-3">
+                  <Form.Label>Agent</Form.Label>
+                  <Form.Select
+                    value={editingStep.agent_id || ''}
+                    onChange={(e) =>
+                      setEditingStep({ ...editingStep, agent_id: e.target.value })
+                    }
+                  >
+                    <option value="">Select an agent...</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              )}
+
+              {editingStep.step_type === 'wasm_module' && (
+                <Form.Group className="mb-3">
+                  <Form.Label>WASM Module</Form.Label>
+                  <Form.Select
+                    value={editingStep.wasm_module_id || ''}
+                    onChange={(e) =>
+                      setEditingStep({ ...editingStep, wasm_module_id: e.target.value })
+                    }
+                  >
+                    <option value="">Select a WASM module...</option>
+                    {Array.isArray(wasmModules) && wasmModules.map((module) => (
+                      <option key={module.id} value={module.id}>
+                        {module.name}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              )}
+            </Form>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowEditStepModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleUpdateStep} disabled={loading}>
+            {loading ? 'Updating...' : 'Update Step'}
           </Button>
         </Modal.Footer>
       </Modal>

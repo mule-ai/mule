@@ -49,6 +49,8 @@ export const workflowsAPI = {
   delete: (id) => api.delete(`/api/v1/workflows/${id}`),
   getSteps: (id) => api.get(`/api/v1/workflows/${id}/steps`),
   createStep: (id, data) => api.post(`/api/v1/workflows/${id}/steps`, data),
+  updateStep: (workflowId, stepId, data) => api.put(`/api/v1/workflows/${workflowId}/steps/${stepId}`, data),
+  deleteStep: (workflowId, stepId) => api.delete(`/api/v1/workflows/${workflowId}/steps/${stepId}`),
 };
 
 // Job APIs

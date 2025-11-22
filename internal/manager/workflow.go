@@ -249,10 +249,36 @@ func (wm *WorkflowManager) GetWorkflowStep(ctx context.Context, id string) (*dbm
 	return step, nil
 }
 
-// DeleteWorkflowStep deletes a workflow step
+// DeleteWorkflowStep deletes a workflow step and its associated job steps
 func (wm *WorkflowManager) DeleteWorkflowStep(ctx context.Context, id string) error {
-	query := `DELETE FROM workflow_steps WHERE id = $1`
-	result, err := wm.db.ExecContext(ctx, query, id)
+	// Start a transaction to ensure atomicity
+	tx, err := wm.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get the workflow ID before deleting the step
+	var workflowID string
+	getWorkflowIDQuery := `SELECT workflow_id FROM workflow_steps WHERE id = $1`
+	err = tx.QueryRowContext(ctx, getWorkflowIDQuery, id).Scan(&workflowID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("workflow step not found: %s", id)
+		}
+		return fmt.Errorf("failed to get workflow ID: %w", err)
+	}
+
+	// First, delete any job steps that reference this workflow step
+	deleteJobStepsQuery := `DELETE FROM job_steps WHERE workflow_step_id = $1`
+	_, err = tx.ExecContext(ctx, deleteJobStepsQuery, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete associated job steps: %w", err)
+	}
+
+	// Then, delete the workflow step itself
+	deleteStepQuery := `DELETE FROM workflow_steps WHERE id = $1`
+	result, err := tx.ExecContext(ctx, deleteStepQuery, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete workflow step: %w", err)
 	}
@@ -264,6 +290,28 @@ func (wm *WorkflowManager) DeleteWorkflowStep(ctx context.Context, id string) er
 
 	if rowsAffected == 0 {
 		return fmt.Errorf("workflow step not found: %s", id)
+	}
+
+	// Renumber remaining steps for this workflow
+	renumberQuery := `
+		WITH numbered_steps AS (
+			SELECT id, ROW_NUMBER() OVER (ORDER BY step_order) as new_order
+			FROM workflow_steps
+			WHERE workflow_id = $1
+		)
+		UPDATE workflow_steps ws
+		SET step_order = ns.new_order
+		FROM numbered_steps ns
+		WHERE ws.id = ns.id
+	`
+	_, err = tx.ExecContext(ctx, renumberQuery, workflowID)
+	if err != nil {
+		return fmt.Errorf("failed to renumber workflow steps: %w", err)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

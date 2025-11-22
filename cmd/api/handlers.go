@@ -30,6 +30,7 @@ type apiHandler struct {
 	validator       *validation.Validator
 	wasmModuleMgr   *manager.WasmModuleManager
 	workflowEngine  *engine.Engine
+	workflowMgr     *manager.WorkflowManager
 }
 
 func NewAPIHandler(db *internaldb.DB) *apiHandler {
@@ -37,6 +38,7 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
 	validator := validation.NewValidator()
 	wasmModuleMgr := manager.NewWasmModuleManager(db)
+	workflowMgr := manager.NewWorkflowManager(db)
 
 	// Create WASM executor
 	wasmExecutor := engine.NewWASMExecutor(db.DB)
@@ -53,12 +55,13 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	runtime.SetWorkflowEngine(workflowEngine)
 
 	return &apiHandler{
-		store:         store,
-		runtime:       runtime,
-		jobStore:      jobStore,
-		validator:     validator,
-		wasmModuleMgr: wasmModuleMgr,
+		store:          store,
+		runtime:        runtime,
+		jobStore:       jobStore,
+		validator:      validator,
+		wasmModuleMgr:  wasmModuleMgr,
 		workflowEngine: workflowEngine,
+		workflowMgr:    workflowMgr,
 	}
 }
 
@@ -747,6 +750,84 @@ func (h *apiHandler) createWorkflowStepHandler(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(step)
+}
+
+func (h *apiHandler) updateWorkflowStepHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	workflowID := vars["workflow_id"]
+	stepID := vars["step_id"]
+
+	var step primitive.WorkflowStep
+	if err := json.NewDecoder(r.Body).Decode(&step); err != nil {
+		api.HandleError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Verify the step belongs to the specified workflow
+	existingStep, err := h.store.ListWorkflowSteps(ctx, workflowID)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to verify workflow step: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	stepExists := false
+	for _, s := range existingStep {
+		if s.ID == stepID {
+			stepExists = true
+			break
+		}
+	}
+
+	if !stepExists {
+		api.HandleError(w, fmt.Errorf("workflow step not found in specified workflow"), http.StatusNotFound)
+		return
+	}
+
+	// Update the step using the workflow manager
+	updatedStep, err := h.workflowMgr.UpdateWorkflowStep(ctx, stepID, step.StepOrder, step.StepType, step.AgentID, step.WasmModuleID, step.Config)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to update workflow step: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(updatedStep)
+}
+
+func (h *apiHandler) deleteWorkflowStepHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	workflowID := vars["workflow_id"]
+	stepID := vars["step_id"]
+
+	// Verify the step belongs to the specified workflow
+	existingSteps, err := h.store.ListWorkflowSteps(ctx, workflowID)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to verify workflow step: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	stepExists := false
+	for _, s := range existingSteps {
+		if s.ID == stepID {
+			stepExists = true
+			break
+		}
+	}
+
+	if !stepExists {
+		api.HandleError(w, fmt.Errorf("workflow step not found in specified workflow"), http.StatusNotFound)
+		return
+	}
+
+	// Delete the step using the workflow manager
+	if err := h.workflowMgr.DeleteWorkflowStep(ctx, stepID); err != nil {
+		api.HandleError(w, fmt.Errorf("failed to delete workflow step: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Job management handlers

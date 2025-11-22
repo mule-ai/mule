@@ -165,6 +165,8 @@ func main() {
 
 	router.HandleFunc("/api/v1/workflows/{id}/steps", handler.listWorkflowStepsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/workflows/{id}/steps", handler.createWorkflowStepHandler).Methods("POST")
+	router.HandleFunc("/api/v1/workflows/{workflow_id}/steps/{step_id}", handler.updateWorkflowStepHandler).Methods("PUT")
+	router.HandleFunc("/api/v1/workflows/{workflow_id}/steps/{step_id}", handler.deleteWorkflowStepHandler).Methods("DELETE")
 
 	// Job management APIs
 	router.HandleFunc("/api/v1/jobs", handler.listJobsHandler).Methods("GET")
