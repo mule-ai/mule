@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Form } from 'react-bootstrap';
 
-function FilterableDropdown({ 
-  options, 
-  value, 
-  onChange, 
+function FilterableDropdown({
+  options,
+  value,
+  onChange,
   placeholder = "Select an option...",
   disabled = false,
   required = false
@@ -16,7 +16,7 @@ function FilterableDropdown({
 
   useEffect(() => {
     setFilteredOptions(
-      options.filter(option => 
+      options.filter(option =>
         option.label.toLowerCase().includes(filter.toLowerCase()) ||
         option.value.toLowerCase().includes(filter.toLowerCase())
       )
@@ -58,7 +58,7 @@ function FilterableDropdown({
   const displayValue = selectedOption ? selectedOption.label : filter;
 
   return (
-    <div ref={dropdownRef} style={{ position: 'relative' }}>
+    <div ref={dropdownRef} className="filterable-dropdown">
       <Form.Control
         type="text"
         value={displayValue}
@@ -70,24 +70,9 @@ function FilterableDropdown({
         autoComplete="off"
       />
       {isOpen && !disabled && (
-        <div 
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 1000,
-            backgroundColor: 'white',
-            border: '1px solid #ced4da',
-            borderTop: 'none',
-            borderRadius: '0 0 0.375rem 0.375rem',
-            maxHeight: '200px',
-            overflowY: 'auto',
-            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-          }}
-        >
+        <div className="filterable-dropdown-menu">
           {filteredOptions.length === 0 ? (
-            <div style={{ padding: '8px 12px', color: '#6c757d' }}>
+            <div className="filterable-dropdown-no-results">
               No options found
             </div>
           ) : (
@@ -95,20 +80,7 @@ function FilterableDropdown({
               <div
                 key={option.value}
                 onClick={() => handleSelect(option)}
-                style={{
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                  backgroundColor: option.value === value ? '#e7f3ff' : 'white',
-                  borderBottom: '1px solid #f8f9fa'
-                }}
-                onMouseEnter={(e) => {
-                  if (option.value !== value) {
-                    e.target.style.backgroundColor = '#f8f9fa';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.backgroundColor = option.value === value ? '#e7f3ff' : 'white';
-                }}
+                className={`filterable-dropdown-item ${option.value === value ? 'selected' : ''}`}
               >
                 {option.label}
               </div>

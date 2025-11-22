@@ -266,3 +266,70 @@ p, span, div, label, li, td, th {
   border-color: var(--link-color) !important;
   color: var(--navbar-text) !important;
 }
+
+/* React Bootstrap Tabs theming */
+.nav-tabs {
+  border-bottom-color: var(--border-color) !important;
+}
+
+.nav-tabs .nav-link {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--text-secondary) !important;
+}
+
+.nav-tabs .nav-link:hover {
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  background-color: var(--bg-secondary) !important;
+}
+
+.nav-tabs .nav-link.active {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+  border-bottom-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* FilterableDropdown theming */
+.filterable-dropdown {
+  position: relative;
+}
+
+.filterable-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background-color: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  border-top: none;
+  border-radius: 0 0 0.375rem 0.375rem;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.filterable-dropdown-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  background-color: var(--bg-card) !important;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary) !important;
+}
+
+.filterable-dropdown-item:hover {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+.filterable-dropdown-item.selected {
+  background-color: var(--link-color) !important;
+  color: var(--navbar-text) !important;
+}
+
+.filterable-dropdown-no-results {
+  padding: 8px 12px;
+  color: var(--text-secondary) !important;
+}
