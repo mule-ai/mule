@@ -1,5 +1,8 @@
 .App {
   text-align: center;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
 }
 
 .App-logo {
@@ -14,13 +17,13 @@
 }
 
 .App-header {
-  background-color: #282c34;
+  background-color: var(--navbar-bg);
   padding: 20px;
-  color: white;
+  color: var(--navbar-text);
 }
 
 .App-link {
-  color: #61dafb;
+  color: var(--link-color);
 }
 
 @keyframes App-logo-spin {
@@ -34,27 +37,29 @@
 
 .workflow-builder {
   height: 600px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
+  background-color: var(--bg-secondary);
 }
 
 .node-card {
-  background: white;
-  border: 1px solid #ddd;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 10px;
   min-width: 150px;
   text-align: center;
+  color: var(--text-primary);
 }
 
 .agent-node {
-  background-color: #e3f2fd;
-  border-color: #2196f3;
+  background-color: var(--agent-node-bg);
+  border-color: var(--agent-node-border);
 }
 
 .wasm-node {
-  background-color: #f3e5f5;
-  border-color: #9c27b0;
+  background-color: var(--wasm-node-bg);
+  border-color: var(--wasm-node-border);
 }
 
 .status-badge {
@@ -64,21 +69,200 @@
 }
 
 .status-queued {
-  background-color: #fff3cd;
-  color: #856404;
+  background-color: var(--status-queued-bg);
+  color: var(--status-queued-text);
 }
 
 .status-running {
-  background-color: #cce5ff;
-  color: #004085;
+  background-color: var(--status-running-bg);
+  color: var(--status-running-text);
 }
 
 .status-completed {
-  background-color: #d4edda;
-  color: #155724;
+  background-color: var(--status-completed-bg);
+  color: var(--status-completed-text);
 }
 
 .status-failed {
-  background-color: #f8d7da;
-  color: #721c24;
+  background-color: var(--status-failed-bg);
+  color: var(--status-failed-text);
+}
+
+/* Bootstrap overrides for dark mode */
+.navbar-dark {
+  background-color: var(--navbar-bg) !important;
+}
+
+.container {
+  background-color: var(--bg-primary);
+}
+
+.card {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.form-control {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.form-control:focus {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.table {
+  --bs-table-bg: var(--bg-card);
+  --bs-table-color: var(--text-primary);
+  --bs-table-border-color: var(--border-color);
+}
+
+.btn-primary {
+  --bs-btn-bg: var(--link-color);
+  --bs-btn-border-color: var(--link-color);
+  --bs-btn-hover-bg: var(--link-hover);
+  --bs-btn-hover-border-color: var(--link-hover);
+}
+
+.nav-link {
+  color: var(--navbar-text) !important;
+}
+
+.nav-link:hover {
+  color: var(--link-hover) !important;
+}
+
+/* Ensure text readability */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary) !important;
+}
+
+p, span, div, label, li, td, th {
+  color: var(--text-primary) !important;
+}
+
+.text-muted {
+  color: var(--text-secondary) !important;
+}
+
+/* Force all text elements to inherit theme colors */
+* {
+  color: inherit;
+}
+
+/* Override Bootstrap's default text colors */
+.text-primary {
+  color: var(--text-primary) !important;
+}
+
+.text-secondary {
+  color: var(--text-secondary) !important;
+}
+
+.text-dark {
+  color: var(--text-primary) !important;
+}
+
+.text-light {
+  color: var(--navbar-text) !important;
+}
+
+/* Ensure form labels and placeholders are readable */
+.form-label {
+  color: var(--text-primary) !important;
+}
+
+.form-control::placeholder {
+  color: var(--text-secondary) !important;
+  opacity: 0.7;
+}
+
+/* Override card headers and titles */
+.card-title, .card-header {
+  color: var(--text-primary) !important;
+}
+
+.card-text {
+  color: var(--text-primary) !important;
+}
+
+/* Ensure dropdown menus work in dark mode */
+.dropdown-menu {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+}
+
+.dropdown-item {
+  color: var(--text-primary) !important;
+}
+
+.dropdown-item:hover {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Modal theming */
+.modal-content {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+}
+
+.modal-header {
+  border-bottom-color: var(--border-color) !important;
+}
+
+.modal-title {
+  color: var(--text-primary) !important;
+}
+
+.modal-body {
+  color: var(--text-primary) !important;
+}
+
+/* List group theming */
+.list-group-item {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Alert theming */
+.alert {
+  color: var(--text-primary) !important;
+}
+
+.alert-primary {
+  background-color: var(--agent-node-bg) !important;
+  border-color: var(--agent-node-border) !important;
+}
+
+/* Badge theming */
+.badge {
+  color: var(--navbar-text) !important;
+}
+
+/* Breadcrumb theming */
+.breadcrumb-item.active {
+  color: var(--text-secondary) !important;
+}
+
+/* Pagination theming */
+.page-link {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.page-link:hover {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+.page-item.active .page-link {
+  background-color: var(--link-color) !important;
+  border-color: var(--link-color) !important;
+  color: var(--navbar-text) !important;
 }

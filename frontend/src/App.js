@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Container, Nav, Navbar } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -13,10 +13,26 @@ import Jobs from './pages/Jobs';
 import WasmModules from './pages/WasmModules';
 
 function App() {
+  const [theme, setTheme] = useState('light');
+
+  useEffect(() => {
+    // Detect system theme preference
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    setTheme(mediaQuery.matches ? 'dark' : 'light');
+
+    // Listen for theme changes
+    const handleThemeChange = (e) => {
+      setTheme(e.matches ? 'dark' : 'light');
+    };
+
+    mediaQuery.addEventListener('change', handleThemeChange);
+    return () => mediaQuery.removeEventListener('change', handleThemeChange);
+  }, []);
+
   return (
     <Router>
-      <div className="App">
-        <Navbar bg="dark" variant="dark" expand="lg">
+      <div className="App" data-theme={theme}>
+        <Navbar bg={theme === 'dark' ? 'dark' : 'light'} variant={theme === 'dark' ? 'dark' : 'light'} expand="lg" className="theme-aware-navbar">
           <Container>
             <Navbar.Brand href="/">Mule v2</Navbar.Brand>
             <Navbar.Toggle aria-controls="basic-navbar-nav" />
