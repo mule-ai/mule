@@ -166,54 +166,76 @@ import (
 	"os"
 )
 
-// InputData represents the expected input structure
+// InputData represents the flexible input structure from workflow steps
 type InputData struct {
-	Message string                 ` + "`json:\"message\"`" + `
-	Data    map[string]interface{} ` + "`json:\"data\"`" + `
+	Prompt string                 ` + "`json:\"prompt\"`" + ` // Main input from previous workflow step
+	Message string                 ` + "`json:\"message,omitempty\"`" + ` // Alternative input field (backward compatibility)
+	Data    map[string]interface{} ` + "`json:\"data,omitempty\"`" + ` // Additional data
 }
 
-// OutputData represents the output structure
+// OutputData represents the output structure for the next workflow step
 type OutputData struct {
-	Result  string                 ` + "`json:\"result\"`" + `
-	Data    map[string]interface{} ` + "`json:\"data\"`" + `
-	Success bool                   ` + "`json:\"success\"`" + `
+	Result  string                 ` + "`json:\"result\"`" + ` // Main result to pass to next step
+	Data    map[string]interface{} ` + "`json:\"data,omitempty\"`" + ` // Additional processed data
+	Success bool                   ` + "`json:\"success\"`" + ` // Success flag
 }
 
 func main() {
 	// Read input from stdin
 	decoder := json.NewDecoder(os.Stdin)
 	var input InputData
-	
+
 	if err := decoder.Decode(&input); err != nil {
-		outputError(err)
+		outputError(fmt.Errorf("failed to decode input: %w", err))
 		return
 	}
 
 	// Process the input
 	result := processInput(input)
-	
+
 	// Output result as JSON
 	outputResult(result)
 }
 
 func processInput(input InputData) OutputData {
 	// Your processing logic here
+	// In workflows, the primary input comes as the "prompt" field from the previous step
+
+	var textToProcess string
+	if input.Prompt != "" {
+		// Typical workflow input - previous step passes a "prompt" field
+		textToProcess = input.Prompt
+	} else if input.Message != "" {
+		// Alternative format - some steps may pass a "message" field
+		textToProcess = input.Message
+	} else {
+		// Fallback - handle empty input gracefully
+		textToProcess = "No input provided"
+	}
+
+	// Example processing: convert to uppercase
+	processedText := fmt.Sprintf("%s (processed by WASM module)", textToProcess)
+
 	return OutputData{
-		Result:  fmt.Sprintf("Processed: %s", input.Message),
-		Data:    input.Data,
+		Result:  processedText,
+		Data:    input.Data, // Pass through any additional data
 		Success: true,
 	}
 }
 
 func outputResult(result OutputData) {
 	encoder := json.NewEncoder(os.Stdout)
+	// Important: Disable HTML escaping to preserve special characters
+	encoder.SetEscapeHTML(false)
+
 	if err := encoder.Encode(result); err != nil {
-		outputError(err)
+		outputError(fmt.Errorf("failed to encode output: %w", err))
 	}
 }
 
 func outputError(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	os.Exit(1)
 }
 `
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Button, Form, Modal, ListGroup } from 'react-bootstrap';
-import { agentsAPI, providersAPI, chatAPI, toolsAPI } from '../services/api';
+import { agentsAPI, providersAPI, toolsAPI } from '../services/api';
 import FilterableDropdown from '../components/FilterableDropdown';
 
 function Agents() {

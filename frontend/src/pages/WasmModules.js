@@ -31,21 +31,8 @@ function WasmModules() {
   const handleCreateModule = async () => {
     setLoading(true);
     setError('');
-    
-    try {
-      // Convert file to base64 for JSON transport
-      const moduleData = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result;
-          // Remove data URL prefix and get base64
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(newModule.module_data);
-      });
 
+    try {
       await wasmModulesAPI.create({
         ...newModule,
         module_data: newModule.module_data,
@@ -77,16 +64,6 @@ function WasmModules() {
 
       // Only update module data if a new file is provided
       if (selectedModule.new_module_data) {
-        const moduleData = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result;
-            const base64 = result.split(',')[1];
-            resolve(base64);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(selectedModule.new_module_data);
-        });
         updateData.module_data = selectedModule.new_module_data;
       }
 

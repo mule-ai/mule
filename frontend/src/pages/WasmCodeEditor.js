@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Row, Col, Button, Form, Modal, Alert, Tabs, Tab, Badge, Spinner } from 'react-bootstrap';
 import { wasmModulesAPI } from '../services/api';
 import Editor from '@monaco-editor/react';
@@ -9,7 +9,6 @@ function WasmCodeEditor() {
   const [sourceCode, setSourceCode] = useState('');
   const [language, setLanguage] = useState('go');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showTestModal, setShowTestModal] = useState(false);
   const [newModule, setNewModule] = useState({
     name: '',
     description: ''
@@ -24,44 +23,7 @@ function WasmCodeEditor() {
   const [success, setSuccess] = useState('');
   const [activeTab, setActiveTab] = useState('editor');
 
-  useEffect(() => {
-    loadModules();
-  }, []);
-
-  useEffect(() => {
-    if (selectedModule) {
-      loadModuleSource(selectedModule.id);
-    }
-  }, [selectedModule]);
-
-  const loadModules = async () => {
-    try {
-      const response = await wasmModulesAPI.list();
-      setModules(response.data.data || []);
-    } catch (error) {
-      console.error('Failed to load WASM modules:', error);
-      setError('Failed to load WASM modules');
-    }
-  };
-
-  const loadModuleSource = async (moduleId) => {
-    try {
-      const response = await wasmModulesAPI.getSource(moduleId);
-      setSourceCode(response.data.source_code || '');
-      setLanguage(response.data.language || 'go');
-      setCompilationResult({
-        status: response.data.compilation_status,
-        error: response.data.compilation_error,
-        compiledAt: response.data.compiled_at
-      });
-    } catch (error) {
-      console.error('Failed to load module source:', error);
-      // If no source exists, load example code
-      loadExampleCode();
-    }
-  };
-
-  const loadExampleCode = async () => {
+  const loadExampleCode = useCallback(async () => {
     try {
       const response = await wasmModulesAPI.getExampleCode(language);
       setSourceCode(response.data.example_code);
@@ -92,7 +54,7 @@ func main() {
     // Read input from stdin
     decoder := json.NewDecoder(os.Stdin)
     var input InputData
-    
+
     if err := decoder.Decode(&input); err != nil {
         outputError(err)
         return
@@ -100,7 +62,7 @@ func main() {
 
     // Process the input
     result := processInput(input)
-    
+
     // Output result as JSON
     outputResult(result)
 }
@@ -124,6 +86,43 @@ func outputResult(result OutputData) {
 func outputError(err error) {
     fmt.Fprintf(os.Stderr, "Error: %v\\n", err)
 }`);
+    }
+  }, [language]);
+
+  const loadModuleSource = useCallback(async (moduleId) => {
+    try {
+      const response = await wasmModulesAPI.getSource(moduleId);
+      setSourceCode(response.data.source_code || '');
+      setLanguage(response.data.language || 'go');
+      setCompilationResult({
+        status: response.data.compilation_status,
+        error: response.data.compilation_error,
+        compiledAt: response.data.compiled_at
+      });
+    } catch (error) {
+      console.error('Failed to load module source:', error);
+      // If no source exists, load example code
+      loadExampleCode();
+    }
+  }, [loadExampleCode]);
+
+  useEffect(() => {
+    loadModules();
+  }, []);
+
+  useEffect(() => {
+    if (selectedModule) {
+      loadModuleSource(selectedModule.id);
+    }
+  }, [selectedModule, loadModuleSource]);
+
+  const loadModules = async () => {
+    try {
+      const response = await wasmModulesAPI.list();
+      setModules(response.data.data || []);
+    } catch (error) {
+      console.error('Failed to load WASM modules:', error);
+      setError('Failed to load WASM modules');
     }
   };
 
@@ -395,7 +394,7 @@ func outputError(err error) {
                           rows={10}
                           value={testInput}
                           onChange={(e) => setTestInput(e.target.value)}
-                          placeholder={`Enter JSON input, e.g.:\n{\n  "message": "Hello WASM",\n  "data": {\n    "key": "value"\n  }\n}`}
+                          placeholder={`Enter JSON input simulating workflow input, e.g.:\n{\n  "prompt": "Text from previous workflow step"\n}\n\nOr with additional data:\n{\n  "prompt": "Process this text",\n  "data": {\n    "key": "value",\n    "count": 42\n  }\n}`}
                         />
                       </Form.Group>
                       <Button
@@ -446,22 +445,30 @@ func outputError(err error) {
                 <Card.Body>
                   <h5>Input/Output Structure</h5>
                   <p>
-                    WASM modules in Mule receive input via <code>stdin</code> as JSON and should output 
-                    results via <code>stdout</code> as JSON. The standard structure is:
+                    WASM modules in Mule receive input via <code>stdin</code> as JSON and should output
+                    results via <code>stdout</code> as JSON. When used in workflows, the input is the output
+                    from the previous step.
                   </p>
-                  
-                  <h6 className="mt-3">Input Format:</h6>
-                  <pre>{`{
-  "message": "string - main input message",
-  "data": {} // arbitrary JSON object with additional data
-}`}</pre>
 
-                  <h6 className="mt-3">Output Format:</h6>
+                  <h6 className="mt-3">Typical Input Format (from previous step):</h6>
+                  <pre>{`{
+  "prompt": "string - content from previous step (agent output or workflow input)"
+}`}</pre>
+                  <p className="text-muted small">
+                    Note: The input structure depends on what the previous step outputs.
+                    When testing in the editor, you can simulate this format.
+                  </p>
+
+                  <h6 className="mt-3">Output Format (for next step):</h6>
                   <pre>{`{
   "result": "string - processing result",
-  "data": {} // processed data (can be modified from input)
+  "data": {} // processed data (optional)
   "success": true/false
 }`}</pre>
+                  <p className="text-muted small">
+                    The output should be a JSON object. The workflow engine will pass the "output" field
+                    to the next step as the "prompt" field.
+                  </p>
 
                   <h5 className="mt-4">Go WASM Specifics</h5>
                   <ul>
@@ -470,11 +477,19 @@ func outputError(err error) {
                     <li>Use <code>encoding/json</code> for JSON parsing</li>
                     <li>Read from <code>os.Stdin</code>, write to <code>os.Stdout</code></li>
                     <li>Errors should be written to <code>os.Stderr</code></li>
+                    <li>Be flexible with input structure - previous steps may output different formats</li>
                   </ul>
 
                   <div className="alert alert-info mt-4">
-                    <strong>Future Languages:</strong> Currently only Go is supported for WASM compilation. 
-                    Rust, JavaScript, and Python support will be added in future releases.
+                    <strong>Workflow Integration:</strong> In a workflow, the output from each step becomes
+                    the input to the next step. WASM modules should expect a <code>prompt</code> field containing
+                    text from the previous step, and should output JSON that the next step can consume.
+                  </div>
+
+                  <div className="alert alert-warning mt-3">
+                    <strong>Testing Tip:</strong> Use the Test tab to verify your module handles the expected
+                    input format. Test with inputs like <code>{'{"prompt": "your test text"}'}</code> to simulate
+                    real workflow conditions.
                   </div>
                 </Card.Body>
               </Card>

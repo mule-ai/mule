@@ -1,16 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Alert, Button, Form, Tabs, Tab, Badge, ListGroup } from 'react-bootstrap';
-import { chatAPI, agentsAPI, wasmModulesAPI, jobsAPI } from '../services/api';
+import { chatAPI, wasmModulesAPI, jobsAPI } from '../services/api';
 
 function Dashboard() {
   const [models, setModels] = useState([]);
   const [wasmModules, setWasmModules] = useState([]);
-  const [selectedModel, setSelectedModel] = useState('');
   const [selectedAgent, setSelectedAgent] = useState('');
   const [selectedWasmModule, setSelectedWasmModule] = useState('');
   const [message, setMessage] = useState('');
   const [wasmInput, setWasmInput] = useState('');
-  const [chatHistory, setChatHistory] = useState([]);
   const [executionHistory, setExecutionHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [wasmLoading, setWasmLoading] = useState(false);
@@ -37,41 +35,6 @@ function Dashboard() {
       setWasmModules(response.data.data || []);
     } catch (err) {
       setError('Failed to load WASM modules');
-    }
-  };
-
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!selectedModel || !message.trim()) return;
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await chatAPI.complete({
-        model: selectedModel,
-        messages: [{ role: 'user', content: message }],
-        stream: false,
-      });
-
-      const newMessage = {
-        role: 'user',
-        content: message,
-        timestamp: new Date(),
-      };
-
-      const responseMessage = {
-        role: 'assistant',
-        content: response.data.choices?.[0]?.message?.content || 'No response',
-        timestamp: new Date(),
-      };
-
-      setChatHistory([...chatHistory, newMessage, responseMessage]);
-      setMessage('');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to send message');
-    } finally {
-      setLoading(false);
     }
   };
 
