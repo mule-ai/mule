@@ -141,6 +141,20 @@ func (db *DB) InitSchema() error {
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 
+	-- WASM Module Sources table for storing source code
+	CREATE TABLE IF NOT EXISTS wasm_module_sources (
+		id VARCHAR(255) PRIMARY KEY,
+		wasm_module_id VARCHAR(255) NOT NULL REFERENCES wasm_modules(id) ON DELETE CASCADE,
+		language TEXT NOT NULL CHECK (language IN ('go', 'rust', 'javascript', 'python')),
+		source_code TEXT NOT NULL,
+		version INTEGER NOT NULL DEFAULT 1,
+		compilation_status TEXT NOT NULL CHECK (compilation_status IN ('pending', 'compiling', 'success', 'failed')) DEFAULT 'pending',
+		compilation_error TEXT,
+		compiled_at TIMESTAMP,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
 	-- Indexes for better performance
 	CREATE INDEX IF NOT EXISTS idx_agents_provider_id ON agents(provider_id);
 	CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow_id ON workflow_steps(workflow_id);
@@ -148,6 +162,9 @@ func (db *DB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_jobs_wasm_module_id ON jobs(wasm_module_id);
 	CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id);
 	CREATE INDEX IF NOT EXISTS idx_artifacts_job_id ON artifacts(job_id);
+	CREATE INDEX IF NOT EXISTS idx_wasm_module_sources_wasm_module_id ON wasm_module_sources(wasm_module_id);
+	CREATE INDEX IF NOT EXISTS idx_wasm_module_sources_language ON wasm_module_sources(language);
+	CREATE INDEX IF NOT EXISTS idx_wasm_module_sources_status ON wasm_module_sources(compilation_status);
 	`
 
 	_, err := db.Exec(schema)

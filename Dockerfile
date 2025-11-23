@@ -48,8 +48,8 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o mule ./cmd/api
 # Stage 3: Final stage with alpine
 FROM alpine:latest
 
-# Install ca-certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates tzdata
+# Install ca-certificates for HTTPS requests and Go toolchain for WASM compilation
+RUN apk --no-cache add ca-certificates tzdata go git musl-dev
 
 # Create non-root user
 RUN adduser -D -s /bin/sh mule

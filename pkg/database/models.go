@@ -107,3 +107,17 @@ type Artifact struct {
 	Data      []byte    `json:"data" db:"data"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
+
+// WasmModuleSource represents the source code for a WASM module
+type WasmModuleSource struct {
+	ID                string    `json:"id" db:"id"`
+	WasmModuleID      string    `json:"wasm_module_id" db:"wasm_module_id"`
+	Language          string    `json:"language" db:"language"`
+	SourceCode        string    `json:"source_code" db:"source_code"`
+	Version           int       `json:"version" db:"version"`
+	CompilationStatus string    `json:"compilation_status" db:"compilation_status"`
+	CompilationError  *string   `json:"compilation_error,omitempty" db:"compilation_error"`
+	CompiledAt        *time.Time `json:"compiled_at,omitempty" db:"compiled_at"`
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+}

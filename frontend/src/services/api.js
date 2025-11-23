@@ -88,6 +88,12 @@ export const wasmModulesAPI = {
     });
   },
   delete: (id) => api.delete(`/api/v1/wasm-modules/${id}`),
+  // WASM compilation and testing APIs
+  compile: (data) => api.post('/api/v1/wasm-modules/compile', data),
+  getSource: (id) => api.get(`/api/v1/wasm-modules/${id}/source`),
+  updateSource: (id, data) => api.put(`/api/v1/wasm-modules/${id}/source`, data),
+  test: (data) => api.post('/api/v1/wasm-modules/test', data),
+  getExampleCode: (language) => api.get(`/api/v1/wasm-modules/example?language=${language}`),
 };
 
 // Chat completion API

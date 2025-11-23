@@ -174,12 +174,21 @@ func main() {
 	router.HandleFunc("/api/v1/jobs/{id}", handler.getJobHandler).Methods("GET")
 	router.HandleFunc("/api/v1/jobs/{id}/steps", handler.listJobStepsHandler).Methods("GET")
 
-	// WASM module APIs
+	// WASM module APIs - Order matters! Specific routes before generic {id} routes
 	router.HandleFunc("/api/v1/wasm-modules", handler.listWasmModulesHandler).Methods("GET")
 	router.HandleFunc("/api/v1/wasm-modules", handler.createWasmModuleHandler).Methods("POST")
+
+	// WASM compilation and testing APIs (must come before /{id} routes)
+	router.HandleFunc("/api/v1/wasm-modules/compile", handler.compileWasmModuleHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wasm-modules/test", handler.testWasmModuleHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wasm-modules/example", handler.getWasmModuleExampleHandler).Methods("GET")
+
+	// Module-specific routes
 	router.HandleFunc("/api/v1/wasm-modules/{id}", handler.getWasmModuleHandler).Methods("GET")
 	router.HandleFunc("/api/v1/wasm-modules/{id}", handler.updateWasmModuleHandler).Methods("PUT")
 	router.HandleFunc("/api/v1/wasm-modules/{id}", handler.deleteWasmModuleHandler).Methods("DELETE")
+	router.HandleFunc("/api/v1/wasm-modules/{id}/source", handler.getWasmModuleSourceHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wasm-modules/{id}/source", handler.updateWasmModuleSourceHandler).Methods("PUT")
 
 	// WebSocket endpoint
 	wsHandler := api.NewWebSocketHandler(wsHub)

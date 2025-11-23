@@ -24,11 +24,13 @@ import (
 )
 
 type apiHandler struct {
+	db              *internaldb.DB
 	store           primitive.PrimitiveStore
 	runtime         *agent.Runtime
 	jobStore        job.JobStore
 	validator       *validation.Validator
 	wasmModuleMgr   *manager.WasmModuleManager
+	wasmExecutor    *engine.WASMExecutor
 	workflowEngine  *engine.Engine
 	workflowMgr     *manager.WorkflowManager
 }
@@ -55,11 +57,13 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	runtime.SetWorkflowEngine(workflowEngine)
 
 	return &apiHandler{
+		db:             db,
 		store:          store,
 		runtime:        runtime,
 		jobStore:       jobStore,
 		validator:      validator,
 		wasmModuleMgr:  wasmModuleMgr,
+		wasmExecutor:   wasmExecutor,
 		workflowEngine: workflowEngine,
 		workflowMgr:    workflowMgr,
 	}
