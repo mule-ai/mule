@@ -98,6 +98,12 @@ func main() {
 		log.Fatalf("failed to ping database: %v", err)
 	}
 
+	// Initialize database schema
+	if err := db.InitSchema(); err != nil {
+		log.Fatalf("failed to initialize database schema: %v", err)
+	}
+	log.Println("Database schema initialized successfully")
+
 	router := mux.NewRouter()
 
 	// Apply middleware
