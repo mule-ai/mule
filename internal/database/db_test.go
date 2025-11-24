@@ -1,6 +1,7 @@
 package database
 
 import (
+	"os"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -8,9 +9,9 @@ import (
 )
 
 func TestDatabaseSchema(t *testing.T) {
-	// Skip if no test database is available
-	if testing.Short() {
-		t.Skip("Skipping database test in short mode")
+	// Skip if no test database is available or in CI
+	if testing.Short() || os.Getenv("CI") != "" {
+		t.Skip("Skipping database test that requires PostgreSQL")
 	}
 
 	// Use a test database

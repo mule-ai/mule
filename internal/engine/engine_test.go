@@ -45,7 +45,7 @@ func TestWorkflowExecution(t *testing.T) {
 			{
 				ID:         "provider-1",
 				Name:       "Test Provider",
-				APIBaseURL: "https://api.test.com",
+				APIBaseURL: "", // Empty to route to Google ADK instead of custom LLM
 				APIKeyEnc:  "test-api-key",
 			},
 		},
@@ -244,16 +244,8 @@ func (m *MockPrimitiveStore) RemoveToolFromAgent(ctx context.Context, agentID, t
 }
 
 func (m *MockPrimitiveStore) GetMemoryConfig(ctx context.Context, id string) (*primitive.MemoryConfig, error) {
-	// Return a default memory config for testing
-	return &primitive.MemoryConfig{
-		ID:                id,
-		DatabaseURL:       "postgres://test:test@localhost:5432/test?sslmode=disable",
-		EmbeddingProvider: "openai",
-		EmbeddingModel:    "text-embedding-ada-002",
-		EmbeddingDims:     1536,
-		DefaultTTLSeconds: 0,
-		DefaultTopK:       5,
-	}, nil
+	// Return not found to prevent database connections in tests
+	return nil, primitive.ErrNotFound
 }
 
 func (m *MockPrimitiveStore) UpdateMemoryConfig(ctx context.Context, config *primitive.MemoryConfig) error {
