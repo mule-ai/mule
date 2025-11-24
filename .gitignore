@@ -64,3 +64,5 @@ config.yml
 frontend/build/
 frontend/node_modules/
 internal/frontend/build/
+
+setup-dev.sh
