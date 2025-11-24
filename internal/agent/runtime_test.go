@@ -2,14 +2,39 @@ package agent
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/genai"
 
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/pkg/job"
 )
+
+// MockGenAIClient is a mock implementation of the GenAIClient interface
+type MockGenAIClient struct{}
+
+func (m *MockGenAIClient) Models() ModelsClient {
+	return &MockModelsClient{}
+}
+
+// MockModelsClient is a mock implementation of the ModelsClient interface
+type MockModelsClient struct{}
+
+func (m *MockModelsClient) GenerateContent(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	// Return a mock response
+	return &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{
+			{
+				Content: &genai.Content{
+					Parts: []*genai.Part{
+						{Text: "Mock response from test"},
+					},
+				},
+			},
+		},
+	}, nil
+}
 
 func TestRuntime_ExecuteAgent(t *testing.T) {
 	// Create mock store
@@ -37,6 +62,10 @@ func TestRuntime_ExecuteAgent(t *testing.T) {
 	mockJobStore := &MockJobStore{}
 	runtime := NewRuntime(store, mockJobStore)
 
+	// Inject mock GenAI client to avoid real API calls
+	mockClient := &MockGenAIClient{}
+	runtime.SetGenAIClient(mockClient)
+
 	t.Run("valid agent request", func(t *testing.T) {
 		req := &ChatCompletionRequest{
 			Model: "agent/test-agent",
@@ -46,18 +75,12 @@ func TestRuntime_ExecuteAgent(t *testing.T) {
 			Stream: false,
 		}
 
-		// Note: This will fail in real test without proper API key, but tests the structure
 		resp, err := runtime.ExecuteAgent(context.Background(), req)
 
-		// We expect an error due to invalid API key or network issues
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		// Just check that it's an error (either API or HTTP/network related), not a structural issue
-		errMsg := err.Error()
-		hasAPI := strings.Contains(errMsg, "API")
-		hasHTTP := strings.Contains(errMsg, "HTTP")
-		hasTimeout := strings.Contains(errMsg, "timeout")
-		assert.True(t, hasAPI || hasHTTP || hasTimeout, "Error should be API/HTTP/network related, got: %s", errMsg)
+		// Should succeed with mock client
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "Mock response from test", resp.Choices[0].Message.Content)
 	})
 
 	t.Run("agent not found", func(t *testing.T) {

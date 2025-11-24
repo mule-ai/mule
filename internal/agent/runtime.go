@@ -26,6 +26,35 @@ type Runtime struct {
 	workflowEngine WorkflowEngine
 	jobStore       job.JobStore
 	toolRegistry   *tools.Registry
+	genaiClient    GenAIClient // Mockable interface for testing
+}
+
+// GenAIClient interface for mocking Google GenAI client
+type GenAIClient interface {
+	Models() ModelsClient
+}
+
+// ModelsClient interface for the Models service
+type ModelsClient interface {
+	GenerateContent(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error)
+}
+
+// realGenAIClient wraps the actual genai.Client to implement our GenAIClient interface
+type realGenAIClient struct {
+	client *genai.Client
+}
+
+func (r *realGenAIClient) Models() ModelsClient {
+	return &realModelsClient{models: r.client.Models}
+}
+
+// realModelsClient wraps the actual genai.Models to implement our ModelsClient interface
+type realModelsClient struct {
+	models *genai.Models
+}
+
+func (r *realModelsClient) GenerateContent(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	return r.models.GenerateContent(ctx, modelName, contents, config)
 }
 
 // NewRuntime creates a new agent runtime
@@ -48,6 +77,11 @@ func NewRuntime(store primitive.PrimitiveStore, jobStore job.JobStore) *Runtime 
 // SetWorkflowEngine sets the workflow engine for the runtime
 func (r *Runtime) SetWorkflowEngine(engine WorkflowEngine) {
 	r.workflowEngine = engine
+}
+
+// SetGenAIClient sets the GenAI client for testing
+func (r *Runtime) SetGenAIClient(client GenAIClient) {
+	r.genaiClient = client
 }
 
 // ReinitializeMemoryTool reinitializes the memory tool when configuration changes
@@ -158,25 +192,34 @@ func (r *Runtime) ExecuteAgent(ctx context.Context, req *ChatCompletionRequest) 
 
 // executeWithGoogleADK executes the agent using Google's Generative AI
 func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Agent, provider *primitive.Provider, prompt string) (*ChatCompletionResponse, error) {
-	// Create client config
-	config := &genai.ClientConfig{
-		APIKey: string(provider.APIKeyEnc),
-	}
+	var client GenAIClient
+	var err error
 
-	// If a custom endpoint is provided, use it
-	if provider.APIBaseURL != "" {
-		config.HTTPOptions = genai.HTTPOptions{
-			BaseURL: provider.APIBaseURL,
+	// Use injected client if available (for testing), otherwise create a new one
+	if r.genaiClient != nil {
+		client = r.genaiClient
+	} else {
+		// Create client config
+		config := &genai.ClientConfig{
+			APIKey: string(provider.APIKeyEnc),
 		}
-	}
 
-	// Log the endpoint being used for debugging
-	fmt.Printf("Creating genai client with endpoint: %s and API key: %s\n", provider.APIBaseURL, string(provider.APIKeyEnc))
+		// If a custom endpoint is provided, use it
+		if provider.APIBaseURL != "" {
+			config.HTTPOptions = genai.HTTPOptions{
+				BaseURL: provider.APIBaseURL,
+			}
+		}
 
-	client, err := genai.NewClient(ctx, config)
-	if err != nil {
-		fmt.Printf("Failed to create genai client: %v\n", err)
-		return nil, fmt.Errorf("failed to create genai client: %w", err)
+		// Log the endpoint being used for debugging
+		fmt.Printf("Creating genai client with endpoint: %s and API key: %s\n", provider.APIBaseURL, string(provider.APIKeyEnc))
+
+		genaiClient, err := genai.NewClient(ctx, config)
+		if err != nil {
+			fmt.Printf("Failed to create genai client: %v\n", err)
+			return nil, fmt.Errorf("failed to create genai client: %w", err)
+		}
+		client = &realGenAIClient{client: genaiClient}
 	}
 
 	// Get the model - use the model from agent config if available, otherwise use a default
@@ -218,7 +261,7 @@ func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Age
 		fmt.Printf("Added %d tools to the request\n", len(adkTools))
 	}
 
-	resp, err := client.Models.GenerateContent(ctx, modelName, genai.Text(prompt), genConfig)
+	resp, err := client.Models().GenerateContent(ctx, modelName, []*genai.Content{{Parts: []*genai.Part{{Text: prompt}}}}, genConfig)
 	if err != nil {
 		fmt.Printf("Failed to generate content: %v\n", err)
 		// Print the type of error for debugging
