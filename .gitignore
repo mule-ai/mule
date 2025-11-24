@@ -8,6 +8,7 @@ crypto*
 *.db
 *.db-shm
 *.db-wal
+*.wasm
 
 # Test binary, built with `go test -c`
 *.test
@@ -58,3 +59,10 @@ config.yaml
 config.json
 config.yml
 **/.claude/settings.local.json
+
+# Frontend build and dependencies
+frontend/build/
+frontend/node_modules/
+internal/frontend/build/
+
+setup-dev.sh

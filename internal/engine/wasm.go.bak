@@ -1,0 +1,352 @@
+package engine
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"runtime/debug"
+	"io"
+
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+
+	"github.com/mule-ai/mule/internal/primitive"
+)
+
+// WASMExecutor handles WebAssembly module execution
+type WASMExecutor struct {
+	store    primitive.PrimitiveStore
+	modules  map[string]wazero.CompiledModule
+}
+
+// NewWASMExecutor creates a new WASM executor
+func NewWASMExecutor(store primitive.PrimitiveStore) *WASMExecutor {
+	return &WASMExecutor{
+		store:   store,
+		modules: make(map[string]wazero.CompiledModule),
+	}
+}
+
+// Execute executes a WASM module with the given input data
+	wasiBuilder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module, fd uint32, iovsPtr uint32, iovsLen uint32, nwrittenPtr uint32) uint32 {
+			// Safe implementation that avoids nil pointer dereference
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Suppressed fd_write panic: %v", r)
+				}
+			}()
+
+			// Try to get the memory - if this fails, return error
+			mem := mod.Memory()
+			if mem == nil {
+				// Write 0 to nwrittenPtr if possible, then return error
+				if nwrittenPtr != 0 && nwrittenPtr+4 <= mem.Size() {
+					mem.WriteUint32Le(nwrittenPtr, 0)
+				}
+				return 8 // EBADF - Bad file descriptor
+			}
+
+			// Validate pointers
+			if iovsLen == 0 {
+				// Write 0 to nwrittenPtr and return success
+				if nwrittenPtr != 0 && nwrittenPtr+4 <= mem.Size() {
+					mem.WriteUint32Le(nwrittenPtr, 0)
+				}
+				return 0 // SUCCESS
+			}
+
+			// Validate memory bounds for iovs array
+			iovsSize := iovsLen * 8 // Each iov is 2 uint32s (offset and length)
+			if iovsPtr == 0 || iovsPtr+iovsSize > mem.Size() {
+				return 21 // EFAULT - Bad address
+			}
+
+			var nwritten uint32
+			var writer io.Writer
+
+			// Determine writer based on file descriptor
+			switch fd {
+			case 1: // stdout
+				writer = os.Stdout
+			case 2: // stderr
+				writer = os.Stderr
+			default:
+				// For other file descriptors, return badf (bad file descriptor)
+				if nwrittenPtr != 0 && nwrittenPtr+4 <= mem.Size() {
+					mem.WriteUint32Le(nwrittenPtr, 0)
+				}
+				return 8 // EBADF - Bad file descriptor
+			}
+
+			// Handle nil writers
+			if writer == nil {
+				writer = io.Discard
+			}
+
+			// Process iovs
+			for i := uint32(0); i < iovsLen; i++ {
+				iovBase := iovsPtr + (i * 8)
+
+				// Read offset and length with bounds checking
+				if iovBase+8 > mem.Size() {
+					return 21 // EFAULT - Bad address
+				}
+
+				offset, ok := mem.ReadUint32Le(iovBase)
+				if !ok {
+					return 21 // EFAULT - Bad address
+				}
+
+				length, ok := mem.ReadUint32Le(iovBase+4)
+				if !ok {
+					return 21 // EFAULT - Bad address
+				}
+
+				// Skip empty buffers
+				if length == 0 {
+					continue
+				}
+
+				// Validate buffer bounds
+				if offset+length > mem.Size() {
+					return 21 // EFAULT - Bad address
+				}
+
+				// Read data with bounds checking
+				data, ok := mem.Read(offset, length)
+				if !ok {
+					return 21 // EFAULT - Bad address
+				}
+
+				// Write data
+				if w, ok := writer.(io.Writer); ok {
+					n, err := w.Write(data)
+					if err != nil {
+						if nwrittenPtr != 0 && nwrittenPtr+4 <= mem.Size() {
+							mem.WriteUint32Le(nwrittenPtr, nwritten)
+						}
+						return 29 // EIO - IO error
+					}
+					nwritten += uint32(n)
+				}
+			}
+
+			// Write the number of bytes written back to memory
+			if nwrittenPtr != 0 && nwrittenPtr+4 <= mem.Size() {
+				mem.WriteUint32Le(nwrittenPtr, nwritten)
+			}
+
+			return 0 // SUCCESS
+		}).Export("fd_write")
+
+	// Override the problematic poll_oneoff function with a safe implementation
+	wasiBuilder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module, inPtr uint32, outPtr uint32, nsubscriptions uint32, neventsPtr uint32) uint32 {
+			// Safe implementation that avoids nil pointer dereference
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Suppressed poll_oneoff panic: %v", r)
+				}
+			}()
+
+			// Try to get the memory - if this fails, return error
+			mem := mod.Memory()
+			if mem == nil {
+				// Write 0 to neventsPtr if possible, then return error
+				if neventsPtr != 0 && neventsPtr+4 <= mem.Size() {
+					mem.WriteUint32Le(neventsPtr, 0)
+				}
+				return 21 // EFAULT - Bad address
+			}
+
+			// Validate pointers
+			if nsubscriptions == 0 {
+				// Write 0 to neventsPtr and return success
+				if neventsPtr != 0 && neventsPtr+4 <= mem.Size() {
+					mem.WriteUint32Le(neventsPtr, 0)
+				}
+				return 0 // SUCCESS
+			}
+
+			// Validate memory bounds
+			subscriptionSize := uint32(48) // Size of subscription struct
+			eventSize := uint32(32)        // Size of event struct
+
+			inSize := nsubscriptions * subscriptionSize
+			outSize := nsubscriptions * eventSize
+
+			if inPtr == 0 || inPtr+inSize > mem.Size() {
+				return 21 // EFAULT - Bad address
+			}
+
+			if outPtr == 0 || outPtr+outSize > mem.Size() {
+				return 21 // EFAULT - Bad address
+			}
+
+			if neventsPtr == 0 || neventsPtr+4 > mem.Size() {
+				return 21 // EFAULT - Bad address
+			}
+
+			// For simplicity, we'll report all subscriptions as ready immediately
+			// This prevents blocking and avoids the complex polling logic that causes issues
+			var nevents uint32
+			for i := uint32(0); i < nsubscriptions; i++ {
+				eventOffset := outPtr + (i * eventSize)
+
+				// Copy subscription userdata to event userdata
+				subOffset := inPtr + (i * subscriptionSize)
+				if subOffset+8 <= mem.Size() && eventOffset+8 <= mem.Size() {
+					userdata, ok := mem.ReadUint64Le(subOffset)
+					if ok {
+						mem.WriteUint64Le(eventOffset, userdata)
+					}
+				}
+
+				// Set event type to clock (simplification)
+				if eventOffset+8 <= mem.Size() {
+					mem.WriteByte(eventOffset+8, 0) // CLOCK event type
+				}
+
+				// Set event error to success
+				if eventOffset+10 <= mem.Size() {
+					mem.WriteUint16Le(eventOffset+10, 0) // ERRNO_SUCCESS
+				}
+
+				nevents++
+			}
+
+			// Write the number of events back to memory
+			mem.WriteUint32Le(neventsPtr, nevents)
+
+			return 0 // SUCCESS
+		}).Export("poll_oneoff")
+
+	// Instantiate the custom WASI module
+	_, err := wasiBuilder.Instantiate(ctx)
+	if err != nil {
+		log.Fatalf("Failed to instantiate custom WASI: %v", err)
+	}
+
+	return &WASMExecutor{
+		runtime: runtime,
+		store:   store,
+		modules: make(map[string]wazero.CompiledModule),
+	}
+}
+
+// Execute executes a WASM module with the given input data
+func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData map[string]interface{}) (map[string]interface{}, error) {
+	// Get compiled module from cache or load it
+	compiledModule, err := e.getCompiledModule(ctx, moduleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get compiled WASM module: %w", err)
+	}
+
+	// Add panic recovery for WASI-related issues
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Recovered from WASM execution panic: %v", r)
+			// Log stack trace for debugging
+			log.Printf("Stack trace: %s", debug.Stack())
+		}
+	}()
+
+	// Create a fresh runtime for each execution to avoid "randinit twice" error
+	// This is necessary for Go-compiled WASM modules which have single-execution lifecycle
+	runtime := wazero.NewRuntime(ctx)
+	defer runtime.Close(ctx)
+
+	// Instantiate WASI for the fresh runtime
+	_, err = wasi_snapshot_preview1.Instantiate(ctx, runtime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
+	}
+
+	// Create a fresh instance for each execution (wasip1 modules exit after execution)
+	config := wazero.NewModuleConfig().
+		WithStdout(os.Stdout).
+		WithStderr(os.Stderr)
+
+	module, err := runtime.InstantiateModule(ctx, compiledModule, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
+	}
+	defer module.Close(ctx) // Clean up after execution
+
+	// Convert input data to JSON
+	// inputJSON, err := json.Marshal(inputData)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to marshal input data: %w", err)
+	// }
+
+	// Call the main function (or _start for WASI programs)
+	mainFunc := module.ExportedFunction("_start")
+	if mainFunc == nil {
+		// Fall back to main for compatibility
+		mainFunc = module.ExportedFunction("main")
+	}
+	if mainFunc == nil {
+		return nil, fmt.Errorf("module does not export '_start' or 'main' function")
+	}
+
+	// For simple WASI programs, just call the entry point without memory management
+	// TODO: Implement proper data passing mechanism for more complex modules
+	_, err = mainFunc.Call(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call main function: %w", err)
+	}
+
+	// For now, return a simple success result
+	// TODO: Capture and return actual program output
+	result := map[string]interface{}{
+		"success": true,
+		"message": "WASM module executed successfully",
+	}
+
+	return result, nil
+}
+
+// getCompiledModule retrieves a compiled WASM module, loading it if necessary
+func (e *WASMExecutor) getCompiledModule(ctx context.Context, moduleID string) (wazero.CompiledModule, error) {
+	// Check cache first
+	if compiledModule, exists := e.modules[moduleID]; exists {
+		return compiledModule, nil
+	}
+
+	// Load module from database
+	wasmModule, err := e.store.GetWasmModule(ctx, moduleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load WASM module from database: %w", err)
+	}
+
+	// Compile the module (but don't instantiate it yet)
+	compiledModule, err := e.runtime.CompileModule(ctx, wasmModule.ModuleData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile WASM module: %w", err)
+	}
+
+	// Cache the compiled module
+	e.modules[moduleID] = compiledModule
+
+	return compiledModule, nil
+}
+
+// LoadModule loads a WASM module from the database
+func (e *WASMExecutor) LoadModule(ctx context.Context, moduleID string) error {
+	// Pre-load and compile the module
+	_, err := e.getCompiledModule(ctx, moduleID)
+	if err != nil {
+		return fmt.Errorf("failed to load WASM module: %w", err)
+	}
+
+	log.Printf("Pre-loaded and compiled WASM module %s", moduleID)
+	return nil
+}
+
+// Close closes the WASM runtime
+func (e *WASMExecutor) Close(ctx context.Context) error {
+	return e.runtime.Close(ctx)
+}

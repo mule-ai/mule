@@ -1,0 +1,18 @@
+{
+  "name": "Pirate Speak Workflow",
+  "description": "Transform text to pirate speak using WASM and AI",
+  "steps": [
+    {
+      "step_order": 1,
+      "step_type": "wasm_module",
+      "wasm_module_id": "<your-pirate-transform-module-id>",
+      "description": "Append pirate instruction to text"
+    },
+    {
+      "step_order": 2,
+      "step_type": "agent",
+      "agent_id": "<your-agent-id>",
+      "description": "Translate text to pirate speak using AI"
+    }
+  ]
+}

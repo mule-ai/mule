@@ -1,0 +1,18 @@
+{
+  "name": "Text Processing Workflow",
+  "description": "Process text through WASM module and then AI agent",
+  "steps": [
+    {
+      "step_order": 1,
+      "step_type": "wasm_module",
+      "wasm_module_id": "<your-text-processor-module-id>",
+      "description": "Convert text to uppercase using WASM"
+    },
+    {
+      "step_order": 2,
+      "step_type": "agent",
+      "agent_id": "<your-agent-id>",
+      "description": "Analyze the processed text with AI"
+    }
+  ]
+}

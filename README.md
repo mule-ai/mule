@@ -1,188 +1,187 @@
 # Mule
 
-### Your Multi-Agent AI Development Team
+Mule is an AI workflow platform that enables users to create, configure, and execute complex AI-powered workflows. It combines the power of AI agents, custom tools, and WebAssembly modules to create flexible and extensible automation pipelines.
 
-Mule is a sophisticated multi-agent workflow engine that automates software development tasks using AI. It combines deterministic workflow orchestration with intelligent AI agents to handle complex development workflows, from issue resolution to code generation and deployment.
+## Quick Start with Docker
 
-## 🎯 Core Capabilities
-
-- **Multi-Agent Workflows**: Orchestrate specialized AI agents for different tasks (architect, coder, reviewer, tester)
-- **Intelligent Issue Resolution**: Automatically processes GitHub issues labeled with `mule`
-- **RAG-Powered Context**: ChromeM vector database provides semantic search across codebases
-- **Multiple AI Providers**: Support for OpenAI, Anthropic, Google AI, and local models via Ollama
-- **Production Integrations**: Discord, Matrix, RSS feeds, and comprehensive APIs
-- **Advanced Memory System**: Persistent memory for context and learning across workflows
-- **Validation Framework**: Built-in code quality and testing validation
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Go 1.24+ (as specified in go.mod)
-- Git with SSH keys configured for GitHub access
-- AI provider access (Ollama recommended for local setup)
-
-### Installation
+The easiest way to get started is using Docker Compose:
 
 ```bash
+# Clone the repository
 git clone https://github.com/mule-ai/mule.git
 cd mule
+
+# Start the services
+docker-compose up -d
+
+# Check the services are running
+docker-compose ps
+
+# Access the application
+# Web UI: http://localhost:8080
+# API: http://localhost:8080/v1
+# Health check: http://localhost:8080/health
+```
+
+The Docker Compose setup includes:
+- **Mule API Server**: The main application on port 8080
+- **PostgreSQL Database**: Configured with the Mule database schema on port 5432
+
+### Docker Development
+
+```bash
+# Build the Docker image
+docker build -t mule:latest .
+
+# Run with custom database connection
+docker run -p 8080:8080 \
+  -e DB_CONN_STRING="postgres://user:pass@host:5432/dbname?sslmode=disable" \
+  mule:latest
+
+# View logs
+docker-compose logs -f mule
+docker-compose logs -f postgres
+```
+
+## Manual Installation
+
+### Prerequisites
+
+- Go 1.24 or later
+- PostgreSQL 12 or later
+- Node.js 18+ (for frontend development)
+
+### Database Setup
+
+1. Create a PostgreSQL database:
+```sql
+CREATE DATABASE mulev2;
+CREATE USER mule WITH PASSWORD 'mule';
+GRANT ALL PRIVILEGES ON DATABASE mulev2 TO mule;
+```
+
+2. Run the database migration:
+```bash
+psql -h localhost -U mule -d mulev2 -f internal/db/migrations/0001_initial_schema.sql
+```
+
+### Building and Running
+
+```bash
+# Install dependencies
+go mod tidy
+
+# Build the application
+make build
+
+# Run the server
+./cmd/api/bin/mule -db "postgres://mule:mule@localhost:5432/mulev2?sslmode=disable"
+
+# Or use the Makefile
 make run
 ```
 
-The web interface will be available at:
-- **Web UI**: http://localhost:8083
-- **gRPC API**: localhost:9090
-- **REST API**: http://localhost:8083/api
+## Documentation
 
-### Basic Usage
+- [Product Requirements Document](MULE-V2.md) - Complete specification of Mule v2
+- [Data Model Diagram](DATA_MODEL.md) - Entity relationship diagram showing database schema
+- [Sequence Diagram](SEQUENCE_DIAGRAM.md) - Workflow execution flow and component interactions
+- [Software Architecture](SOFTWARE_ARCHITECTURE.md) - High-level system architecture
+- [Primitives Relationship](PRIMITIVES_RELATIONSHIP.md) - How core primitives relate to each other
+- [Component Interaction](COMPONENT_INTERACTION.md) - Detailed component interaction diagram
 
-1. **Label an issue** with `mule` in GitHub or create one in the local provider
-2. **Mule automatically detects** the labeled issue and analyzes requirements
-3. **AI agents collaborate** to plan, implement, and validate the solution
-4. **Pull request created** with the implemented solution
-5. **Request refinements** by commenting on the PR
+## Overview
 
-## Demo
+Mule consists of a few core primitives:
+* **AI providers** - connections to models, supporting OpenAI compliant APIs
+* **Tools** - extensible tools that can be provided to agents
+* **WASM modules** - imperative code execution using the wazero library
+* **Agents** - combination of a model, system prompt, and tools using Google ADK
+* **Workflow Steps** - either a call to an Agent or execution of a WASM module
+* **Workflows** - ordered execution of workflow steps
 
-Below is a quick demo of the agent interaction workflow using the local provider. This same workflow can be done using a GitHub provider and performing these steps in the GitHub UI.
+## Technology Stack
 
-https://github.com/user-attachments/assets/f891017b-3794-4b8f-b779-63f0d9e97087
+* **Backend**: Go programming language with Google ADK and wazero
+* **Frontend**: React UI compiled into the Go binary with light/dark mode support
+* **Database**: PostgreSQL for configuration storage and job queuing
+* **API**: OpenAI-compatible API as the main interface to workflows
+* **Containerization**: Multi-stage Docker builds with scratch final stage
 
-## 🏗️ Architecture
+## Key Features
 
-### Multi-Agent System
-- **Architect Agent**: Analyzes requirements and designs solutions
-- **Code Agent**: Implements features and fixes based on specifications  
-- **Reviewer Agent**: Reviews code quality and suggests improvements
-- **Tester Agent**: Creates and runs tests to validate functionality
+* Fully static React frontend compiled into Go binary
+* Workflow builder with drag-and-drop interface
+* Per-step and full workflow execution with real-time output streaming
+* Background job processing with configurable worker pools
+* Synchronous and asynchronous execution modes
+* Light and dark UI modes
+* Docker support with multi-stage builds for minimal container size
+* Health checks and graceful shutdown
+* WebSocket support for real-time updates
 
-### Workflow Engine
-- **Sequential Orchestration**: Step-by-step agent coordination
-- **Validation Pipeline**: Automated quality checks (formatting, linting, testing)
-- **Error Recovery**: Intelligent retry and refinement mechanisms
-- **Context Preservation**: Maintains conversation and code context across agents
+## API Endpoints
 
-## 🔧 Configuration
+### Core API
+- `GET /health` - Health check endpoint
+- `GET /v1/models` - List available AI models
+- `POST /v1/chat/completions` - OpenAI-compatible chat completions
 
-### Default Setup
-```yaml
-providers:
-  - name: ollama
-    models: [qwen2.5-coder:32b, qwq:32b-q8_0]
-    
-workflows:
-  - name: code-generation
-    agents: [architect, coder]
-    validations: [goFmt, goModTidy, golangciLint, goTest]
-    
-integrations:
-  - discord: enabled
-  - matrix: enabled  
-  - rss: enabled
-  - grpc: port 9090
+### Management API
+- `GET/POST/PUT/DELETE /api/v1/providers` - AI provider management
+- `GET/POST/PUT/DELETE /api/v1/tools` - Tool management
+- `GET/POST/PUT/DELETE /api/v1/agents` - Agent management
+- `GET/POST/PUT/DELETE /api/v1/workflows` - Workflow management
+- `GET /api/v1/workflows/{id}/steps` - Workflow step management
+- `GET /api/v1/jobs` - Job listing
+- `GET /api/v1/jobs/{id}` - Job details
+- `GET /api/v1/jobs/{id}/steps` - Job step details
+
+### Real-time
+- `WS /ws` - WebSocket endpoint for real-time job updates
+
+## Configuration
+
+The application can be configured via command-line flags:
+
+```bash
+./mule -db "postgres://user:pass@host:5432/dbname?sslmode=disable" -listen ":8080"
 ```
 
-### Advanced Configuration
-- **Custom Agents**: Define specialized agents for your domain
-- **Validation Functions**: Custom validation rules and quality checks
-- **Provider Selection**: Configure multiple AI providers with fallbacks
-- **Memory Management**: Persistent context and learning configuration
+- `-db`: PostgreSQL connection string (default: `postgres://user:pass@localhost:5432/mulev2?sslmode=disable`)
+- `-listen`: HTTP listen address (default: `:8080`)
 
-## 📚 Features
+## Development
 
-### ✅ **Production Ready**
-- **RAG (Retrieval-Augmented Generation)**: ChromeM-based vector database with repository indexing
-- **Multi-Agent Workflows**: Sequential and parallel agent orchestration
-- **Multiple AI Providers**: OpenAI, Anthropic, Google AI, Ollama support
-- **Production Integrations**: Discord bot, Matrix client, RSS feeds, gRPC/HTTP APIs
-- **Validation Framework**: Go toolchain integration (goFmt, goTest, golangciLint, etc.)
-- **Repository Management**: GitHub integration and local Git operations
-- **Memory System**: Persistent memory for context and learning
-- **Authentication**: SSH and token-based GitHub authentication
+### Frontend Development
 
-### 🔄 **In Development**
-- **Event-Based Actions**: Webhook triggers and real-time responses
-- **Visual Workflow Designer**: Low-code workflow creation interface
-- **Advanced Orchestration**: Hierarchical agents and consensus mechanisms
-- **Enterprise Security**: RBAC, audit logging, and compliance features
-- **Image Support**: Multimodal AI for visual context and analysis
-
-## 🌐 Integrations
-
-### Communication Platforms
-- **Discord**: Bot for workflow triggers and notifications
-- **Matrix**: Decentralized chat integration
-- **RSS**: Automated feed monitoring and processing
-
-### Development Tools
-- **GitHub**: Issue tracking, PR management, repository operations
-- **Git**: Local repository management and version control
-- **Testing**: Automated test execution and validation
-
-### AI Providers
-- **OpenAI**: GPT-4, GPT-3.5-turbo support
-- **Anthropic**: Claude-3 family integration  
-- **Google AI**: Gemini Pro and vision models
-- **Local Models**: Ollama for private, offline inference
-
-## 📖 Documentation
-
-- **API Reference**: [API.md](./API.md) - Comprehensive gRPC and REST API documentation
-- **Architecture Guide**: [wiki/architecture.md](./wiki/architecture.md) - System design and components
-- **Package Documentation**: [wiki/](./wiki/) - Detailed package and module guides
-- **Examples**: [examples/](./examples/) - Sample workflows and integrations
-
-## 🛠️ Development
-
-### Contributing
-1. Find an issue marked `good first issue`
-2. Fork the repository
-3. Create a feature branch
-4. Submit a Pull Request
-
-### Running Tests
 ```bash
+cd frontend
+npm install
+npm start
+```
+
+### Testing
+
+```bash
+# Run all tests
 make test
+
+# Run linting
+make lint
+
+# Run with hot reload
+make air
 ```
 
-### Building from Source
+### Building
+
 ```bash
+# Build for production
 make build
+
+# Build Docker image
+docker build -t mule:latest .
 ```
 
-### Development Mode
-```bash
-make dev
-```
-
-## 🚀 API Access
-
-### gRPC API (Port 9090)
-High-performance, type-safe API for:
-- Workflow execution and monitoring
-- Agent management and control
-- Provider configuration
-- System health and metrics
-
-### REST API (Port 8083)
-HTTP/JSON API for:
-- Web application integration
-- Simple automations
-- Health checks and status
-- Configuration management
-
-See [API.md](./API.md) for complete API documentation and examples.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Community
-
-- **Issues**: Report bugs and request features on [GitHub Issues](https://github.com/mule-ai/mule/issues)
-- **Discussions**: Join conversations on [GitHub Discussions](https://github.com/mule-ai/mule/discussions)
-- **Documentation**: Visit [muleai.io](https://muleai.io/docs) for guides and tutorials
-
----
-
-**Mule** - Automating software development through intelligent multi-agent workflows. 
+For detailed technical specifications, see the [Product Requirements Document](MULE-V2.md).

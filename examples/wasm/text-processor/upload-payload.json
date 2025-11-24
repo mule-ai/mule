@@ -1,0 +1,5 @@
+{
+  "name": "text-processor",
+  "description": "Converts text to uppercase using WASM",
+  "module_data": "<base64-encoded-content-of-text-processor.wasm>"
+}
