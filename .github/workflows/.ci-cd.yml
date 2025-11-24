@@ -37,6 +37,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.4'
+      - name: Create dummy build directory and file for embed
+        run: |
+          mkdir -p internal/frontend/build
+          echo '{}' > internal/frontend/build/dummy.json
       - name: Download Go dependencies
         run: go mod tidy
       - name: Run tests
