@@ -17,8 +17,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
-      - name: Create dummy build directory for embed
-        run: mkdir -p internal/frontend/build
+      - name: Create dummy build directory and file for embed
+        run: |
+          mkdir -p internal/frontend/build
+          echo '{}' > internal/frontend/build/dummy.json
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
