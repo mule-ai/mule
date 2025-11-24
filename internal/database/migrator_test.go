@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMigrator(t *testing.T) {
@@ -29,7 +29,7 @@ func TestMigrator(t *testing.T) {
 		
 		CREATE INDEX IF NOT EXISTS idx_test_table_name ON test_table(name);
 	`
-	
+
 	migrationFile := filepath.Join(tempDir, "0001_test.sql")
 	err = os.WriteFile(migrationFile, []byte(migrationContent), 0644)
 	assert.NoError(t, err)
@@ -76,7 +76,7 @@ func TestMigrator(t *testing.T) {
 			WHERE table_schema = 'public' 
 			AND table_name = 'test_table'
 		)`).Scan(&exists)
-	
+
 	if err == nil {
 		assert.True(t, exists, "Test table should exist")
 	}

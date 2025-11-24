@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	_ "github.com/lib/pq"
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
-	_ "github.com/lib/pq"
 )
 
 // DatabaseTool provides database query capabilities for agents
@@ -101,7 +101,7 @@ func (d *DatabaseTool) Execute(ctx context.Context, params map[string]interface{
 		rowMap := make(map[string]interface{})
 		for i, col := range columns {
 			val := values[i]
-			
+
 			// Handle different types
 			switch v := val.(type) {
 			case []byte:
@@ -183,8 +183,8 @@ func (a *databaseToolAdapter) Declaration() *genai.FunctionDeclaration {
 	paramsJSON, _ := json.Marshal(schema)
 
 	return &genai.FunctionDeclaration{
-		Name:        a.tool.Name(),
-		Description: a.tool.Description(),
+		Name:                 a.tool.Name(),
+		Description:          a.tool.Description(),
 		ParametersJsonSchema: string(paramsJSON),
 	}
 }

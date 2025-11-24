@@ -19,6 +19,7 @@ func main() {
 }
 
 // Export a function that can be called from the host
+//
 //go:wasmexport add
 func add(a, b int32) int32 {
 	return a + b
@@ -39,5 +40,5 @@ func greet(ptr, size uint32) uint64 {
 
 	// For this example, we'll just return a pointer to a static string
 	// In a real implementation, you'd allocate memory and write the response
-	return uint64(uint32(len(response))) << 32 | uint64(0) // placeholder
+	return uint64(uint32(len(response)))<<32 | uint64(0) // placeholder
 }

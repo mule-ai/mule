@@ -3,8 +3,8 @@ package database
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDatabaseSchema(t *testing.T) {
@@ -55,7 +55,7 @@ func TestDatabaseSchema(t *testing.T) {
 				WHERE table_schema = 'public' 
 				AND table_name = $1
 			)`, table).Scan(&exists)
-		
+
 		assert.NoError(t, err, "Should be able to check table existence for %s", table)
 		assert.True(t, exists, "Table %s should exist", table)
 	}
@@ -63,7 +63,7 @@ func TestDatabaseSchema(t *testing.T) {
 	// Test that all expected columns exist in agents table
 	agentColumns := []string{
 		"id",
-		"name", 
+		"name",
 		"description",
 		"provider_id",
 		"model_id",
@@ -81,7 +81,7 @@ func TestDatabaseSchema(t *testing.T) {
 				AND table_name = 'agents'
 				AND column_name = $1
 			)`, column).Scan(&exists)
-		
+
 		assert.NoError(t, err, "Should be able to check column existence for agents.%s", column)
 		assert.True(t, exists, "Column agents.%s should exist", column)
 	}
@@ -90,7 +90,7 @@ func TestDatabaseSchema(t *testing.T) {
 	toolColumns := []string{
 		"id",
 		"name",
-		"description", 
+		"description",
 		"type",
 		"config",
 		"created_at",
@@ -106,7 +106,7 @@ func TestDatabaseSchema(t *testing.T) {
 				AND table_name = 'tools'
 				AND column_name = $1
 			)`, column).Scan(&exists)
-		
+
 		assert.NoError(t, err, "Should be able to check column existence for tools.%s", column)
 		assert.True(t, exists, "Column tools.%s should exist", column)
 	}
@@ -117,7 +117,7 @@ func TestDatabaseSchema(t *testing.T) {
 		"name",
 		"description",
 		"is_async",
-		"created_at", 
+		"created_at",
 		"updated_at",
 	}
 
@@ -130,7 +130,7 @@ func TestDatabaseSchema(t *testing.T) {
 				AND table_name = 'workflows'
 				AND column_name = $1
 			)`, column).Scan(&exists)
-		
+
 		assert.NoError(t, err, "Should be able to check column existence for workflows.%s", column)
 		assert.True(t, exists, "Column workflows.%s should exist", column)
 	}
@@ -151,7 +151,7 @@ func TestDatabaseSchema(t *testing.T) {
 			AND ccu.table_name = 'providers'
 			AND ccu.column_name = 'id'
 		)`).Scan(&constraintExists)
-	
+
 	assert.NoError(t, err, "Should be able to check foreign key constraint")
 	assert.True(t, constraintExists, "Foreign key constraint agents.provider_id -> providers.id should exist")
 
@@ -169,14 +169,14 @@ func TestDatabaseSchema(t *testing.T) {
 			AND ccu.table_name = 'workflows'
 			AND ccu.column_name = 'id'
 		)`).Scan(&constraintExists)
-	
+
 	assert.NoError(t, err, "Should be able to check foreign key constraint")
 	assert.True(t, constraintExists, "Foreign key constraint workflow_steps.workflow_id -> workflows.id should exist")
 
 	// Test that indexes exist
 	indexes := []string{
 		"idx_agents_provider_id",
-		"idx_workflow_steps_workflow_id", 
+		"idx_workflow_steps_workflow_id",
 		"idx_jobs_workflow_id",
 		"idx_job_steps_job_id",
 		"idx_artifacts_job_id",
@@ -190,7 +190,7 @@ func TestDatabaseSchema(t *testing.T) {
 				WHERE schemaname = 'public' 
 				AND indexname = $1
 			)`, index).Scan(&exists)
-		
+
 		assert.NoError(t, err, "Should be able to check index existence for %s", index)
 		assert.True(t, exists, "Index %s should exist", index)
 	}
@@ -207,7 +207,7 @@ func TestDatabaseSchema(t *testing.T) {
 			AND ccu.table_name = 'jobs'
 			AND ccu.column_name = 'status'
 		)`).Scan(&checkExists)
-	
+
 	assert.NoError(t, err, "Should be able to check constraint")
 	assert.True(t, checkExists, "Check constraint on jobs.status should exist")
 
@@ -221,7 +221,7 @@ func TestDatabaseSchema(t *testing.T) {
 			AND ccu.table_name = 'workflow_steps'
 			AND ccu.column_name = 'type'
 		)`).Scan(&checkExists)
-	
+
 	assert.NoError(t, err, "Should be able to check constraint")
 	assert.True(t, checkExists, "Check constraint on workflow_steps.type should exist")
 }

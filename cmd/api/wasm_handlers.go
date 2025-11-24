@@ -10,8 +10,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/mule-ai/mule/internal/api"
 	"github.com/mule-ai/mule/internal/manager"
-	"github.com/mule-ai/mule/pkg/database"
 	"github.com/mule-ai/mule/internal/wasmcompiler"
+	"github.com/mule-ai/mule/pkg/database"
 )
 
 // CompileWasmModuleRequest represents a request to compile WASM source code
@@ -24,12 +24,12 @@ type CompileWasmModuleRequest struct {
 
 // CompileWasmModuleResponse represents the response from a compilation request
 type CompileWasmModuleResponse struct {
-	ModuleID          string    `json:"module_id"`
-	SourceID          string    `json:"source_id"`
-	CompilationStatus string    `json:"compilation_status"`
-	CompilationError  *string   `json:"compilation_error,omitempty"`
+	ModuleID          string     `json:"module_id"`
+	SourceID          string     `json:"source_id"`
+	CompilationStatus string     `json:"compilation_status"`
+	CompilationError  *string    `json:"compilation_error,omitempty"`
 	CompiledAt        *time.Time `json:"compiled_at,omitempty"`
-	SourceChecksum    string    `json:"source_checksum"`
+	SourceChecksum    string     `json:"source_checksum"`
 }
 
 // TestWasmModuleRequest represents a request to test a WASM module
@@ -47,16 +47,16 @@ type TestWasmModuleResponse struct {
 
 // GetWasmModuleSourceResponse represents the response for getting WASM source code
 type GetWasmModuleSourceResponse struct {
-	ID                string    `json:"id"`
-	WasmModuleID      string    `json:"wasm_module_id"`
-	Language          string    `json:"language"`
-	SourceCode        string    `json:"source_code"`
-	Version           int       `json:"version"`
-	CompilationStatus string    `json:"compilation_status"`
-	CompilationError  *string   `json:"compilation_error,omitempty"`
+	ID                string     `json:"id"`
+	WasmModuleID      string     `json:"wasm_module_id"`
+	Language          string     `json:"language"`
+	SourceCode        string     `json:"source_code"`
+	Version           int        `json:"version"`
+	CompilationStatus string     `json:"compilation_status"`
+	CompilationError  *string    `json:"compilation_error,omitempty"`
 	CompiledAt        *time.Time `json:"compiled_at,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 func (h *apiHandler) compileWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
@@ -307,7 +307,7 @@ func (h *apiHandler) getWasmModuleExampleHandler(w http.ResponseWriter, r *http.
 	}
 
 	response := map[string]string{
-		"language":    language,
+		"language":     language,
 		"example_code": exampleCode,
 	}
 

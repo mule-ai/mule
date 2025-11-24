@@ -10,9 +10,9 @@ import (
 
 // Input represents the flexible input structure
 type Input struct {
-	Prompt      string                 `json:"prompt"`
-	Options     map[string]interface{} `json:"options,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Prompt   string                 `json:"prompt"`
+	Options  map[string]interface{} `json:"options,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Output represents the output structure with additional metadata

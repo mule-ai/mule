@@ -85,7 +85,7 @@ func main() {
 				metadata = EXCLUDED.metadata,
 				updated_at = NOW()
 		`
-		
+
 		_, err = db.ExecContext(ctx, query, tool.name, tool.name, tool.description, metadataJSON)
 		if err != nil {
 			log.Printf("Failed to insert tool %s: %v", tool.name, err)

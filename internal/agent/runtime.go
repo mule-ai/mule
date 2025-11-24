@@ -326,7 +326,9 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 			llmReq.Tools[t.Name()] = t
 
 			// Add function declaration to config
-			if funcTool, ok := t.(interface{ Declaration() *genai.FunctionDeclaration }); ok {
+			if funcTool, ok := t.(interface {
+				Declaration() *genai.FunctionDeclaration
+			}); ok {
 				decl := funcTool.Declaration()
 				if decl != nil {
 					// Find or create the function declarations tool
@@ -433,9 +435,9 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 		}
 
 		// Add both the tool call request and tool call response to the conversation
-		llmReq.Contents = append(llmReq.Contents, resp.Content)  // Model message with FunctionCall parts
+		llmReq.Contents = append(llmReq.Contents, resp.Content) // Model message with FunctionCall parts
 		llmReq.Contents = append(llmReq.Contents, &genai.Content{
-			Role:  "tool",  // Role should be "tool" for tool responses
+			Role:  "tool", // Role should be "tool" for tool responses
 			Parts: toolResults,
 		})
 

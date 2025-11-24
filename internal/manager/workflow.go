@@ -256,7 +256,9 @@ func (wm *WorkflowManager) DeleteWorkflowStep(ctx context.Context, id string) er
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get the workflow ID before deleting the step
 	var workflowID string

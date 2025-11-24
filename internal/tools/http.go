@@ -187,8 +187,8 @@ func (a *httpToolAdapter) Declaration() *genai.FunctionDeclaration {
 	paramsJSON, _ := json.Marshal(schema)
 
 	return &genai.FunctionDeclaration{
-		Name:        a.tool.Name(),
-		Description: a.tool.Description(),
+		Name:                 a.tool.Name(),
+		Description:          a.tool.Description(),
 		ParametersJsonSchema: string(paramsJSON),
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -77,7 +76,7 @@ func (c *Compiler) compileGo(ctx context.Context, req CompileRequest) (*CompileR
 	}
 
 	// Create temporary directory for compilation
-	tmpDir, err := ioutil.TempDir(c.workDir, "wasm-compile-")
+	tmpDir, err := os.MkdirTemp(c.workDir, "wasm-compile-")
 	if err != nil {
 		result.Success = false
 		result.Error = fmt.Sprintf("failed to create temp directory: %v", err)
@@ -87,7 +86,7 @@ func (c *Compiler) compileGo(ctx context.Context, req CompileRequest) (*CompileR
 
 	// Write source code to main.go
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := ioutil.WriteFile(mainFile, []byte(req.SourceCode), 0644); err != nil {
+	if err := os.WriteFile(mainFile, []byte(req.SourceCode), 0644); err != nil {
 		result.Success = false
 		result.Error = fmt.Sprintf("failed to write source file: %v", err)
 		return result, nil
@@ -99,7 +98,7 @@ func (c *Compiler) compileGo(ctx context.Context, req CompileRequest) (*CompileR
 go 1.24
 `, strings.ToLower(req.ModuleName))
 	goModFile := filepath.Join(tmpDir, "go.mod")
-	if err := ioutil.WriteFile(goModFile, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModFile, []byte(goModContent), 0644); err != nil {
 		result.Success = false
 		result.Error = fmt.Sprintf("failed to write go.mod: %v", err)
 		return result, nil
@@ -123,7 +122,7 @@ go 1.24
 	}
 
 	// Read the compiled WASM module
-	moduleData, err := ioutil.ReadFile(wasmFile)
+	moduleData, err := os.ReadFile(wasmFile)
 	if err != nil {
 		result.Success = false
 		result.Error = fmt.Sprintf("failed to read compiled module: %v", err)
@@ -151,6 +150,7 @@ func ValidateGoSource(sourceCode string) error {
 	if !strings.Contains(sourceCode, "import") || !strings.Contains(sourceCode, "fmt") {
 		// This is just a warning, not an error
 		// fmt.Println is commonly used for WASM output but not strictly required
+		log.Println("Warning: source code may be missing fmt import, which is commonly used for WASM output")
 	}
 
 	return nil
@@ -246,14 +246,14 @@ func CreateWasmModuleWithSource(ctx context.Context, compiler *Compiler, wasmMod
 }, sourceMgr interface {
 	CreateSource(ctx context.Context, source *database.WasmModuleSource) error
 }, name, description, language, sourceCode string) (*database.WasmModule, *database.WasmModuleSource, error) {
-	
+
 	// First compile the source code
 	compileReq := CompileRequest{
 		SourceCode: sourceCode,
 		Language:   language,
 		ModuleName: name,
 	}
-	
+
 	result, err := compiler.Compile(ctx, compileReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("compilation failed: %w", err)

@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/api"
+	"github.com/mule-ai/mule/internal/primitive"
 )
 
 // Memory configuration handlers
@@ -19,7 +19,9 @@ func (h *apiHandler) getMemoryConfigHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(config)
+	if err := json.NewEncoder(w).Encode(config); err != nil {
+		log.Printf("Failed to encode memory config: %v", err)
+	}
 }
 
 func (h *apiHandler) updateMemoryConfigHandler(w http.ResponseWriter, r *http.Request) {
@@ -42,5 +44,7 @@ func (h *apiHandler) updateMemoryConfigHandler(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(config)
+	if err := json.NewEncoder(w).Encode(config); err != nil {
+		log.Printf("Failed to encode memory config: %v", err)
+	}
 }

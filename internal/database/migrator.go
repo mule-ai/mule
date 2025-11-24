@@ -102,7 +102,9 @@ func (m *Migrator) runEmbeddedMigration(fileName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Execute migration
 	log.Printf("Running migration: %s", fileName)
@@ -124,12 +126,6 @@ func (m *Migrator) runEmbeddedMigration(fileName string) error {
 
 	log.Printf("Migration %s applied successfully", fileName)
 	return nil
-}
-
-// runMigration runs a single migration file if it hasn't been run yet
-// Deprecated: Use runEmbeddedMigration instead
-func (m *Migrator) runMigration(migrationsDir, fileName string) error {
-	return m.runEmbeddedMigration(fileName)
 }
 
 // GetMigrationVersion returns the current migration version

@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	adkTool "google.golang.org/adk/tool"
 	"google.golang.org/adk/model"
+	adkTool "google.golang.org/adk/tool"
 	"google.golang.org/genai"
 )
 
@@ -108,13 +108,13 @@ func (p *CustomLLMProvider) generateStream(ctx context.Context, req *model.LLMRe
 
 // OpenAIRequest represents an OpenAI-compatible request
 type OpenAIRequest struct {
-	Model       string                    `json:"model"`
-	Messages    []OpenAIMessage           `json:"messages"`
-	Stream      bool                      `json:"stream"`
-	Temperature float64                   `json:"temperature,omitempty"`
-	MaxTokens   int                       `json:"max_tokens,omitempty"`
-	Tools       []OpenAITool              `json:"tools,omitempty"`
-	ToolChoice  interface{}               `json:"tool_choice,omitempty"`
+	Model       string          `json:"model"`
+	Messages    []OpenAIMessage `json:"messages"`
+	Stream      bool            `json:"stream"`
+	Temperature float64         `json:"temperature,omitempty"`
+	MaxTokens   int             `json:"max_tokens,omitempty"`
+	Tools       []OpenAITool    `json:"tools,omitempty"`
+	ToolChoice  interface{}     `json:"tool_choice,omitempty"`
 }
 
 // OpenAITool represents a tool in OpenAI format
@@ -132,19 +132,19 @@ type OpenAIFunctionDeclaration struct {
 
 // OpenAIMessage represents a message in OpenAI format
 type OpenAIMessage struct {
-	Role       string          `json:"role"`
-	Content    string          `json:"content,omitempty"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content,omitempty"`
 	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	Name       string          `json:"name,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Name       string           `json:"name,omitempty"`
 }
 
 // OpenAIToolCall represents a tool call in OpenAI format
 type OpenAIToolCall struct {
-	ID       string               `json:"id"`
-	Type     string               `json:"type"`
-	Function OpenAIFunctionCall  `json:"function"`
-	Index    int                  `json:"index,omitempty"`
+	ID       string             `json:"id"`
+	Type     string             `json:"type"`
+	Function OpenAIFunctionCall `json:"function"`
+	Index    int                `json:"index,omitempty"`
 }
 
 // OpenAIFunctionCall represents a function call in OpenAI format
@@ -161,8 +161,8 @@ type OpenAIResponse struct {
 
 // OpenAIChoice represents a choice in OpenAI response
 type OpenAIChoice struct {
-	Message      OpenAIMessage `json:"message"`
-	FinishReason string        `json:"finish_reason"`
+	Message      OpenAIMessage    `json:"message"`
+	FinishReason string           `json:"finish_reason"`
 	ToolCalls    []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -201,7 +201,7 @@ func (p *CustomLLMProvider) convertToOpenAIRequest(req *model.LLMRequest) OpenAI
 	}
 
 	// Convert tools if present
-	if req.Tools != nil && len(req.Tools) > 0 {
+	if len(req.Tools) > 0 {
 		tools := make([]OpenAITool, 0, len(req.Tools))
 		for name, tool := range req.Tools {
 			// Extract tool information
@@ -268,7 +268,7 @@ func (p *CustomLLMProvider) convertContentToOpenAIMessage(content *genai.Content
 					if err == nil {
 						toolResponse.WriteString(string(responseJSON))
 					} else {
-						toolResponse.WriteString(fmt.Sprintf("{\"error\": \"failed to marshal response\"}"))
+						toolResponse.WriteString("{\"error\": \"failed to marshal response\"}")
 					}
 				}
 				// Get the tool call ID from the FunctionResponse

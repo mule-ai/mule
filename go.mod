@@ -1,8 +1,6 @@
 module github.com/mule-ai/mule
 
-go 1.24.4
-
-toolchain go1.24.10
+go 1.25.4
 
 require (
 	github.com/google/uuid v1.6.0

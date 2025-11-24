@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/adk/tool"
-	"google.golang.org/genai"
 	jbutlerdevgenai "github.com/jbutlerdev/genai"
 	genaitools "github.com/jbutlerdev/genai/tools"
+	"google.golang.org/adk/tool"
+	"google.golang.org/genai"
 
 	"github.com/mule-ai/mule/internal/primitive"
 )
@@ -466,8 +466,8 @@ func (a *genaiMemoryToolADKAdapter) Declaration() *genai.FunctionDeclaration {
 	paramsJSON, _ := json.Marshal(schema)
 
 	return &genai.FunctionDeclaration{
-		Name:        a.adapter.Name(),
-		Description: a.adapter.Description(),
+		Name:                 a.adapter.Name(),
+		Description:          a.adapter.Description(),
 		ParametersJsonSchema: string(paramsJSON),
 	}
 }

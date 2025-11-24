@@ -25,22 +25,22 @@ func (wmsm *WasmModuleSourceManager) CreateSource(ctx context.Context, source *d
 	if source.ID == "" {
 		source.ID = uuid.New().String()
 	}
-	
+
 	now := time.Now()
 	source.CreatedAt = now
 	source.UpdatedAt = now
 
 	query := `INSERT INTO wasm_module_sources (id, wasm_module_id, language, source_code, version, compilation_status, compilation_error, compiled_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
-	_, err := wmsm.db.ExecContext(ctx, query, 
-		source.ID, 
-		source.WasmModuleID, 
-		source.Language, 
-		source.SourceCode, 
-		source.Version, 
-		source.CompilationStatus, 
-		source.CompilationError, 
-		source.CompiledAt, 
-		source.CreatedAt, 
+	_, err := wmsm.db.ExecContext(ctx, query,
+		source.ID,
+		source.WasmModuleID,
+		source.Language,
+		source.SourceCode,
+		source.Version,
+		source.CompilationStatus,
+		source.CompilationError,
+		source.CompiledAt,
+		source.CreatedAt,
 		source.UpdatedAt,
 	)
 	if err != nil {
@@ -140,14 +140,14 @@ func (wmsm *WasmModuleSourceManager) UpdateSource(ctx context.Context, source *d
 	source.UpdatedAt = time.Now()
 
 	query := `UPDATE wasm_module_sources SET language = $1, source_code = $2, version = $3, compilation_status = $4, compilation_error = $5, compiled_at = $6, updated_at = $7 WHERE id = $8`
-	_, err := wmsm.db.ExecContext(ctx, query, 
-		source.Language, 
-		source.SourceCode, 
-		source.Version, 
-		source.CompilationStatus, 
-		source.CompilationError, 
-		source.CompiledAt, 
-		source.UpdatedAt, 
+	_, err := wmsm.db.ExecContext(ctx, query,
+		source.Language,
+		source.SourceCode,
+		source.Version,
+		source.CompilationStatus,
+		source.CompilationError,
+		source.CompiledAt,
+		source.UpdatedAt,
 		source.ID,
 	)
 	if err != nil {

@@ -49,7 +49,7 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 
 	// Serialize input data to JSON for passing to WASM module via stdin
 	var stdinData []byte
-	if inputData != nil && len(inputData) > 0 {
+	if len(inputData) > 0 {
 		stdinData, err = json.Marshal(inputData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize input data: %w", err)

@@ -10,7 +10,7 @@ import (
 // Input represents the expected input structure
 type Input struct {
 	Prompt string `json:"prompt"`
-	Input  string `json:"input"`  // Fallback for direct API calls
+	Input  string `json:"input"` // Fallback for direct API calls
 }
 
 // Output represents the output structure

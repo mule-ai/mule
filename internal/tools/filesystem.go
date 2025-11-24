@@ -176,9 +176,9 @@ func (f *FilesystemTool) List(path string) (interface{}, error) {
 		}
 
 		fileInfo := map[string]interface{}{
-			"name":    entry.Name(),
-			"is_dir":  entry.IsDir(),
-			"size":    info.Size(),
+			"name":     entry.Name(),
+			"is_dir":   entry.IsDir(),
+			"size":     info.Size(),
 			"mod_time": info.ModTime(),
 		}
 		files = append(files, fileInfo)
@@ -278,8 +278,8 @@ func (a *filesystemToolAdapter) Declaration() *genai.FunctionDeclaration {
 	paramsJSON, _ := json.Marshal(schema)
 
 	return &genai.FunctionDeclaration{
-		Name:        a.tool.Name(),
-		Description: a.tool.Description(),
+		Name:                 a.tool.Name(),
+		Description:          a.tool.Description(),
 		ParametersJsonSchema: string(paramsJSON),
 	}
 }

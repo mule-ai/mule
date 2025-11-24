@@ -24,20 +24,20 @@ import (
 )
 
 type apiHandler struct {
-	db              *internaldb.DB
-	store           primitive.PrimitiveStore
-	runtime         *agent.Runtime
-	jobStore        job.JobStore
-	validator       *validation.Validator
-	wasmModuleMgr   *manager.WasmModuleManager
-	wasmExecutor    *engine.WASMExecutor
-	workflowEngine  *engine.Engine
-	workflowMgr     *manager.WorkflowManager
+	db             *internaldb.DB
+	store          primitive.PrimitiveStore
+	runtime        *agent.Runtime
+	jobStore       job.JobStore
+	validator      *validation.Validator
+	wasmModuleMgr  *manager.WasmModuleManager
+	wasmExecutor   *engine.WASMExecutor
+	workflowEngine *engine.Engine
+	workflowMgr    *manager.WorkflowManager
 }
 
 func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	store := primitive.NewPGStore(db.DB) // Access the underlying *sql.DB
-	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
+	jobStore := job.NewPGStore(db.DB)    // Access the underlying *sql.DB
 	validator := validation.NewValidator()
 	wasmModuleMgr := manager.NewWasmModuleManager(db)
 	workflowMgr := manager.NewWorkflowManager(db)
@@ -387,7 +387,9 @@ func (h *apiHandler) getProviderModelsHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	if _, err := w.Write(body); err != nil {
+		log.Printf("Failed to write response body: %v", err)
+	}
 }
 
 // Tool handlers
@@ -1001,7 +1003,7 @@ func (h *apiHandler) listWasmModulesHandler(w http.ResponseWriter, r *http.Reque
 
 func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// Parse multipart form with 32MB max memory
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		api.HandleError(w, fmt.Errorf("failed to parse form: %w", err), http.StatusBadRequest)
@@ -1011,7 +1013,7 @@ func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	// Get form values
 	name := r.FormValue("name")
 	description := r.FormValue("description")
-	
+
 	// Get file
 	file, _, err := r.FormFile("module_data")
 	if err != nil {
@@ -1061,7 +1063,7 @@ func (h *apiHandler) getWasmModuleHandler(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(module)
 }
@@ -1080,13 +1082,13 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	// Get form values
 	name := r.FormValue("name")
 	description := r.FormValue("description")
-	
+
 	// Get file (optional)
 	var moduleData []byte = nil
 	file, _, err := r.FormFile("module_data")
 	if err == nil && file != nil {
 		defer file.Close()
-		
+
 		// Read file data
 		buf := make([]byte, 1024)
 		for {
