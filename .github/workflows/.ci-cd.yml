@@ -85,7 +85,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-build
-          path: frontend/build/
+          path: internal/frontend/build/
       - name: Build binary
         run: make build
       - name: Upload binary artifact
