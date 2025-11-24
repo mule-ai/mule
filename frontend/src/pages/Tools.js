@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Button, Form, Modal } from 'react-bootstrap';
 import { toolsAPI } from '../services/api';
+import MemoryConfig from '../components/MemoryConfig';
 
 function Tools() {
   const [tools, setTools] = useState([]);
@@ -89,6 +90,8 @@ function Tools() {
           Create Tool
         </Button>
       </div>
+
+      <MemoryConfig />
 
       <Row>
         {tools.map((tool) => (

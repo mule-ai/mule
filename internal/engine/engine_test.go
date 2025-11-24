@@ -243,6 +243,24 @@ func (m *MockPrimitiveStore) RemoveToolFromAgent(ctx context.Context, agentID, t
 	return nil
 }
 
+func (m *MockPrimitiveStore) GetMemoryConfig(ctx context.Context, id string) (*primitive.MemoryConfig, error) {
+	// Return a default memory config for testing
+	return &primitive.MemoryConfig{
+		ID:                id,
+		DatabaseURL:       "postgres://test:test@localhost:5432/test?sslmode=disable",
+		EmbeddingProvider: "openai",
+		EmbeddingModel:    "text-embedding-ada-002",
+		EmbeddingDims:     1536,
+		DefaultTTLSeconds: 0,
+		DefaultTopK:       5,
+	}, nil
+}
+
+func (m *MockPrimitiveStore) UpdateMemoryConfig(ctx context.Context, config *primitive.MemoryConfig) error {
+	// Mock implementation - just return nil for testing
+	return nil
+}
+
 // MockJobStore implements job.JobStore for testing
 type MockJobStore struct {
 	Jobs map[string]*job.Job

@@ -154,6 +154,10 @@ func main() {
 	router.HandleFunc("/api/v1/tools/{id}", handler.updateToolHandler).Methods("PUT")
 	router.HandleFunc("/api/v1/tools/{id}", handler.deleteToolHandler).Methods("DELETE")
 
+	// Memory configuration APIs
+	router.HandleFunc("/api/v1/memory-config", handler.getMemoryConfigHandler).Methods("GET")
+	router.HandleFunc("/api/v1/memory-config", handler.updateMemoryConfigHandler).Methods("PUT")
+
 	router.HandleFunc("/api/v1/agents", handler.listAgentsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/agents", handler.createAgentHandler).Methods("POST")
 	router.HandleFunc("/api/v1/agents/{id}", handler.getAgentHandler).Methods("GET")

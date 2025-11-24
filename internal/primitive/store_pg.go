@@ -442,3 +442,62 @@ func (s *PGStore) RemoveToolFromAgent(ctx context.Context, agentID, toolID strin
 func (s *PGStore) DB() *sql.DB {
 	return s.db
 }
+
+// Memory configuration methods
+func (s *PGStore) GetMemoryConfig(ctx context.Context, id string) (*MemoryConfig, error) {
+	if id == "" {
+		id = "default"
+	}
+
+	config := &MemoryConfig{}
+	query := `SELECT id, database_url, embedding_provider, embedding_model, embedding_dims,
+			  default_ttl_seconds, default_top_k, created_at, updated_at
+			  FROM memory_config WHERE id = $1`
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&config.ID, &config.DatabaseURL, &config.EmbeddingProvider, &config.EmbeddingModel,
+		&config.EmbeddingDims, &config.DefaultTTLSeconds, &config.DefaultTopK,
+		&config.CreatedAt, &config.UpdatedAt,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get memory config: %w", err)
+	}
+
+	return config, nil
+}
+
+func (s *PGStore) UpdateMemoryConfig(ctx context.Context, config *MemoryConfig) error {
+	if config.ID == "" {
+		config.ID = "default"
+	}
+
+	query := `UPDATE memory_config
+			  SET database_url = $1, embedding_provider = $2, embedding_model = $3,
+				  embedding_dims = $4, default_ttl_seconds = $5, default_top_k = $6,
+				  updated_at = NOW()
+			  WHERE id = $7`
+
+	res, err := s.db.ExecContext(ctx, query,
+		config.DatabaseURL, config.EmbeddingProvider, config.EmbeddingModel,
+		config.EmbeddingDims, config.DefaultTTLSeconds, config.DefaultTopK,
+		config.ID,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update memory config: %w", err)
+	}
+
+	count, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}

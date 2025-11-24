@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -29,16 +30,32 @@ type Runtime struct {
 
 // NewRuntime creates a new agent runtime
 func NewRuntime(store primitive.PrimitiveStore, jobStore job.JobStore) *Runtime {
+	// Initialize the new tool registry with configuration support
+	toolRegistry, err := tools.NewRegistryWithConfig(store)
+	if err != nil {
+		// Fall back to the old registry if the new one fails to initialize
+		log.Printf("Failed to initialize new tool registry: %v, falling back to old registry", err)
+		toolRegistry = tools.NewRegistry()
+	}
+
 	return &Runtime{
 		store:        store,
 		jobStore:     jobStore,
-		toolRegistry: tools.NewRegistry(),
+		toolRegistry: toolRegistry,
 	}
 }
 
 // SetWorkflowEngine sets the workflow engine for the runtime
 func (r *Runtime) SetWorkflowEngine(engine WorkflowEngine) {
 	r.workflowEngine = engine
+}
+
+// ReinitializeMemoryTool reinitializes the memory tool when configuration changes
+func (r *Runtime) ReinitializeMemoryTool() error {
+	if r.toolRegistry != nil {
+		return r.toolRegistry.ReinitializeMemoryTool()
+	}
+	return fmt.Errorf("tool registry not initialized")
 }
 
 // ChatCompletionRequest represents the OpenAI-compatible request

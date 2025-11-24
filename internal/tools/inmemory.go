@@ -10,17 +10,17 @@ import (
 	"google.golang.org/genai"
 )
 
-// MemoryTool provides in-memory key-value storage for agents
-type MemoryTool struct {
+// InMemoryTool provides in-memory key-value storage for agents (legacy implementation)
+type InMemoryTool struct {
 	name string
 	desc string
 	data map[string]interface{}
 	mu   sync.RWMutex
 }
 
-// NewMemoryTool creates a new memory tool
-func NewMemoryTool() *MemoryTool {
-	return &MemoryTool{
+// NewInMemoryTool creates a new in-memory tool (legacy implementation)
+func NewInMemoryTool() *InMemoryTool {
+	return &InMemoryTool{
 		name: "memory",
 		desc: "Store and retrieve key-value pairs in memory",
 		data: make(map[string]interface{}),
@@ -28,22 +28,22 @@ func NewMemoryTool() *MemoryTool {
 }
 
 // Name returns the tool name
-func (m *MemoryTool) Name() string {
+func (m *InMemoryTool) Name() string {
 	return m.name
 }
 
 // Description returns the tool description
-func (m *MemoryTool) Description() string {
+func (m *InMemoryTool) Description() string {
 	return m.desc
 }
 
 // IsLongRunning indicates if this is a long-running operation
-func (m *MemoryTool) IsLongRunning() bool {
+func (m *InMemoryTool) IsLongRunning() bool {
 	return false
 }
 
 // Execute executes the memory tool with the given parameters
-func (m *MemoryTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+func (m *InMemoryTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 	action, ok := params["action"].(string)
 	if !ok {
 		return nil, fmt.Errorf("action parameter is required")
@@ -80,7 +80,7 @@ func (m *MemoryTool) Execute(ctx context.Context, params map[string]interface{})
 }
 
 // Get retrieves a value from memory
-func (m *MemoryTool) Get(key string) (interface{}, error) {
+func (m *InMemoryTool) Get(key string) (interface{}, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -92,7 +92,7 @@ func (m *MemoryTool) Get(key string) (interface{}, error) {
 }
 
 // Set stores a value in memory
-func (m *MemoryTool) Set(key string, value interface{}) (interface{}, error) {
+func (m *InMemoryTool) Set(key string, value interface{}) (interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -104,7 +104,7 @@ func (m *MemoryTool) Set(key string, value interface{}) (interface{}, error) {
 }
 
 // Delete removes a value from memory
-func (m *MemoryTool) Delete(key string) (interface{}, error) {
+func (m *InMemoryTool) Delete(key string) (interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -116,7 +116,7 @@ func (m *MemoryTool) Delete(key string) (interface{}, error) {
 }
 
 // List returns all keys in memory
-func (m *MemoryTool) List() (interface{}, error) {
+func (m *InMemoryTool) List() (interface{}, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -126,13 +126,13 @@ func (m *MemoryTool) List() (interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"keys": keys,
+		"keys":  keys,
 		"count": len(keys),
 	}, nil
 }
 
 // GetSchema returns the JSON schema for this tool
-func (m *MemoryTool) GetSchema() map[string]interface{} {
+func (m *InMemoryTool) GetSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -146,7 +146,7 @@ func (m *MemoryTool) GetSchema() map[string]interface{} {
 				"description": "The key to operate on (required for get, set, delete)",
 			},
 			"value": map[string]interface{}{
-				"type":        "string", // Changed from "any" to "string" for proxy compatibility
+				"type":        "string",
 				"description": "The value to store as JSON string (required for set)",
 			},
 		},
@@ -155,33 +155,32 @@ func (m *MemoryTool) GetSchema() map[string]interface{} {
 }
 
 // ToTool converts this to an ADK tool
-func (m *MemoryTool) ToTool() tool.Tool {
-	return &memoryToolAdapter{tool: m}
+func (m *InMemoryTool) ToTool() tool.Tool {
+	return &inMemoryToolAdapter{tool: m}
 }
 
-// memoryToolAdapter adapts MemoryTool to the ADK tool interface
-type memoryToolAdapter struct {
-	tool *MemoryTool
+// inMemoryToolAdapter adapts InMemoryTool to the ADK tool interface
+type inMemoryToolAdapter struct {
+	tool *InMemoryTool
 }
 
-func (a *memoryToolAdapter) Name() string {
+func (a *inMemoryToolAdapter) Name() string {
 	return a.tool.Name()
 }
 
-func (a *memoryToolAdapter) Description() string {
+func (a *inMemoryToolAdapter) Description() string {
 	return a.tool.Description()
 }
 
-func (a *memoryToolAdapter) IsLongRunning() bool {
+func (a *inMemoryToolAdapter) IsLongRunning() bool {
 	return a.tool.IsLongRunning()
 }
 
-func (a *memoryToolAdapter) GetTool() interface{} {
+func (a *inMemoryToolAdapter) GetTool() interface{} {
 	return a.tool
 }
 
-// Declaration returns the function declaration for this tool
-func (a *memoryToolAdapter) Declaration() *genai.FunctionDeclaration {
+func (a *inMemoryToolAdapter) Declaration() *genai.FunctionDeclaration {
 	schema := a.tool.GetSchema()
 	paramsJSON, _ := json.Marshal(schema)
 
@@ -192,8 +191,7 @@ func (a *memoryToolAdapter) Declaration() *genai.FunctionDeclaration {
 	}
 }
 
-// Run executes the tool with the provided context and arguments
-func (a *memoryToolAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
+func (a *inMemoryToolAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
 	// Convert args to map[string]interface{}
 	argsMap, ok := args.(map[string]any)
 	if !ok {

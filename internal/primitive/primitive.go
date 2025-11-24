@@ -48,6 +48,19 @@ type Workflow struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// MemoryConfig represents configuration for the genai memory tool.
+type MemoryConfig struct {
+	ID                string    `json:"id"`
+	DatabaseURL       string    `json:"database_url"`
+	EmbeddingProvider string    `json:"embedding_provider"`
+	EmbeddingModel    string    `json:"embedding_model"`
+	EmbeddingDims     int       `json:"embedding_dims"`
+	DefaultTTLSeconds int       `json:"default_ttl_seconds"`
+	DefaultTopK       int       `json:"default_top_k"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
 	ID           string                 `json:"id"`
@@ -97,6 +110,10 @@ type PrimitiveStore interface {
 
 	// RemoveToolFromAgent removes a tool from an agent
 	RemoveToolFromAgent(ctx context.Context, agentID, toolID string) error
+
+	// Memory configuration methods
+	GetMemoryConfig(ctx context.Context, id string) (*MemoryConfig, error)
+	UpdateMemoryConfig(ctx context.Context, config *MemoryConfig) error
 }
 
 // ErrNotFound is returned when a requested primitive is not found.

@@ -102,4 +102,10 @@ export const chatAPI = {
   models: () => api.get('/v1/models'),
 };
 
+// Memory configuration API
+export const memoryConfigAPI = {
+  get: () => api.get('/api/v1/memory-config'),
+  update: (data) => api.put('/api/v1/memory-config', data),
+};
+
 export default api;
