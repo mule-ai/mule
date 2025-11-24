@@ -1,4 +1,4 @@
-name: Github Action to Lint, test, deploy and release
+name: CI/CD Pipeline
 on:
   push:
     branches: [main]
@@ -10,68 +10,98 @@ permissions:
 
 jobs:
   lint:
-    name: lint
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version: '1.24'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.64
-          args: --fast # Enable only fast linters
-          # Can be replace by '--enable-all' to enable all linters
-          # Or enable presets of linters by '--presets <string>' see https://golangci-lint.run/usage/configuration/#linters-configuration
+          args: --timeout=5m
+
   test:
-    name: test
+    name: Test
     runs-on: ubuntu-latest
     needs: lint
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
-      - name: install olm
-        run: sudo apt-get update && sudo apt-get install -y libolm-dev
-      - name: Download dependencies
+          go-version: '1.24'
+      - name: Download Go dependencies
         run: go mod tidy
       - name: Run tests
-        run: go test ./... -v
-  build:
-    name: build
+        run: make test
+
+  build-frontend:
+    name: Build Frontend
     runs-on: ubuntu-latest
     needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build/
+
+  build:
+    name: Build Binary
+    runs-on: ubuntu-latest
+    needs: [test, build-frontend]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "stable"
-      - name: install olm
-        run: sudo apt-get update && sudo apt-get install -y libolm-dev
+          go-version: '1.24'
+      - name: Download Go dependencies
+        run: go mod tidy
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build/
       - name: Build binary
-        run: |
-          cd cmd/mule
-          CGO_ENABLED=1 GOOS=linux go build -o bin/mule
-      - name: Upload Artifact
+        run: make build
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: mule-binary
-          path: cmd/mule/bin/mule
+          path: cmd/api/bin/mule
 
   release:
-    name: Create GitHub Release
+    name: Create Release
     runs-on: ubuntu-latest
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
-      - name: Download artifact
+      - name: Download binary artifact
         uses: actions/download-artifact@v4
         with:
           name: mule-binary
-      - name: Create Release
+          path: ./
+      - name: Make binary executable
+        run: chmod +x mule
+      - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: mule
+          generateReleaseNotes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
