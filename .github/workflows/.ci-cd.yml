@@ -40,7 +40,7 @@ jobs:
       - name: Download Go dependencies
         run: go mod tidy
       - name: Run tests
-        run: make test
+        run: go test -v ./...
 
   build-frontend:
     name: Build Frontend
