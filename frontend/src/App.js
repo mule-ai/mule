@@ -12,6 +12,7 @@ import Tools from './pages/Tools';
 import Jobs from './pages/Jobs';
 import WasmModules from './pages/WasmModules';
 import WasmCodeEditor from './pages/WasmCodeEditor';
+import Settings from './pages/Settings';
 
 function App() {
   const [theme, setTheme] = useState('light');
@@ -47,6 +48,7 @@ function App() {
                 <Nav.Link href="/wasm-modules">WASM Modules</Nav.Link>
                 <Nav.Link href="/wasm-editor">WASM Editor</Nav.Link>
                 <Nav.Link href="/jobs">Jobs</Nav.Link>
+                <Nav.Link href="/settings">Settings</Nav.Link>
               </Nav>
             </Navbar.Collapse>
           </Container>
@@ -62,6 +64,7 @@ function App() {
             <Route path="/wasm-modules" element={<WasmModules />} />
             <Route path="/wasm-editor" element={<WasmCodeEditor />} />
             <Route path="/jobs" element={<Jobs />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
         </Container>
       </div>

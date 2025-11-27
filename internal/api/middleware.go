@@ -48,31 +48,56 @@ func CORSMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// TimeoutMiddleware adds a timeout to requests
-func TimeoutMiddleware(timeout time.Duration) func(http.Handler) http.Handler {
+// TimeoutMiddleware adds a timeout to requests with configurable duration
+func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			timeout := getTimeoutFunc()
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
 			r = r.WithContext(ctx)
 
+			// Create a channel to signal when the handler is done
 			done := make(chan struct{})
+			panicChan := make(chan interface{}, 1)
+
+			// Wrap the response writer to track if headers were written
+			rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
 			go func() {
-				defer close(done)
-				next.ServeHTTP(w, r)
+				defer func() {
+					if p := recover(); p != nil {
+						panicChan <- p
+					}
+					close(done)
+				}()
+				next.ServeHTTP(rw, r)
 			}()
 
 			select {
 			case <-done:
 				// Request completed normally
+				return
+			case p := <-panicChan:
+				// Panic occurred in handler
+				panic(p)
 			case <-ctx.Done():
 				// Request timed out
+				if rw.headerWritten {
+					// Headers already written - we can't change the status code
+					// The client will receive an incomplete response, but we can't prevent it
+					log.Printf("Request timeout after %v, but headers already written (status: %d)", timeout, rw.statusCode)
+					return
+				}
+
+				// Headers not written yet, we can send a timeout response
 				w.WriteHeader(http.StatusRequestTimeout)
 				_ = json.NewEncoder(w).Encode(ErrorResponse{
 					Error:   "request_timeout",
 					Message: "Request took too long to process",
 				})
+				return
 			}
 		})
 	}
@@ -84,6 +109,13 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				log.Printf("Panic recovered: %v", err)
+
+				// Check if headers have already been written
+				if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+					// Headers already written, can't send error response
+					return
+				}
+
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(ErrorResponse{
 					Error:   "internal_server_error",
@@ -133,17 +165,35 @@ func ValidationMiddleware(validator *validation.Validator, validationFunc func(*
 // responseWriter is a wrapper around http.ResponseWriter that captures the status code
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode    int
+	headerWritten bool
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
+	if rw.headerWritten {
+		return
+	}
+	rw.headerWritten = true
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.headerWritten {
+		rw.WriteHeader(http.StatusOK)
+	}
+	return rw.ResponseWriter.Write(b)
 }
 
 // HandleError handles errors in a consistent way
 func HandleError(w http.ResponseWriter, err error, statusCode int) {
 	log.Printf("Error: %v", err)
+
+	// Check if headers have already been written
+	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+		// Headers already written, can't send error response
+		return
+	}
 
 	w.WriteHeader(statusCode)
 	response := ErrorResponse{
@@ -161,6 +211,12 @@ func HandleError(w http.ResponseWriter, err error, statusCode int) {
 
 // HandleValidationError handles validation errors
 func HandleValidationError(w http.ResponseWriter, errors validation.ValidationErrors) {
+	// Check if headers have already been written
+	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+		// Headers already written, can't send error response
+		return
+	}
+
 	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"error":   "validation_failed",

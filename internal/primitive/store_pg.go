@@ -501,3 +501,65 @@ func (s *PGStore) UpdateMemoryConfig(ctx context.Context, config *MemoryConfig) 
 
 	return nil
 }
+
+// Settings methods
+func (s *PGStore) GetSetting(ctx context.Context, key string) (*Setting, error) {
+	setting := &Setting{}
+	query := `SELECT id, key, value, description, category, created_at, updated_at FROM settings WHERE key = $1`
+
+	err := s.db.QueryRowContext(ctx, query, key).Scan(
+		&setting.ID, &setting.Key, &setting.Value, &setting.Description,
+		&setting.Category, &setting.CreatedAt, &setting.UpdatedAt,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get setting: %w", err)
+	}
+
+	return setting, nil
+}
+
+func (s *PGStore) ListSettings(ctx context.Context) ([]*Setting, error) {
+	query := `SELECT id, key, value, description, category, created_at, updated_at FROM settings ORDER BY category, key`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list settings: %w", err)
+	}
+	defer rows.Close()
+
+	var settings []*Setting
+	for rows.Next() {
+		setting := &Setting{}
+		err := rows.Scan(
+			&setting.ID, &setting.Key, &setting.Value, &setting.Description,
+			&setting.Category, &setting.CreatedAt, &setting.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan setting: %w", err)
+		}
+		settings = append(settings, setting)
+	}
+
+	return settings, rows.Err()
+}
+
+func (s *PGStore) UpdateSetting(ctx context.Context, setting *Setting) error {
+	query := `UPDATE settings SET value = $1, description = $2, category = $3, updated_at = NOW() WHERE key = $4`
+	res, err := s.db.ExecContext(ctx, query, setting.Value, setting.Description, setting.Category, setting.Key)
+	if err != nil {
+		return fmt.Errorf("failed to update setting: %w", err)
+	}
+
+	count, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}

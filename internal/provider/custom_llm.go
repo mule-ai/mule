@@ -83,6 +83,9 @@ func (p *CustomLLMProvider) generate(ctx context.Context, req *model.LLMRequest)
 		}, nil
 	}
 
+	// Debug: Print the raw response
+	fmt.Printf("DEBUG: API Response Status: %d, Body: %s\n", resp.StatusCode, string(body))
+
 	if resp.StatusCode != http.StatusOK {
 		return &model.LLMResponse{
 			ErrorCode:    "API_ERROR",
@@ -156,7 +159,7 @@ type OpenAIFunctionCall struct {
 // OpenAIResponse represents an OpenAI-compatible response
 type OpenAIResponse struct {
 	Choices []OpenAIChoice `json:"choices"`
-	Usage   OpenAIUsage    `json:"usage"`
+	Usage   *OpenAIUsage   `json:"usage,omitempty"`
 }
 
 // OpenAIChoice represents a choice in OpenAI response
@@ -171,6 +174,18 @@ type OpenAIUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+// OpenAIError represents an error response from OpenAI API
+type OpenAIError struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Code    string `json:"code"`
+}
+
+// OpenAIErrorResponse represents an error response from OpenAI API
+type OpenAIErrorResponse struct {
+	Error *OpenAIError `json:"error"`
 }
 
 // convertToOpenAIRequest converts ADK LLMRequest to OpenAI format
@@ -402,6 +417,16 @@ func (p *CustomLLMProvider) makeHTTPRequest(ctx context.Context, req OpenAIReque
 
 // convertOpenAIResponseToADK converts OpenAI response to ADK LLMResponse format
 func (p *CustomLLMProvider) convertOpenAIResponseToADK(body []byte) (*model.LLMResponse, error) {
+	// First, try to parse as an error response
+	var errorResp OpenAIErrorResponse
+	if err := json.Unmarshal(body, &errorResp); err == nil && errorResp.Error != nil {
+		return &model.LLMResponse{
+			ErrorCode:    "API_ERROR",
+			ErrorMessage: fmt.Sprintf("API error: %s (type: %s, code: %s)", errorResp.Error.Message, errorResp.Error.Type, errorResp.Error.Code),
+		}, nil
+	}
+
+	// If not an error, parse as a regular response
 	var openaiResp OpenAIResponse
 	if err := json.Unmarshal(body, &openaiResp); err != nil {
 		return &model.LLMResponse{
@@ -421,12 +446,16 @@ func (p *CustomLLMProvider) convertOpenAIResponseToADK(body []byte) (*model.LLMR
 
 	// Convert to ADK format
 	adkResp := &model.LLMResponse{
-		UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
+		FinishReason: genai.FinishReasonStop,
+	}
+
+	// Add usage metadata if available
+	if openaiResp.Usage != nil {
+		adkResp.UsageMetadata = &genai.GenerateContentResponseUsageMetadata{
 			PromptTokenCount:     int32(openaiResp.Usage.PromptTokens),
 			CandidatesTokenCount: int32(openaiResp.Usage.CompletionTokens),
 			TotalTokenCount:      int32(openaiResp.Usage.TotalTokens),
-		},
-		FinishReason: genai.FinishReasonStop,
+		}
 	}
 
 	// Handle content and tool calls

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -163,8 +164,16 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
+		// Get workflow timeout from database
+		workflowTimeout := 5 * time.Minute // Default timeout
+		if setting, err := h.store.GetSetting(r.Context(), "timeout_workflow_seconds"); err == nil {
+			if timeoutSeconds, err := strconv.Atoi(setting.Value); err == nil && timeoutSeconds > 0 {
+				workflowTimeout = time.Duration(timeoutSeconds) * time.Second
+			}
+		}
+
 		// Wait for job completion with timeout
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, workflowTimeout)
 		defer cancel()
 
 		for {
@@ -1134,4 +1143,72 @@ func (h *apiHandler) deleteWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Settings handlers
+func (h *apiHandler) listSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	settings, err := h.store.ListSettings(ctx)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to list settings: %w", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(settings)
+}
+
+func (h *apiHandler) getSettingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	key := vars["key"]
+
+	setting, err := h.store.GetSetting(ctx, key)
+	if err != nil {
+		if err == primitive.ErrNotFound {
+			api.HandleError(w, fmt.Errorf("setting not found: %s", key), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to get setting: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(setting)
+}
+
+func (h *apiHandler) updateSettingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	key := vars["key"]
+
+	var setting primitive.Setting
+	if err := json.NewDecoder(r.Body).Decode(&setting); err != nil {
+		api.HandleError(w, fmt.Errorf("failed to decode request: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Ensure the key in the URL matches the key in the body
+	if setting.Key != key {
+		api.HandleError(w, fmt.Errorf("key mismatch: URL key %s does not match body key %s", key, setting.Key), http.StatusBadRequest)
+		return
+	}
+
+	if err := h.store.UpdateSetting(ctx, &setting); err != nil {
+		if err == primitive.ErrNotFound {
+			api.HandleError(w, fmt.Errorf("setting not found: %s", key), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to update setting: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Return the updated setting
+	updatedSetting, err := h.store.GetSetting(ctx, key)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to get updated setting: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(updatedSetting)
 }

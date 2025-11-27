@@ -165,18 +165,10 @@ func (pm *ProviderManager) GetDecryptedAPIKey(ctx context.Context, id string) (s
 	return pm.decryptAPIKey(provider.APIKeyEncrypted)
 }
 
-// encryptAPIKey encrypts an API key using AES
+// encryptAPIKey encrypts an API key using AES-GCM
 func (pm *ProviderManager) encryptAPIKey(apiKey string) (string, error) {
 	block, err := aes.NewCipher(pm.secret)
 	if err != nil {
-		return "", err
-	}
-
-	plaintext := []byte(apiKey)
-	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
-	iv := ciphertext[:aes.BlockSize]
-
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return "", err
 	}
 
@@ -185,16 +177,22 @@ func (pm *ProviderManager) encryptAPIKey(apiKey string) (string, error) {
 		return "", err
 	}
 
-	// Use GCM for encryption
-	ciphertext = aesgcm.Seal(nil, iv, plaintext, nil)
+	// GCM standard nonce size is 12 bytes
+	nonce := make([]byte, 12)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
 
-	// Prepend IV to ciphertext
-	result := append(iv, ciphertext...)
+	// Use GCM for encryption - this returns ciphertext with authentication tag
+	ciphertext := aesgcm.Seal(nil, nonce, []byte(apiKey), nil)
+
+	// Prepend nonce to ciphertext for storage
+	result := append(nonce, ciphertext...)
 
 	return hex.EncodeToString(result), nil
 }
 
-// decryptAPIKey decrypts an API key using AES
+// decryptAPIKey decrypts an API key using AES-GCM
 func (pm *ProviderManager) decryptAPIKey(encryptedKey string) (string, error) {
 	ciphertext, err := hex.DecodeString(encryptedKey)
 	if err != nil {
@@ -206,19 +204,20 @@ func (pm *ProviderManager) decryptAPIKey(encryptedKey string) (string, error) {
 		return "", err
 	}
 
-	if len(ciphertext) < aes.BlockSize {
+	// GCM nonce size is 12 bytes
+	if len(ciphertext) < 12 {
 		return "", fmt.Errorf("ciphertext too short")
 	}
 
-	iv := ciphertext[:aes.BlockSize]
-	ciphertext = ciphertext[aes.BlockSize:]
+	nonce := ciphertext[:12]
+	ciphertext = ciphertext[12:]
 
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return "", err
 	}
 
-	plaintext, err := aesgcm.Open(nil, iv, ciphertext, nil)
+	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return "", err
 	}

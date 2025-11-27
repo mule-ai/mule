@@ -411,7 +411,20 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 	}
 
 	// Handle tool execution loop using ADK's built-in tool handling
-	maxIterations := 10 // Prevent infinite loops
+	// Get max tool calls from settings
+	maxIterations := 10 // Default value
+	maxToolCallsSetting, err := r.store.GetSetting(ctx, "max_tool_calls")
+	if err != nil {
+		fmt.Printf("Warning: Could not get max_tool_calls setting, using default: %v\n", err)
+	} else if maxToolCallsSetting != nil && maxToolCallsSetting.Value != "" {
+		// Parse the value as integer
+		if parsedValue, parseErr := fmt.Sscanf(maxToolCallsSetting.Value, "%d", &maxIterations); parseErr == nil && parsedValue == 1 {
+			fmt.Printf("Using max_tool_calls setting: %d\n", maxIterations)
+		} else {
+			fmt.Printf("Warning: Invalid max_tool_calls setting value '%s', using default: %d\n", maxToolCallsSetting.Value, maxIterations)
+		}
+	}
+
 	iteration := 0
 
 	for iteration < maxIterations {
@@ -435,9 +448,10 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 
 		fmt.Printf("Executing %d tool calls (iteration %d)\n", len(resp.Content.Parts), iteration)
 
-		// Execute function calls using ADK's tool execution
-		toolResults := make([]*genai.Part, 0)
+		// Add the tool call request to the conversation
+		llmReq.Contents = append(llmReq.Contents, resp.Content) // Model message with FunctionCall parts
 
+		// Execute each function call and add as separate messages
 		for _, part := range resp.Content.Parts {
 			if part.FunctionCall != nil {
 				funcCall := part.FunctionCall
@@ -469,20 +483,17 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 					}
 				}
 
-				// Create tool result part with matching ID
+				// Create a separate content for each tool response
 				toolResult := genai.NewPartFromFunctionResponse(funcCall.Name, result)
 				toolResult.FunctionResponse.ID = funcCall.ID
-				toolResults = append(toolResults, toolResult)
+
+				llmReq.Contents = append(llmReq.Contents, &genai.Content{
+					Role:  "tool",
+					Parts: []*genai.Part{toolResult},
+				})
 				fmt.Printf("Tool result for %s (ID: %s): %+v\n", funcCall.Name, funcCall.ID, result)
 			}
 		}
-
-		// Add both the tool call request and tool call response to the conversation
-		llmReq.Contents = append(llmReq.Contents, resp.Content) // Model message with FunctionCall parts
-		llmReq.Contents = append(llmReq.Contents, &genai.Content{
-			Role:  "tool", // Role should be "tool" for tool responses
-			Parts: toolResults,
-		})
 
 		// Generate next response with tool results
 		seq = customProvider.GenerateContent(ctx, llmReq, false)

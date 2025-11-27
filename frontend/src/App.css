@@ -222,6 +222,11 @@ p, span, div, label, li, td, th {
   color: var(--text-primary) !important;
 }
 
+/* Custom modal sizes */
+.modal-80w {
+  max-width: 80% !important;
+}
+
 /* List group theming */
 .list-group-item {
   background-color: var(--bg-card) !important;

@@ -16,8 +16,8 @@ export PATH=$PATH:/usr/local/go/bin
 rm ${GO_FILE}
 
 # Install golangci-lint
-
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+mkdir -p bin
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin
 
 # Install docker cli
 apt install ca-certificates curl

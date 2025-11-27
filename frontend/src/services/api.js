@@ -102,6 +102,14 @@ export const chatAPI = {
   models: () => api.get('/v1/models'),
 };
 
+// WASM Editor chat API
+export const wasmEditorChatAPI = {
+  chat: (data) => api.post('/v1/chat/completions', {
+    ...data,
+    // This ensures we're using the chat completions endpoint with proper formatting
+  }),
+};
+
 // Memory configuration API
 export const memoryConfigAPI = {
   get: () => api.get('/api/v1/memory-config'),

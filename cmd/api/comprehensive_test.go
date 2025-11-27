@@ -616,6 +616,21 @@ func (m *MockPrimitiveStore) UpdateMemoryConfig(ctx context.Context, config *pri
 	return nil
 }
 
+func (m *MockPrimitiveStore) GetSetting(ctx context.Context, key string) (*primitive.Setting, error) {
+	// Return not found to prevent database connections in tests
+	return nil, primitive.ErrNotFound
+}
+
+func (m *MockPrimitiveStore) ListSettings(ctx context.Context) ([]*primitive.Setting, error) {
+	// Return empty settings for testing
+	return []*primitive.Setting{}, nil
+}
+
+func (m *MockPrimitiveStore) UpdateSetting(ctx context.Context, setting *primitive.Setting) error {
+	// Mock implementation - just return nil for testing
+	return nil
+}
+
 // MockWorkflowEngine implements agent.WorkflowEngine for testing
 type MockWorkflowEngine struct{}
 

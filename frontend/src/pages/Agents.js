@@ -325,7 +325,7 @@ function Agents() {
       </Modal>
 
       {/* Edit Agent Modal */}
-      <Modal show={showEditModal} onHide={() => setShowEditModal(false)}>
+      <Modal show={showEditModal} onHide={() => setShowEditModal(false)} size="lg" dialogClassName="modal-80w">
         <Modal.Header closeButton>
           <Modal.Title>Edit Agent</Modal.Title>
         </Modal.Header>
