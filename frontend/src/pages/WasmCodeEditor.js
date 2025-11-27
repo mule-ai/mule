@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Button, Form, Modal, Alert, Tabs, Tab, Badge, Spinner } from 'react-bootstrap';
-import { wasmModulesAPI } from '../services/api';
+import { Card, Row, Col, Button, Form, Modal, Alert, Tabs, Tab, Badge, Spinner, Dropdown, InputGroup } from 'react-bootstrap';
+import { wasmModulesAPI, agentsAPI, wasmEditorChatAPI } from '../services/api';
 import Editor from '@monaco-editor/react';
 
 function WasmCodeEditor() {
@@ -22,6 +22,14 @@ function WasmCodeEditor() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [activeTab, setActiveTab] = useState('editor');
+
+  // Chat functionality state
+  const [availableAgents, setAvailableAgents] = useState([]);
+  const [selectedAgent, setSelectedAgent] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [showChat, setShowChat] = useState(false);
 
   const loadExampleCode = useCallback(async () => {
     try {
@@ -248,6 +256,119 @@ func outputError(err error) {
     loadExampleCode();
   };
 
+  // Chat functionality functions
+  const loadAgents = async () => {
+    try {
+      const response = await agentsAPI.list();
+      const agents = response.data || [];
+      setAvailableAgents(agents);
+
+      // Find WASM Editor agent as default
+      const wasmEditor = agents.find(a => a.name === 'WASM Editor');
+      if (wasmEditor) {
+        setSelectedAgent(wasmEditor);
+      } else if (agents.length > 0) {
+        setSelectedAgent(agents[0]);
+      }
+    } catch (error) {
+      console.error('Failed to load agents:', error);
+    }
+  };
+
+  const handleChatSubmit = async () => {
+    if (!chatInput.trim() || !selectedAgent) return;
+
+    const userMessage = {
+      role: 'user',
+      content: chatInput,
+      timestamp: new Date()
+    };
+
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    try {
+      // Prepare the context with current code
+      const codeContext = `Current WASM Module Code (${language}):
+\`\`\`
+${sourceCode}
+\`\`\`
+
+User Question: ${chatInput}`;
+
+      const response = await wasmEditorChatAPI.chat({
+        model: `agent/${selectedAgent.name.toLowerCase()}`,
+        messages: [
+          ...(chatMessages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }))),
+          { role: 'user', content: codeContext }
+        ],
+        stream: false
+      });
+
+      const assistantMessage = {
+        role: 'assistant',
+        content: response.data.choices[0].message.content,
+        timestamp: new Date()
+      };
+
+      setChatMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage = {
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date(),
+        isError: true
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleInsertCode = (code) => {
+    setSourceCode(code);
+    setSuccess('Code inserted from chat!');
+  };
+
+  const toggleChat = () => {
+    setShowChat(!showChat);
+    if (!showChat && availableAgents.length === 0) {
+      loadAgents();
+    }
+  };
+
+  const formatChatMessage = (content) => {
+    // Simple markdown-like formatting for code blocks
+    const parts = content.split(/```([\s\S]*?)```/g);
+    return parts.map((part, index) => {
+      if (index % 2 === 1) {
+        // This is a code block
+        return (
+          <div key={index} className="position-relative">
+            <pre className="bg-dark text-light p-3 rounded mt-2 mb-2" style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+              {part}
+            </pre>
+            <Button
+              size="sm"
+              variant="outline-light"
+              className="position-absolute"
+              style={{ top: '10px', right: '10px', fontSize: '11px' }}
+              onClick={() => handleInsertCode(part)}
+            >
+              Insert Code
+            </Button>
+          </div>
+        );
+      }
+      return <span key={index}>{part}</span>;
+    });
+  };
+
   const getCompilationBadge = () => {
     if (!compilationResult) return null;
     
@@ -267,6 +388,9 @@ func outputError(err error) {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h1>WASM Code Editor</h1>
         <div className="d-flex gap-2">
+          <Button variant="outline-info" onClick={toggleChat}>
+            {showChat ? 'Hide' : 'Show'} AI Assistant
+          </Button>
           <Button variant="outline-primary" onClick={handleCreateNew}>
             Create New Module
           </Button>
@@ -282,7 +406,76 @@ func outputError(err error) {
       {success && <Alert variant="success" dismissible onClose={() => setSuccess('')}>{success}</Alert>}
 
       <Row>
-        <Col md={3}>
+        {showChat && (
+          <Col md={3} className="d-flex flex-column" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+            <Card className="mb-4 flex-grow-1 d-flex flex-column">
+              <Card.Header>
+                <div className="d-flex justify-content-between align-items-center">
+                  <Card.Title className="mb-0">AI Assistant</Card.Title>
+                  <Dropdown>
+                    <Dropdown.Toggle variant="outline-secondary" size="sm">
+                      {selectedAgent?.name || 'Select Agent'}
+                    </Dropdown.Toggle>
+                    <Dropdown.Menu>
+                      {availableAgents.map((agent) => (
+                        <Dropdown.Item key={agent.id} onClick={() => setSelectedAgent(agent)}>
+                          {agent.name}
+                        </Dropdown.Item>
+                      ))}
+                    </Dropdown.Menu>
+                  </Dropdown>
+                </div>
+              </Card.Header>
+              <Card.Body className="flex-grow-1 d-flex flex-column" style={{ overflow: 'hidden' }}>
+                <div className="flex-grow-1 mb-3" style={{ overflowY: 'auto', maxHeight: '400px' }}>
+                  {chatMessages.length === 0 ? (
+                    <p className="text-muted small">
+                      Ask me anything about your WASM module! I can help you write code, debug errors, and optimize your module.
+                    </p>
+                  ) : (
+                    chatMessages.map((msg, index) => (
+                      <div key={index} className={`mb-3 ${msg.role === 'user' ? 'text-end' : ''}`}>
+                        <div className={`d-inline-block p-2 rounded ${msg.role === 'user' ? 'bg-primary text-white' : msg.isError ? 'bg-danger text-white' : 'bg-light'}`}>
+                          {formatChatMessage(msg.content)}
+                        </div>
+                        <div className="small text-muted mt-1">
+                          {msg.role === 'user' ? 'You' : selectedAgent?.name} • {msg.timestamp.toLocaleTimeString()}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {isChatLoading && (
+                    <div className="text-center">
+                      <Spinner animation="border" size="sm" />
+                      <span className="ms-2 text-muted">Thinking...</span>
+                    </div>
+                  )}
+                </div>
+                <InputGroup>
+                  <Form.Control
+                    as="textarea"
+                    rows={2}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleChatSubmit();
+                      }
+                    }}
+                    placeholder="Ask about your WASM module..."
+                    disabled={isChatLoading}
+                  />
+                  <Button variant="primary" onClick={handleChatSubmit} disabled={isChatLoading || !chatInput.trim()}>
+                    Send
+                  </Button>
+                </InputGroup>
+              </Card.Body>
+            </Card>
+          </Col>
+        )}
+
+        <Col md={showChat ? 3 : 3}>
           <Card className="mb-4">
             <Card.Header>
               <Card.Title className="mb-0">WASM Modules</Card.Title>
@@ -332,7 +525,7 @@ func outputError(err error) {
           </Card>
         </Col>
 
-        <Col md={9}>
+        <Col md={showChat ? 6 : 9}>
           <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
             <Tab eventKey="editor" title="Code Editor">
               <Card>

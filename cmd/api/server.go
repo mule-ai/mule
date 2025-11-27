@@ -19,6 +19,8 @@ import (
 	"github.com/mule-ai/mule/internal/api"
 	"github.com/mule-ai/mule/internal/database"
 	"github.com/mule-ai/mule/internal/frontend"
+	"github.com/mule-ai/mule/internal/initialization"
+	"github.com/mule-ai/mule/internal/manager"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
@@ -104,13 +106,67 @@ func main() {
 	}
 	log.Println("Database schema initialized successfully")
 
+	// Ensure default primitives exist
+	// Generate a simple secret for encryption (in production, this should be from a secure source)
+	secret := []byte("mule-default-secret-key-12345678")
+	providerMgr := manager.NewProviderManager(db, secret)
+	agentMgr := manager.NewAgentManager(db)
+	workflowMgr := manager.NewWorkflowManager(db)
+
+	initCtx := context.Background()
+	defaults, err := initialization.EnsureAllDefaults(initCtx, providerMgr, agentMgr, workflowMgr)
+	if err != nil {
+		log.Printf("Warning: failed to ensure default primitives: %v", err)
+	} else {
+		log.Printf("Default primitives ensured: provider=%s, default_agent=%s, wasm_editor_agent=%s, workflow=%s",
+			defaults.Provider.ID, defaults.DefaultAgent.ID, defaults.WasmEditorAgent.ID, defaults.Workflow.ID)
+	}
+
 	router := mux.NewRouter()
 
 	// Apply middleware
 	router.Use(api.LoggingMiddleware)
 	router.Use(api.RecoveryMiddleware)
 	router.Use(api.CORSMiddleware)
-	router.Use(api.TimeoutMiddleware(30 * time.Second))
+
+	// Create a function to get timeout from database
+	getTimeoutFunc := func() time.Duration {
+		// Default workflow timeout of 5 minutes
+		defaultWorkflowTimeout := 5 * time.Minute
+		// Default middleware timeout is workflow timeout + 1 minute buffer
+		defaultTimeout := defaultWorkflowTimeout + 1*time.Minute
+
+		// Try to get workflow timeout from database first
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		workflowSetting, err := db.GetSetting(ctx, "timeout_workflow_seconds")
+		if err != nil {
+			// Return default if we can't get the workflow timeout
+			return defaultTimeout
+		}
+
+		// Parse the workflow timeout value
+		workflowTimeoutSeconds, err := strconv.Atoi(workflowSetting.Value)
+		if err != nil || workflowTimeoutSeconds <= 0 {
+			return defaultTimeout
+		}
+
+		workflowTimeout := time.Duration(workflowTimeoutSeconds) * time.Second
+
+		// Now check if there's an explicit request timeout setting
+		requestSetting, err := db.GetSetting(ctx, "timeout_request_seconds")
+		if err == nil {
+			if requestTimeoutSeconds, err := strconv.Atoi(requestSetting.Value); err == nil && requestTimeoutSeconds > 0 {
+				return time.Duration(requestTimeoutSeconds) * time.Second
+			}
+		}
+
+		// No explicit request timeout, calculate it as workflow timeout + 1 minute buffer
+		return workflowTimeout + 1*time.Minute
+	}
+
+	router.Use(api.TimeoutMiddleware(getTimeoutFunc))
 
 	// Health check endpoint
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -157,6 +213,11 @@ func main() {
 	// Memory configuration APIs
 	router.HandleFunc("/api/v1/memory-config", handler.getMemoryConfigHandler).Methods("GET")
 	router.HandleFunc("/api/v1/memory-config", handler.updateMemoryConfigHandler).Methods("PUT")
+
+	// Settings APIs
+	router.HandleFunc("/api/v1/settings", handler.listSettingsHandler).Methods("GET")
+	router.HandleFunc("/api/v1/settings/{key}", handler.getSettingHandler).Methods("GET")
+	router.HandleFunc("/api/v1/settings/{key}", handler.updateSettingHandler).Methods("PUT")
 
 	router.HandleFunc("/api/v1/agents", handler.listAgentsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/agents", handler.createAgentHandler).Methods("POST")
@@ -207,12 +268,25 @@ func main() {
 	// Serve frontend (catch-all route)
 	router.PathPrefix("/").Handler(frontend.ServeStatic())
 
+	// Calculate server timeouts based on workflow timeout
+	// Get workflow timeout from database
+	serverWriteTimeout := 15 * time.Minute // Default generous timeout
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer timeoutCancel()
+
+	if setting, err := db.GetSetting(timeoutCtx, "timeout_workflow_seconds"); err == nil {
+		if timeoutSeconds, err := strconv.Atoi(setting.Value); err == nil && timeoutSeconds > 0 {
+			// Set write timeout to workflow timeout + 2 minute buffer
+			serverWriteTimeout = time.Duration(timeoutSeconds)*time.Second + 2*time.Minute
+		}
+	}
+
 	srv := &http.Server{
 		Addr:         listenAddr,
 		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  30 * time.Second,  // Time to read request headers
+		WriteTimeout: serverWriteTimeout, // Time to write full response
+		IdleTimeout:  120 * time.Second,  // Keep-alive idle timeout
 	}
 
 	go func() {

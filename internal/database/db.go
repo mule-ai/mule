@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -48,4 +49,32 @@ func (db *DB) InitSchema() error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 	return nil
+}
+
+// Setting represents a configuration setting from the database
+type Setting struct {
+	ID          string `json:"id"`
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+}
+
+// GetSetting retrieves a setting by key from the database
+func (db *DB) GetSetting(ctx context.Context, key string) (*Setting, error) {
+	setting := &Setting{}
+	query := `SELECT id, key, value, description, category FROM settings WHERE key = $1`
+
+	err := db.QueryRowContext(ctx, query, key).Scan(
+		&setting.ID, &setting.Key, &setting.Value, &setting.Description, &setting.Category,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("setting not found: %s", key)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get setting: %w", err)
+	}
+
+	return setting, nil
 }

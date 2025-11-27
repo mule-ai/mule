@@ -304,6 +304,21 @@ func (m *MockAgentStore) UpdateMemoryConfig(ctx context.Context, config *primiti
 	return nil
 }
 
+func (m *MockAgentStore) GetSetting(ctx context.Context, key string) (*primitive.Setting, error) {
+	// Return not found to prevent database connections in tests
+	return nil, primitive.ErrNotFound
+}
+
+func (m *MockAgentStore) ListSettings(ctx context.Context) ([]*primitive.Setting, error) {
+	// Return empty settings for testing
+	return []*primitive.Setting{}, nil
+}
+
+func (m *MockAgentStore) UpdateSetting(ctx context.Context, setting *primitive.Setting) error {
+	// Mock implementation - just return nil for testing
+	return nil
+}
+
 // MockJobStore implements job.JobStore for testing
 type MockJobStore struct{}
 

@@ -61,6 +61,18 @@ type MemoryConfig struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+// Setting represents an application configuration setting.
+type Setting struct {
+	ID          string    `json:"id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	Description string    `json:"description"`
+	Category    string    `json:"category"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
 	ID           string                 `json:"id"`
@@ -114,6 +126,11 @@ type PrimitiveStore interface {
 	// Memory configuration methods
 	GetMemoryConfig(ctx context.Context, id string) (*MemoryConfig, error)
 	UpdateMemoryConfig(ctx context.Context, config *MemoryConfig) error
+
+	// Settings methods
+	GetSetting(ctx context.Context, key string) (*Setting, error)
+	ListSettings(ctx context.Context) ([]*Setting, error)
+	UpdateSetting(ctx context.Context, setting *Setting) error
 }
 
 // ErrNotFound is returned when a requested primitive is not found.
