@@ -284,7 +284,7 @@ func main() {
 	srv := &http.Server{
 		Addr:         listenAddr,
 		Handler:      router,
-		ReadTimeout:  30 * time.Second,  // Time to read request headers
+		ReadTimeout:  30 * time.Second,   // Time to read request headers
 		WriteTimeout: serverWriteTimeout, // Time to write full response
 		IdleTimeout:  120 * time.Second,  // Keep-alive idle timeout
 	}

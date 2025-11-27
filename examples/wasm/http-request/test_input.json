@@ -1,0 +1,8 @@
+{
+  "url": "https://httpbin.org/get",
+  "method": "GET",
+  "headers": {
+    "User-Agent": "Mule-WASM-Test/1.0",
+    "X-Test-Header": "test-value"
+  }
+}
