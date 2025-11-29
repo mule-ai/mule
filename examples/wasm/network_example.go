@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -13,16 +15,16 @@ type InputData struct {
 	Message string                 `json:"message,omitempty"` // Alternative input field (backward compatibility)
 	Data    map[string]interface{} `json:"data,omitempty"`    // Additional data
 	URL     string                 `json:"url,omitempty"`     // URL for HTTP request
-	Headers map[string]string      `json:"headers,omitempty"` // HTTP headers
 	Method  string                 `json:"method,omitempty"`  // HTTP method (default: GET)
+	Headers map[string]string      `json:"headers,omitempty"` // HTTP headers
+	Body    map[string]interface{} `json:"body,omitempty"`    // Request body
 }
 
-// OutputData represents the output structure for the next workflow step
+// OutputData represents the output structure from the WASM module
 type OutputData struct {
-	Result     string                 `json:"result"`              // Main result to pass to next step
-	Data       map[string]interface{} `json:"data,omitempty"`      // Additional processed data
-	StatusCode int                    `json:"status_code,omitempty"` // HTTP status code
-	Success    bool                   `json:"success"`             // Success flag
+	Result  string                 `json:"result"`            // Result message
+	Data    map[string]interface{} `json:"data,omitempty"`    // Response data
+	Success bool                   `json:"success"`           // Success flag
 }
 
 // http_request_with_headers is the enhanced host function for making HTTP requests with headers
@@ -38,6 +40,13 @@ func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
 // get_last_response_status gets the last response status code
 //go:wasmimport env get_last_response_status
 func get_last_response_status() uint32
+
+// getStringFromMemory reads a string from memory at the given pointer and length
+func getStringFromMemory(ptr uintptr, length uintptr) string {
+	// Convert uintptr to byte slice
+	byteSlice := (*[1 << 30]byte)(unsafe.Pointer(ptr))[:length:length]
+	return string(byteSlice)
+}
 
 func main() {
 	// Read input from stdin
@@ -57,23 +66,29 @@ func main() {
 }
 
 func processInput(input InputData) OutputData {
-	// Set default method
-	if input.Method == "" {
-		input.Method = "GET"
+	// Determine the URL to use (either from input.URL or from data)
+	urlStr := input.URL
+	if urlStr == "" && input.Data != nil {
+		if urlVal, ok := input.Data["url"].(string); ok {
+			urlStr = urlVal
+		}
 	}
 
 	// Check if we have a URL to call
-	if input.URL == "" {
+	if urlStr == "" {
 		return OutputData{
 			Result:  "No URL provided for HTTP request",
 			Success: false,
 		}
 	}
 
-	// Make HTTP request using the enhanced host function
-	urlStr := input.URL
+	// Set default method
 	method := input.Method
+	if method == "" {
+		method = "GET"
+	}
 
+	// Make HTTP request using the enhanced host function
 	// Convert strings to byte slices to get pointers and sizes
 	urlBytes := []byte(urlStr)
 	urlPtr := uintptr(unsafe.Pointer(&urlBytes[0]))
@@ -83,13 +98,23 @@ func processInput(input InputData) OutputData {
 	methodPtr := uintptr(unsafe.Pointer(&methodBytes[0]))
 	methodSize := uintptr(len(methodBytes))
 
+	// Determine body to use (either from input.Body or from data)
+	var bodyData map[string]interface{}
+	if input.Body != nil {
+		bodyData = input.Body
+	} else if input.Data != nil {
+		if bodyVal, ok := input.Data["body"].(map[string]interface{}); ok {
+			bodyData = bodyVal
+		}
+	}
+
 	// Convert body to JSON if we have data
 	var bodyPtr, bodySize uintptr
-	if input.Data != nil {
-		bodyBytes, err := json.Marshal(input.Data)
+	if bodyData != nil {
+		bodyBytes, err := json.Marshal(bodyData)
 		if err != nil {
 			return OutputData{
-				Result:  fmt.Sprintf("Failed to marshal request data: %v", err),
+				Result:  fmt.Sprintf("Failed to marshal request body: %v", err),
 				Success: false,
 			}
 		}
@@ -97,10 +122,26 @@ func processInput(input InputData) OutputData {
 		bodySize = uintptr(len(bodyBytes))
 	}
 
+	// Determine headers to use (either from input.Headers or from data)
+	var headersData map[string]string
+	if input.Headers != nil {
+		headersData = input.Headers
+	} else if input.Data != nil {
+		if headersVal, ok := input.Data["headers"].(map[string]interface{}); ok {
+			// Convert map[string]interface{} to map[string]string
+			headersData = make(map[string]string)
+			for k, v := range headersVal {
+				if strVal, ok := v.(string); ok {
+					headersData[k] = strVal
+				}
+			}
+		}
+	}
+
 	// Convert headers to JSON if we have headers
 	var headersPtr, headersSize uintptr
-	if input.Headers != nil {
-		headersBytes, err := json.Marshal(input.Headers)
+	if headersData != nil {
+		headersBytes, err := json.Marshal(headersData)
 		if err != nil {
 			return OutputData{
 				Result:  fmt.Sprintf("Failed to marshal headers: %v", err),
@@ -138,38 +179,10 @@ func processInput(input InputData) OutputData {
 		result = fmt.Sprintf("Error: Unknown error code: 0x%08X", resultCode)
 	}
 
-	// If successful, get the response data
-	statusCode := 0
-	var responseData map[string]interface{}
-
-	if resultCode == 0 {
-		// Get status code
-		statusCode = int(get_last_response_status())
-
-		// Try to get response body
-		// Allocate a buffer for the response body (10KB max)
-		buffer := make([]byte, 10240)
-		bufferPtr := uintptr(unsafe.Pointer(&buffer[0]))
-		bufferSize := uintptr(len(buffer))
-
-		bodySize := get_last_response_body(bufferPtr, bufferSize)
-		if bodySize > 0 && bodySize <= uint32(len(buffer)) {
-			// Parse response body as JSON
-			responseBody := string(buffer[:bodySize])
-			if err := json.Unmarshal([]byte(responseBody), &responseData); err != nil {
-				// If not valid JSON, store as raw string
-				responseData = map[string]interface{}{
-					"raw_response": responseBody,
-				}
-			}
-		}
-	}
-
 	return OutputData{
-		Result:     result,
-		Data:       responseData,
-		StatusCode: statusCode,
-		Success:    resultCode == 0,
+		Result:  result,
+		Data:    bodyData,
+		Success: resultCode == 0,
 	}
 }
 

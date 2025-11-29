@@ -420,6 +420,14 @@ func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
 	return job.ErrJobNotFound
 }
 
+func (m *MockJobStore) CancelJob(jobID string) error {
+	if jobItem, exists := m.Jobs[jobID]; exists {
+		jobItem.Status = job.StatusCancelled
+		return nil
+	}
+	return job.ErrJobNotFound
+}
+
 // MockPrimitiveStore implements primitive.PrimitiveStore for testing
 type MockPrimitiveStore struct {
 	Agents        []*primitive.Agent

@@ -377,3 +377,7 @@ func (m *MockJobStore) MarkJobCompleted(jobID string, outputData map[string]inte
 func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
 	return nil
 }
+
+func (m *MockJobStore) CancelJob(jobID string) error {
+	return nil
+}

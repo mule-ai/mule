@@ -440,3 +440,25 @@ func (s *PGStore) MarkJobFailed(jobID string, err error) error {
 
 	return nil
 }
+
+// CancelJob marks a job as cancelled
+func (s *PGStore) CancelJob(jobID string) error {
+	now := time.Now()
+	query := `UPDATE jobs SET status = 'cancelled', completed_at = $1 WHERE id = $2 AND status IN ('queued', 'running')`
+
+	result, err := s.db.Exec(query, now, jobID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("job not found or cannot be cancelled")
+	}
+
+	return nil
+}

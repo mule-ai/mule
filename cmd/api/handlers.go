@@ -993,6 +993,29 @@ func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(steps)
 }
 
+func (h *apiHandler) cancelJobHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	jobID := vars["id"]
+
+	if err := h.jobStore.CancelJob(jobID); err != nil {
+		if err.Error() == "job not found or cannot be cancelled" {
+			api.HandleError(w, fmt.Errorf("job not found or cannot be cancelled: %s", jobID), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to cancel job: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Return success response
+	response := map[string]interface{}{
+		"message": "Job cancelled successfully",
+		"id":      jobID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 // WASM Module handlers
 func (h *apiHandler) listWasmModulesHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -13,134 +15,98 @@ func createWasmString(s string) ([]byte, uintptr, uintptr) {
 	return data, uintptr(unsafe.Pointer(&data[0])), uintptr(len(data))
 }
 
-// http_request_with_headers is the enhanced host function for making HTTP requests with headers
-//
-//go:wasmimport env http_request_with_headers
-func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uint32
-
-// trigger_workflow_or_agent is the unified host function for triggering workflows or calling agents
-//
-//go:wasmimport env trigger_workflow_or_agent
-func trigger_workflow_or_agent(operationTypePtr, operationTypeSize, idPtr, idSize, paramsPtr, paramsSize uintptr) uint32
-
-// get_last_operation_result retrieves the result of the last operation
-//
-//go:wasmimport env get_last_operation_result
-func get_last_operation_result(bufferPtr, bufferSize uintptr) uint32
-
-// get_last_operation_status gets the status of the last operation
-//
-//go:wasmimport env get_last_operation_status
-func get_last_operation_status() uint32
+// InputData represents the input structure for the WASM module
+type InputData struct {
+	Action string                 `json:"action"` // "trigger_workflow" or "call_agent"
+	ID     string                 `json:"id"`     // workflow ID or agent ID
+	Params map[string]interface{} `json:"params"` // parameters for the operation
+}
 
 func main() {
-	// Read input data from stdin
-	inputData := make([]byte, 1024)
-	n, err := os.Stdin.Read(inputData)
+	// Read input from stdin
+	decoder := json.NewDecoder(os.Stdin)
+	var input InputData
+
+	if err := decoder.Decode(&input); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to decode input: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Process the input based on action
+	var result string
+	var err error
+
+	switch input.Action {
+	case "trigger_workflow":
+		result, err = triggerWorkflow(input.ID, input.Params)
+	case "call_agent":
+		result, err = callAgent(input.ID, input.Params)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unknown action: %s\n", input.Action)
+		os.Exit(1)
+	}
+
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: failed to %s: %v\n", input.Action, err)
 		os.Exit(1)
 	}
-	
-	// Parse input data as JSON
-	var input map[string]interface{}
-	if err := json.Unmarshal(inputData[:n], &input); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing input JSON: %v\n", err)
-		os.Exit(1)
-	}
-	
-	// Get operation type from input
-	operationType, ok := input["operation_type"].(string)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "Missing or invalid operation_type in input\n")
-		os.Exit(1)
-	}
-	
-	// Get ID from input
-	id, ok := input["id"].(string)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "Missing or invalid id in input\n")
-		os.Exit(1)
-	}
-	
-	// Get parameters from input
-	params, ok := input["params"].(map[string]interface{})
-	if !ok {
-		params = make(map[string]interface{})
-	}
-	
+
+	// Output result as JSON
+	fmt.Print(result)
+}
+
+// triggerWorkflow triggers a workflow using the host function
+func triggerWorkflow(workflowID string, params map[string]interface{}) (string, error) {
 	// Convert parameters to JSON
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error marshaling parameters: %v\n", err)
-		os.Exit(1)
+		return "", fmt.Errorf("failed to marshal parameters: %w", err)
 	}
-	
-	// Create WASM strings
-	operationTypeData, operationTypePtr, operationTypeSize := createWasmString(operationType)
-	idData, idPtr, idSize := createWasmString(id)
-	paramsData, paramsPtr, paramsSize := createWasmString(string(paramsJSON))
-	
-	// Keep references to prevent garbage collection
-	_ = operationTypeData
-	_ = idData
-	_ = paramsData
-	
-	// Call the unified function
-	resultCode := trigger_workflow_or_agent(
-		operationTypePtr, operationTypeSize,
-		idPtr, idSize,
-		paramsPtr, paramsSize,
-	)
-	
-	// Check result
-	if resultCode != 0 {
-		fmt.Fprintf(os.Stderr, "Error calling trigger_workflow_or_agent: 0x%08X\n", resultCode)
-		os.Exit(1)
+
+	// Call the host function
+	operationType := "workflow"
+	status := triggerWorkflowOrAgent(operationType, workflowID, string(paramsJSON))
+
+	if status != 0 {
+		return "", fmt.Errorf("host function failed with status: %d", status)
 	}
-	
-	// Get operation status
-	status := get_last_operation_status()
-	
-	// Allocate buffer for result
-	buffer := make([]byte, 8192)
-	
-	// Get operation result
-	resultSize := get_last_operation_result(
-		uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)),
-	)
-	
-	// Prepare output
-	output := map[string]interface{}{
-		"operation_type": operationType,
-		"id":            id,
-		"status_code":   status,
-	}
-	
-	// Check if we got a valid result
-	if resultSize > 0 && resultSize <= uint32(len(buffer)) {
-		// Try to parse the result as JSON
-		var result map[string]interface{}
-		if err := json.Unmarshal(buffer[:resultSize], &result); err != nil {
-			// If not valid JSON, treat as string
-			output["result"] = string(buffer[:resultSize])
-		} else {
-			// Merge result fields into output
-			for k, v := range result {
-				output[k] = v
-			}
-		}
-	} else {
-		output["message"] = "Operation completed with no detailed result"
-		output["result_size"] = resultSize
-	}
-	
-	// Output the result as JSON
-	jsonOutput, err := json.Marshal(output)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error marshaling output: %v\n", err)
-		os.Exit(1)
-	}
-	
-	fmt.Printf("%s\n", jsonOutput)
+
+	// Get the result
+	resultJSON := getLastOperationResult()
+
+	return resultJSON, nil
 }
+
+// callAgent calls an agent using the host function
+func callAgent(agentID string, params map[string]interface{}) (string, error) {
+	// Convert parameters to JSON
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal parameters: %w", err)
+	}
+
+	// Call the host function
+	operationType := "agent"
+	status := triggerWorkflowOrAgent(operationType, agentID, string(paramsJSON))
+
+	if status != 0 {
+		return "", fmt.Errorf("host function failed with status: %d", status)
+	}
+
+	// Get the result
+	resultJSON := getLastOperationResult()
+
+	return resultJSON, nil
+}
+
+// Host function declarations
+// These would be provided by the runtime in a real implementation
+
+//go:wasmimport env trigger_workflow_or_agent
+func triggerWorkflowOrAgent(operationTypePtr, operationTypeSize, idPtr, idSize, paramsPtr, paramsSize uint32) uint32
+
+//go:wasmimport env get_last_operation_result
+func getLastOperationResult(bufferPtr, bufferSize uint32) uint32
+
+//go:wasmimport env get_last_operation_status
+func getLastOperationStatus() uint32

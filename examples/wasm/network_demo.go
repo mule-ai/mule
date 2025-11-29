@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -17,10 +19,9 @@ type InputData struct {
 
 // OutputData represents the output structure from the WASM module
 type OutputData struct {
-	Result     string                 `json:"result"`              // Result message
-	Data       map[string]interface{} `json:"data,omitempty"`      // Response data
-	StatusCode int                    `json:"status_code,omitempty"` // HTTP status code
-	Success    bool                   `json:"success"`             // Success flag
+	Result  string                 `json:"result"`            // Result message
+	Data    map[string]interface{} `json:"data,omitempty"`    // Response data
+	Success bool                   `json:"success"`           // Success flag
 }
 
 // http_request_with_headers is the enhanced host function for making HTTP requests with headers
@@ -36,6 +37,13 @@ func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
 // get_last_response_status gets the last response status code
 //go:wasmimport env get_last_response_status
 func get_last_response_status() uint32
+
+// getStringFromMemory reads a string from memory at the given pointer and length
+func getStringFromMemory(ptr uintptr, length uintptr) string {
+	// Convert uintptr to byte slice
+	byteSlice := (*[1 << 30]byte)(unsafe.Pointer(ptr))[:length:length]
+	return string(byteSlice)
+}
 
 func main() {
 	// Read input from stdin
@@ -136,38 +144,10 @@ func processInput(input InputData) OutputData {
 		result = fmt.Sprintf("Error: Unknown error code: 0x%08X", resultCode)
 	}
 
-	// If successful, get the response data
-	statusCode := 0
-	var responseData map[string]interface{}
-
-	if resultCode == 0 {
-		// Get status code
-		statusCode = int(get_last_response_status())
-
-		// Try to get response body
-		// Allocate a buffer for the response body (10KB max)
-		buffer := make([]byte, 10240)
-		bufferPtr := uintptr(unsafe.Pointer(&buffer[0]))
-		bufferSize := uintptr(len(buffer))
-
-		bodySize := get_last_response_body(bufferPtr, bufferSize)
-		if bodySize > 0 && bodySize <= uint32(len(buffer)) {
-			// Parse response body as JSON
-			responseBody := string(buffer[:bodySize])
-			if err := json.Unmarshal([]byte(responseBody), &responseData); err != nil {
-				// If not valid JSON, store as raw string
-				responseData = map[string]interface{}{
-					"raw_response": responseBody,
-				}
-			}
-		}
-	}
-
 	return OutputData{
-		Result:     result,
-		Data:       responseData,
-		StatusCode: statusCode,
-		Success:    resultCode == 0,
+		Result:  result,
+		Data:    input.Data,
+		Success: resultCode == 0,
 	}
 }
 

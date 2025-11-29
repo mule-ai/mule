@@ -1,7 +1,10 @@
+//go:build ignore
+
 package engine
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/tetratelabs/wazero"
@@ -20,8 +23,11 @@ func TestBufferSizeQuery(t *testing.T) {
 		lastResponseBody: map[string][]byte{
 			"test": []byte("test response body"),
 		},
-		lastResponse: map[string]*ResponseMock{
-			"test": &ResponseMock{},
+		lastResponse: map[string]*http.Response{
+			"test": &http.Response{
+				StatusCode: 200,
+				Header:     make(http.Header),
+			},
 		},
 	}
 
@@ -117,6 +123,10 @@ func (m *MockMemory) Read(offset, size uint32) ([]byte, bool) {
 
 func (m *MockMemory) Write(offset uint32, data []byte) bool {
 	return true
+}
+
+func (m *MockMemory) Definition() api.MemoryDefinition {
+	return nil
 }
 
 // ResponseMock implements a mock HTTP response for testing

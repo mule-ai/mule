@@ -108,6 +108,65 @@ func (m *MockJobStore) UpdateJobStep(step *JobStep) error {
 	return ErrJobStepNotFound
 }
 
+func (m *MockJobStore) GetNextQueuedJob() (*Job, error) {
+	for _, job := range m.jobs {
+		if job.Status == StatusQueued {
+			jobCopy := job
+			return &jobCopy, nil
+		}
+	}
+	return nil, ErrJobNotFound
+}
+
+func (m *MockJobStore) MarkJobRunning(jobID string) error {
+	if job, exists := m.jobs[jobID]; exists {
+		job.Status = StatusRunning
+		job.StartedAt = &[]time.Time{time.Now()}[0]
+		m.jobs[jobID] = job
+		return nil
+	}
+	return ErrJobNotFound
+}
+
+func (m *MockJobStore) MarkJobCompleted(jobID string, outputData map[string]interface{}) error {
+	if job, exists := m.jobs[jobID]; exists {
+		job.Status = StatusCompleted
+		job.OutputData = outputData
+		now := time.Now()
+		job.CompletedAt = &now
+		m.jobs[jobID] = job
+		return nil
+	}
+	return ErrJobNotFound
+}
+
+func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
+	if job, exists := m.jobs[jobID]; exists {
+		job.Status = StatusFailed
+		job.OutputData = map[string]interface{}{"error": err.Error()}
+		now := time.Now()
+		job.CompletedAt = &now
+		m.jobs[jobID] = job
+		return nil
+	}
+	return ErrJobNotFound
+}
+
+func (m *MockJobStore) CancelJob(jobID string) error {
+	if job, exists := m.jobs[jobID]; exists {
+		// Only allow cancelling queued or running jobs
+		if job.Status == StatusQueued || job.Status == StatusRunning {
+			job.Status = StatusCancelled
+			now := time.Now()
+			job.CompletedAt = &now
+			m.jobs[jobID] = job
+			return nil
+		}
+		return ErrJobNotFound
+	}
+	return ErrJobNotFound
+}
+
 func TestJobStatus(t *testing.T) {
 	tests := []struct {
 		status   Status
@@ -117,6 +176,7 @@ func TestJobStatus(t *testing.T) {
 		{StatusRunning, "running"},
 		{StatusCompleted, "completed"},
 		{StatusFailed, "failed"},
+		{StatusCancelled, "cancelled"},
 	}
 
 	for _, tt := range tests {
@@ -234,6 +294,7 @@ func TestJobTransitions(t *testing.T) {
 	// Test valid transitions
 	assert.True(t, job.Status.CanTransitionTo(StatusRunning))
 	assert.True(t, job.Status.CanTransitionTo(StatusFailed))
+	assert.True(t, job.Status.CanTransitionTo(StatusCancelled))
 
 	// Test invalid transitions
 	assert.False(t, job.Status.CanTransitionTo(StatusCompleted))
@@ -242,10 +303,81 @@ func TestJobTransitions(t *testing.T) {
 	job.Status = StatusRunning
 	assert.True(t, job.Status.CanTransitionTo(StatusCompleted))
 	assert.True(t, job.Status.CanTransitionTo(StatusFailed))
+	assert.True(t, job.Status.CanTransitionTo(StatusCancelled))
 	assert.False(t, job.Status.CanTransitionTo(StatusQueued))
 
 	// Test completed state transitions
 	job.Status = StatusCompleted
 	assert.False(t, job.Status.CanTransitionTo(StatusRunning))
 	assert.False(t, job.Status.CanTransitionTo(StatusQueued))
+	assert.False(t, job.Status.CanTransitionTo(StatusCancelled))
+
+	// Test cancelled state transitions
+	job.Status = StatusCancelled
+	assert.False(t, job.Status.CanTransitionTo(StatusRunning))
+	assert.False(t, job.Status.CanTransitionTo(StatusQueued))
+	assert.False(t, job.Status.CanTransitionTo(StatusCompleted))
+	assert.False(t, job.Status.CanTransitionTo(StatusFailed))
+}
+
+func TestCancelJob(t *testing.T) {
+	store := NewMockJobStore()
+
+	// Test cancelling a queued job
+	job := &Job{
+		ID:         "test-job-1",
+		WorkflowID: "test-workflow",
+		Status:     StatusQueued,
+		CreatedAt:  time.Now(),
+	}
+
+	err := store.CreateJob(job)
+	require.NoError(t, err)
+
+	err = store.CancelJob("test-job-1")
+	require.NoError(t, err)
+
+	updated, err := store.GetJob("test-job-1")
+	require.NoError(t, err)
+	assert.Equal(t, StatusCancelled, updated.Status)
+	assert.NotNil(t, updated.CompletedAt)
+
+	// Test cancelling a running job
+	job2 := &Job{
+		ID:         "test-job-2",
+		WorkflowID: "test-workflow",
+		Status:     StatusRunning,
+		CreatedAt:  time.Now(),
+	}
+
+	err = store.CreateJob(job2)
+	require.NoError(t, err)
+
+	err = store.CancelJob("test-job-2")
+	require.NoError(t, err)
+
+	updated2, err := store.GetJob("test-job-2")
+	require.NoError(t, err)
+	assert.Equal(t, StatusCancelled, updated2.Status)
+	assert.NotNil(t, updated2.CompletedAt)
+
+	// Test cancelling a completed job (should fail)
+	job3 := &Job{
+		ID:         "test-job-3",
+		WorkflowID: "test-workflow",
+		Status:     StatusCompleted,
+		CreatedAt:  time.Now(),
+	}
+
+	err = store.CreateJob(job3)
+	require.NoError(t, err)
+
+	err = store.CancelJob("test-job-3")
+	assert.Error(t, err)
+	assert.Equal(t, ErrJobNotFound, err)
+
+	// Test cancelling a non-existent job
+	err = store.CancelJob("non-existent-job")
+	assert.Error(t, err)
+	assert.Equal(t, ErrJobNotFound, err)
 }

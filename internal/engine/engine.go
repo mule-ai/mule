@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -186,6 +187,26 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 		return fmt.Errorf("failed to get workflow: %w", err)
 	}
 
+	// Get job timeout setting
+	settings, err := e.store.ListSettings(ctx)
+	if err != nil {
+		log.Printf("Warning: failed to get settings, using default timeout: %v", err)
+	}
+
+	var jobTimeoutSeconds int64 = 3600 // Default 1 hour
+	for _, setting := range settings {
+		if setting.Key == "timeout_job_seconds" {
+			if val, parseErr := strconv.ParseInt(setting.Value, 10, 64); parseErr == nil {
+				jobTimeoutSeconds = val
+			}
+			break
+		}
+	}
+
+	// Create a context with timeout for the job
+	jobCtx, cancel := context.WithTimeout(ctx, time.Duration(jobTimeoutSeconds)*time.Second)
+	defer cancel()
+
 	// Get workflow steps
 	steps, err := e.store.ListWorkflowSteps(ctx, workflow.ID)
 	if err != nil {
@@ -196,6 +217,29 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	// Process each step
 	stepOutput := currentJob.InputData
 	for _, step := range steps {
+		// Check if job has been cancelled or timed out
+		select {
+		case <-jobCtx.Done():
+			// Context was cancelled (timeout or manual cancellation)
+			if jobCtx.Err() == context.DeadlineExceeded {
+				_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds))
+				return fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds)
+			} else {
+				_ = e.jobStore.CancelJob(jobID)
+				return fmt.Errorf("job was cancelled")
+			}
+		default:
+		}
+
+		// Check if job status is cancelled in database
+		updatedJob, err := e.jobStore.GetJob(jobID)
+		if err != nil {
+			return fmt.Errorf("failed to get job status: %w", err)
+		}
+		if updatedJob.Status == job.StatusCancelled {
+			return fmt.Errorf("job was cancelled")
+		}
+
 		// Create job step record
 		jobStep := &job.JobStep{
 			ID:             uuid.New().String(),
@@ -218,7 +262,7 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 		}
 
 		// Process the step
-		stepResult, err := e.processStep(ctx, step, stepOutput)
+		stepResult, err := e.processStep(jobCtx, step, stepOutput)
 		if err != nil {
 			jobStep.Status = "failed"
 			jobStep.ErrorMessage = err.Error()

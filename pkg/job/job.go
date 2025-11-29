@@ -19,6 +19,7 @@ const (
 	StatusRunning   Status = "running"
 	StatusCompleted Status = "completed"
 	StatusFailed    Status = "failed"
+	StatusCancelled Status = "cancelled"
 )
 
 // String returns string representation of status
@@ -30,10 +31,10 @@ func (s Status) String() string {
 func (s Status) CanTransitionTo(target Status) bool {
 	switch s {
 	case StatusQueued:
-		return target == StatusRunning || target == StatusFailed
+		return target == StatusRunning || target == StatusFailed || target == StatusCancelled
 	case StatusRunning:
-		return target == StatusCompleted || target == StatusFailed
-	case StatusCompleted, StatusFailed:
+		return target == StatusCompleted || target == StatusFailed || target == StatusCancelled
+	case StatusCompleted, StatusFailed, StatusCancelled:
 		return false // Terminal states
 	default:
 		return false
@@ -85,4 +86,5 @@ type JobStore interface {
 	MarkJobRunning(jobID string) error
 	MarkJobCompleted(jobID string, outputData map[string]interface{}) error
 	MarkJobFailed(jobID string, err error) error
+	CancelJob(jobID string) error
 }

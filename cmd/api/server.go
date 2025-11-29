@@ -243,6 +243,7 @@ func main() {
 	router.HandleFunc("/api/v1/jobs", handler.listJobsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/jobs", handler.createJobHandler).Methods("POST")
 	router.HandleFunc("/api/v1/jobs/{id}", handler.getJobHandler).Methods("GET")
+	router.HandleFunc("/api/v1/jobs/{id}", handler.cancelJobHandler).Methods("DELETE")
 	router.HandleFunc("/api/v1/jobs/{id}/steps", handler.listJobStepsHandler).Methods("GET")
 
 	// WASM module APIs - Order matters! Specific routes before generic {id} routes
