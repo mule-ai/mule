@@ -10,7 +10,6 @@ import (
 // Input represents the expected input structure
 type Input struct {
 	Prompt string `json:"prompt"`
-	Input  string `json:"input"` // Fallback for direct API calls
 }
 
 // Output represents the output structure
@@ -37,11 +36,7 @@ func main() {
 	}
 
 	// Pass through the input and append pirate instruction
-	// Check prompt first, then input field, then default message
 	originalText := input.Prompt
-	if originalText == "" {
-		originalText = input.Input
-	}
 	if originalText == "" {
 		originalText = "Arrr, I need something to say!"
 	}

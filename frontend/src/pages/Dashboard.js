@@ -127,7 +127,7 @@ function Dashboard() {
       // Create a job for the WASM module execution
       const jobResponse = await jobsAPI.create({
         workflow_id: selectedWasmModule,
-        input_data: { input: wasmInput },
+        input_data: { prompt: wasmInput },
       });
 
       const jobId = jobResponse.data?.data?.id || jobResponse.data?.id;

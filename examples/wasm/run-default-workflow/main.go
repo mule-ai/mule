@@ -74,11 +74,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Extract the prompt/message from input
+	// Extract the prompt from input
 	message := ""
 	if msg, ok := inputData["prompt"].(string); ok {
-		message = msg
-	} else if msg, ok := inputData["message"].(string); ok {
 		message = msg
 	} else {
 		message = "Hello, world!"
