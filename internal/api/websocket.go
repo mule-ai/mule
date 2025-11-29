@@ -51,7 +51,9 @@ func (h *WebSocketHub) Run() {
 			h.mutex.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				client.Close()
+				if closeErr := client.Close(); closeErr != nil {
+					log.Printf("Error closing WebSocket client: %v", closeErr)
+				}
 			}
 			h.mutex.Unlock()
 			log.Printf("WebSocket client disconnected. Total clients: %d", len(h.clients))
@@ -63,12 +65,16 @@ func (h *WebSocketHub) Run() {
 				case <-time.After(time.Second * 10):
 					// Write timeout, remove client
 					delete(h.clients, client)
-					client.Close()
+					if closeErr := client.Close(); closeErr != nil {
+						log.Printf("Error closing WebSocket client: %v", closeErr)
+					}
 				default:
 					if err := client.WriteJSON(message); err != nil {
 						log.Printf("Error writing to WebSocket client: %v", err)
 						delete(h.clients, client)
-						client.Close()
+						if closeErr := client.Close(); closeErr != nil {
+							log.Printf("Error closing WebSocket client: %v", closeErr)
+						}
 					}
 				}
 			}
@@ -212,7 +218,7 @@ func (s *JobStreamer) monitorJobs() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	var lastJobStates map[string]string = make(map[string]string)
+	var lastJobStates = make(map[string]string)
 
 	for {
 		select {

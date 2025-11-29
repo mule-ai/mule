@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -109,7 +110,11 @@ func (wmsm *WasmModuleSourceManager) ListSourcesByModuleID(ctx context.Context, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query WASM module sources: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var sources []*database.WasmModuleSource
 	for rows.Next() {

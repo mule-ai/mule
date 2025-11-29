@@ -72,7 +72,11 @@ func (p *CustomLLMProvider) generate(ctx context.Context, req *model.LLMRequest)
 			ErrorMessage: fmt.Sprintf("HTTP request failed: %v", err),
 		}, nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Printf("Error closing response body: %v", closeErr)
+		}
+	}()
 
 	// Parse response
 	body, err := io.ReadAll(resp.Body)

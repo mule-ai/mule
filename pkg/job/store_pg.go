@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -92,7 +93,11 @@ func (s *PGStore) ListJobs() ([]*Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var jobs []*Job
 	for rows.Next() {
@@ -245,7 +250,11 @@ func (s *PGStore) ListJobSteps(jobID string) ([]*JobStep, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var steps []*JobStep
 	for rows.Next() {

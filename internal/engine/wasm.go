@@ -946,7 +946,7 @@ func (e *WASMExecutor) triggerWorkflow(ctx context.Context, workflowID string, p
 
 			found := false
 			for _, w := range workflows {
-				if strings.ToLower(w.Name) == strings.ToLower(workflowID) {
+				if strings.EqualFold(w.Name, workflowID) {
 					workflowID = w.ID
 					found = true
 					break
@@ -1011,7 +1011,7 @@ func (e *WASMExecutor) callAgent(ctx context.Context, agentID string, params map
 
 			found := false
 			for _, a := range agents {
-				if strings.ToLower(a.Name) == strings.ToLower(agentID) {
+				if strings.EqualFold(a.Name, agentID) {
 					agentModel = a
 					agentID = a.ID
 					found = true

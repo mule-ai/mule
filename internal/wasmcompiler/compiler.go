@@ -82,7 +82,11 @@ func (c *Compiler) compileGo(ctx context.Context, req CompileRequest) (*CompileR
 		result.Error = fmt.Sprintf("failed to create temp directory: %v", err)
 		return result, nil
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tmpDir); removeErr != nil {
+			log.Printf("Error removing temporary directory: %v", removeErr)
+		}
+	}()
 
 	// Write source code to main.go
 	mainFile := filepath.Join(tmpDir, "main.go")
@@ -138,12 +142,12 @@ go 1.24
 func ValidateGoSource(sourceCode string) error {
 	// Check for package main
 	if !strings.Contains(sourceCode, "package main") {
-		return fmt.Errorf("Go WASM modules must have 'package main'")
+		return fmt.Errorf("go WASM modules must have 'package main'")
 	}
 
 	// Check for main function
 	if !strings.Contains(sourceCode, "func main()") {
-		return fmt.Errorf("Go WASM modules must have a 'main' function")
+		return fmt.Errorf("go WASM modules must have a 'main' function")
 	}
 
 	// Check for fmt import (commonly needed for WASM output)

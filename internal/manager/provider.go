@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,7 +87,11 @@ func (pm *ProviderManager) ListProviders(ctx context.Context) ([]*dbmodels.Provi
 	if err != nil {
 		return nil, fmt.Errorf("failed to query providers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var providers []*dbmodels.Provider
 	for rows.Next() {

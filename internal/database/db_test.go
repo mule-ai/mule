@@ -28,7 +28,11 @@ func TestDatabaseSchema(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not connect to test database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Logf("Error closing database: %v", closeErr)
+		}
+	}()
 
 	// Test schema initialization
 	err = db.InitSchema()

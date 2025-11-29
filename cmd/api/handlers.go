@@ -389,7 +389,11 @@ func (h *apiHandler) getProviderModelsHandler(w http.ResponseWriter, r *http.Req
 		api.HandleError(w, fmt.Errorf("failed to fetch models from provider: %w", err), http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Error closing response body: %v", closeErr)
+		}
+	}()
 
 	// Read and return the response
 	body, err := io.ReadAll(resp.Body)
@@ -1056,7 +1060,11 @@ func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 		api.HandleError(w, fmt.Errorf("failed to get module file: %w", err), http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("Error closing file: %v", closeErr)
+		}
+	}()
 
 	// Read file data
 	moduleData := make([]byte, 0)
@@ -1123,7 +1131,11 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	var moduleData []byte = nil
 	file, _, err := r.FormFile("module_data")
 	if err == nil && file != nil {
-		defer file.Close()
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				log.Printf("Error closing file: %v", closeErr)
+			}
+		}()
 
 		// Read file data
 		buf := make([]byte, 1024)
