@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	_ "github.com/lib/pq"
@@ -65,14 +66,22 @@ func (d *DatabaseTool) Execute(ctx context.Context, params map[string]interface{
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("Error closing database: %v", closeErr)
+		}
+	}()
 
 	// Execute query
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	// Get column names
 	columns, err := rows.Columns()

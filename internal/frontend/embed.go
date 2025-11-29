@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -52,14 +53,22 @@ func ServeStatic() http.Handler {
 				http.Error(w, "Failed to open index.html", http.StatusInternalServerError)
 				return
 			}
-			defer file.Close()
+			defer func() {
+				if closeErr := file.Close(); closeErr != nil {
+					log.Printf("Error closing file: %v", closeErr)
+				}
+			}()
 
 			// Serve index.html
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = io.Copy(w, file)
 			return
 		}
-		defer file.Close()
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				log.Printf("Error closing file: %v", closeErr)
+			}
+		}()
 
 		// File exists, serve it normally
 		fileServer.ServeHTTP(w, r)

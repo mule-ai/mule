@@ -18,7 +18,11 @@ func TestMigrator(t *testing.T) {
 	// Create a temporary directory for test migrations
 	tempDir, err := os.MkdirTemp("", "test_migrations")
 	assert.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			t.Logf("Error removing temporary directory: %v", removeErr)
+		}
+	}()
 
 	// Create a test migration file
 	migrationContent := `
@@ -49,7 +53,11 @@ func TestMigrator(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not connect to test database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Logf("Error closing database: %v", closeErr)
+		}
+	}()
 
 	migrator := NewMigrator(db.DB)
 
@@ -86,7 +94,11 @@ func TestMigrationFileOrdering(t *testing.T) {
 	// Create a temporary directory
 	tempDir, err := os.MkdirTemp("", "test_migrations_order")
 	assert.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			t.Logf("Error removing temporary directory: %v", removeErr)
+		}
+	}()
 
 	// Create migration files in random order
 	migrations := map[string]string{
@@ -136,7 +148,11 @@ func TestMigratorErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not connect to test database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Logf("Error closing database: %v", closeErr)
+		}
+	}()
 
 	migrator := NewMigrator(db.DB)
 

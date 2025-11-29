@@ -1,5 +1,8 @@
 #! /bin/bash
 
+# set apt proxy
+echo 'Acquire::http { Proxy "http://apt.botnet:3142"; };' >> /etc/apt/apt.conf.d/02proxy
+
 # Install basic debian tools
 apt update && apt install -y git wget build-essential libolm-dev
 

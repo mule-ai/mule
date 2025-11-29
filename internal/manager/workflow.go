@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -74,7 +75,11 @@ func (wm *WorkflowManager) ListWorkflows(ctx context.Context) ([]*dbmodels.Workf
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflows: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var workflows []*dbmodels.Workflow
 	for rows.Next() {
@@ -174,7 +179,11 @@ func (wm *WorkflowManager) GetWorkflowSteps(ctx context.Context, workflowID stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflow steps: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var steps []*dbmodels.WorkflowStep
 	for rows.Next() {

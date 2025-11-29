@@ -6,26 +6,63 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"runtime/debug"
+	"strings"
+	"time"
 
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/sys"
+
+	"github.com/mule-ai/mule/internal/agent"
+	"github.com/mule-ai/mule/internal/primitive"
 )
 
 // WASMExecutor handles WebAssembly module execution
 type WASMExecutor struct {
-	db      *sql.DB
-	modules map[string][]byte // Store compiled module bytes instead of instantiated modules
+	db             *sql.DB
+	store          primitive.PrimitiveStore
+	agentRuntime   *agent.Runtime
+	WorkflowEngine *Engine
+	modules        map[string][]byte // Store compiled module bytes instead of instantiated modules
+	urlAllowed     []string          // List of allowed URL prefixes for HTTP requests
+	// Store the last response for each module instance
+	lastResponse        map[string]*http.Response
+	lastResponseBody    map[string][]byte
+	// Store the last workflow/agent execution result for each module instance
+	lastOperationResult map[string][]byte
+	lastOperationStatus map[string]int
+}
+
+// Modules returns the internal modules map for testing purposes
+func (e *WASMExecutor) Modules() map[string][]byte {
+	return e.modules
 }
 
 // NewWASMExecutor creates a new WASM executor
-func NewWASMExecutor(db *sql.DB) *WASMExecutor {
+func NewWASMExecutor(db *sql.DB, store primitive.PrimitiveStore, agentRuntime *agent.Runtime, workflowEngine *Engine) *WASMExecutor {
 	return &WASMExecutor{
-		db:      db,
-		modules: make(map[string][]byte),
+		db:             db,
+		store:          store,
+		agentRuntime:   agentRuntime,
+		WorkflowEngine: workflowEngine,
+		modules:        make(map[string][]byte),
+		urlAllowed:     []string{"https://", "http://"}, // Allow all URLs by default (can be configured)
+		lastResponse:   make(map[string]*http.Response),
+		lastResponseBody:    make(map[string][]byte),
+		lastOperationResult: make(map[string][]byte),
+		lastOperationStatus: make(map[string]int),
 	}
+}
+
+// SetURLAllowList sets the list of allowed URL prefixes for HTTP requests
+func (e *WASMExecutor) SetURLAllowList(allowed []string) {
+	e.urlAllowed = allowed
 }
 
 // Execute executes a WASM module with the given input data
@@ -72,9 +109,616 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// The standard Instantiate function properly configures all system functions for wazero 1.10.1
 	_, err = wasi_snapshot_preview1.Instantiate(ctx, runtime)
 	if err != nil {
-		runtime.Close(ctx)
+		func() {
+			if closeErr := runtime.Close(ctx); closeErr != nil {
+				log.Printf("Failed to close runtime: %v", closeErr)
+			}
+		}()
 		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
 	}
+
+	// Register HTTP host function for making requests
+	// This allows WASM modules to make HTTP requests to allowed URLs
+	hostModule := runtime.NewHostModuleBuilder("env")
+
+	// Generic HTTP function that supports different methods
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read method from WASM memory
+			method, err := readStringFromMemory(ctx, mem, methodPtr, methodSize)
+			if err != nil {
+				log.Printf("Failed to read HTTP method from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Read URL from WASM memory
+			urlStr, err := readStringFromMemory(ctx, mem, urlPtr, urlSize)
+			if err != nil {
+				log.Printf("Failed to read URL from WASM memory: %v", err)
+				// Return error code (0xFFFFFFFF)
+				return 0xFFFFFFFF
+			}
+
+			// Validate URL
+			if !e.isURLAllowed(urlStr) {
+				log.Printf("URL not allowed: %s", urlStr)
+				// Return error code (0xFFFFFFFE)
+				return 0xFFFFFFFE
+			}
+
+			// Read body from WASM memory (can be empty for GET requests)
+			var bodyReader io.Reader
+			if bodySize > 0 {
+				bodyStr, err := readStringFromMemory(ctx, mem, bodyPtr, bodySize)
+				if err != nil {
+					log.Printf("Failed to read HTTP body from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+				bodyReader = strings.NewReader(bodyStr)
+			}
+
+			// Make HTTP request with timeout
+			client := &http.Client{
+				Timeout: 30 * time.Second,
+			}
+
+			req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
+			if err != nil {
+				log.Printf("Failed to create HTTP request for URL %s: %v", urlStr, err)
+				// Return error code (0xFFFFFFFD)
+				return 0xFFFFFFFD
+			}
+
+			// Set Content-Type header for POST/PUT requests with body
+			if bodyReader != nil && (method == "POST" || method == "PUT") {
+				req.Header.Set("Content-Type", "application/json")
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("Failed to make HTTP request to %s: %v", urlStr, err)
+				// Return error code (0xFFFFFFFC)
+				return 0xFFFFFFFC
+			}
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					log.Printf("Failed to close response body: %v", err)
+				}
+			}()
+
+			// Read response body
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Printf("Failed to read response body from %s: %v", urlStr, err)
+				// Return error code (0xFFFFFFFB)
+				return 0xFFFFFFFB
+			}
+
+			// Store response data for retrieval by the module
+			// Use a unique key for this execution context
+			key := fmt.Sprintf("%p", module)
+			e.lastResponse[key] = resp
+			e.lastResponseBody[key] = respBody
+
+			// For this simplified interface, we'll just log that the request was successful
+			log.Printf("HTTP %s request to %s completed successfully with status %d", method, urlStr, resp.StatusCode)
+
+			// Return 0 for success
+			return 0
+		}).
+		Export("http_request")
+
+	// Enhanced HTTP function that supports headers
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read method from WASM memory
+			method, err := readStringFromMemory(ctx, mem, methodPtr, methodSize)
+			if err != nil {
+				log.Printf("Failed to read HTTP method from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Read URL from WASM memory
+			urlStr, err := readStringFromMemory(ctx, mem, urlPtr, urlSize)
+			if err != nil {
+				log.Printf("Failed to read URL from WASM memory: %v", err)
+				// Return error code (0xFFFFFFFF)
+				return 0xFFFFFFFF
+			}
+
+			// Validate URL
+			if !e.isURLAllowed(urlStr) {
+				log.Printf("URL not allowed: %s", urlStr)
+				// Return error code (0xFFFFFFFE)
+				return 0xFFFFFFFE
+			}
+
+			// Read body from WASM memory (can be empty for GET requests)
+			var bodyReader io.Reader
+			if bodySize > 0 {
+				bodyStr, err := readStringFromMemory(ctx, mem, bodyPtr, bodySize)
+				if err != nil {
+					log.Printf("Failed to read HTTP body from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+				bodyReader = strings.NewReader(bodyStr)
+			}
+
+			// Read headers from WASM memory (can be empty)
+			var headers map[string]string
+			if headersSize > 0 {
+				headersStr, err := readStringFromMemory(ctx, mem, headersPtr, headersSize)
+				if err != nil {
+					log.Printf("Failed to read HTTP headers from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF2)
+					return 0xFFFFFFF2
+				}
+
+				// Parse headers JSON
+				if err := json.Unmarshal([]byte(headersStr), &headers); err != nil {
+					log.Printf("Failed to parse HTTP headers JSON: %v", err)
+					// Return error code (0xFFFFFFF3)
+					return 0xFFFFFFF3
+				}
+			}
+
+			// Make HTTP request with timeout
+			client := &http.Client{
+				Timeout: 30 * time.Second,
+			}
+
+			req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
+			if err != nil {
+				log.Printf("Failed to create HTTP request for URL %s: %v", urlStr, err)
+				// Return error code (0xFFFFFFFD)
+				return 0xFFFFFFFD
+			}
+
+			// Set headers
+			for key, value := range headers {
+				req.Header.Set(key, value)
+			}
+
+			// Set Content-Type header for POST/PUT requests with body if not already set
+			if bodyReader != nil && (method == "POST" || method == "PUT") {
+				if req.Header.Get("Content-Type") == "" {
+					req.Header.Set("Content-Type", "application/json")
+				}
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("Failed to make HTTP request to %s: %v", urlStr, err)
+				// Return error code (0xFFFFFFFC)
+				return 0xFFFFFFFC
+			}
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					log.Printf("Failed to close response body: %v", err)
+				}
+			}()
+
+			// Read response body
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Printf("Failed to read response body from %s: %v", urlStr, err)
+				// Return error code (0xFFFFFFFB)
+				return 0xFFFFFFFB
+			}
+
+			// Store response data for retrieval by the module
+			// Use a unique key for this execution context
+			key := fmt.Sprintf("%p", module)
+			e.lastResponse[key] = resp
+			e.lastResponseBody[key] = respBody
+
+			// For this simplified interface, we'll just log that the request was successful
+			log.Printf("HTTP %s request to %s completed successfully with status %d", method, urlStr, resp.StatusCode)
+
+			// Return 0 for success
+			return 0
+		})
+	// Add host function for triggering workflows or calling agents
+	// This function can handle both workflows and agents based on the target type
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, targetTypePtr, targetTypeSize, targetIDPtr, targetIDSize, paramsPtr, paramsSize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read target type from WASM memory
+			targetType, err := readStringFromMemory(ctx, mem, targetTypePtr, targetTypeSize)
+			if err != nil {
+				log.Printf("Failed to read target type from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Read target ID from WASM memory
+			targetID, err := readStringFromMemory(ctx, mem, targetIDPtr, targetIDSize)
+			if err != nil {
+				log.Printf("Failed to read target ID from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF1)
+				return 0xFFFFFFF1
+			}
+
+			// Read params from WASM memory
+			paramsJSON, err := readStringFromMemory(ctx, mem, paramsPtr, paramsSize)
+			if err != nil {
+				log.Printf("Failed to read params from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF2)
+				return 0xFFFFFFF2
+			}
+
+			// Parse params JSON
+			var params map[string]interface{}
+			if paramsJSON != "" {
+				if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+					log.Printf("Failed to parse params JSON: %v", err)
+					// Return error code (0xFFFFFFF3)
+					return 0xFFFFFFF3
+				}
+			} else {
+				params = make(map[string]interface{})
+			}
+
+			// Execute based on target type
+			var result []byte
+			switch strings.ToLower(targetType) {
+			case "workflow":
+				result, err = e.triggerWorkflow(ctx, targetID, params)
+			case "agent":
+				result, err = e.callAgent(ctx, targetID, params)
+			default:
+				log.Printf("Invalid target type: %s", targetType)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			if err != nil {
+				log.Printf("Failed to execute %s %s: %v", targetType, targetID, err)
+				// Return error code (0xFFFFFFF5)
+				return 0xFFFFFFF5
+			}
+
+			// Store result for retrieval by the module
+			// Use a unique key for this execution context
+			key := fmt.Sprintf("%p", module)
+			e.lastOperationResult[key] = result
+			e.lastOperationStatus[key] = 0 // Success
+
+			// Return 0 for success
+			return 0
+		}).
+		Export("execute_target").
+		// Add host function for retrieving the last operation result
+		// Function to get the last operation result
+		NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, bufferPtr uint32, bufferSize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Get the operation result for this module instance
+			key := fmt.Sprintf("%p", module)
+			result, ok := e.lastOperationResult[key]
+			if !ok {
+				log.Printf("No operation result available for module %s", key)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// If buffer size is 0, return the required size without writing data
+			if bufferSize == 0 {
+				return uint32(len(result))
+			}
+
+			// Check if buffer is large enough
+			if bufferSize < uint32(len(result)) {
+				log.Printf("Buffer too small for operation result: %d < %d", bufferSize, len(result))
+				// Return error code (0xFFFFFFF5)
+				return 0xFFFFFFF5
+			}
+
+			// Write result to WASM memory
+			ok = mem.Write(bufferPtr, result)
+			if !ok {
+				log.Printf("Failed to write operation result to WASM memory")
+				// Return error code (0xFFFFFFF6)
+				return 0xFFFFFFF6
+			}
+
+			// Return the size of the result
+			return uint32(len(result))
+		}).
+		Export("get_last_operation_result").
+		// Add host function for retrieving the last operation status
+		NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module) uint32 {
+			// Get the operation status for this module instance
+			key := fmt.Sprintf("%p", module)
+			status, ok := e.lastOperationStatus[key]
+			if !ok {
+				log.Printf("No operation status available for module %s", key)
+				// Return 0 to indicate no operation has been performed
+				return 0
+			}
+
+			// Return the status code
+			return uint32(status)
+		}).
+		Export("get_last_operation_status")
+
+	// Function to get the last response body
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, bufferPtr uint32, bufferSize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Get the response body for this module instance
+			key := fmt.Sprintf("%p", module)
+			respBody, ok := e.lastResponseBody[key]
+			if !ok {
+				log.Printf("No response body available for module %s", key)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// If buffer size is 0, return the required size without writing data
+			if bufferSize == 0 {
+				return uint32(len(respBody))
+			}
+
+			// Check if buffer is large enough
+			if bufferSize < uint32(len(respBody)) {
+				log.Printf("Buffer too small for response body: %d < %d", bufferSize, len(respBody))
+				// Return error code (0xFFFFFFF5)
+				return 0xFFFFFFF5
+			}
+
+			// Write response body to WASM memory
+			ok = mem.Write(bufferPtr, respBody)
+			if !ok {
+				log.Printf("Failed to write response body to WASM memory")
+				// Return error code (0xFFFFFFF6)
+				return 0xFFFFFFF6
+			}
+
+			// Return the size of the response body
+			return uint32(len(respBody))
+		}).
+		Export("get_last_response_body")
+
+	// Function to get the last response status code
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module) uint32 {
+			// Get the response for this module instance
+			key := fmt.Sprintf("%p", module)
+			resp, ok := e.lastResponse[key]
+			if !ok {
+				log.Printf("No response available for module %s", key)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// Return the status code
+			return uint32(resp.StatusCode)
+		}).
+		Export("get_last_response_status")
+
+	// Function to get the last response header value
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, headerNamePtr, headerNameSize, bufferPtr, bufferSize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read header name from WASM memory
+			headerName, err := readStringFromMemory(ctx, mem, headerNamePtr, headerNameSize)
+			if err != nil {
+				log.Printf("Failed to read header name from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF7)
+				return 0xFFFFFFF7
+			}
+
+			// Get the response for this module instance
+			key := fmt.Sprintf("%p", module)
+			resp, ok := e.lastResponse[key]
+			if !ok {
+				log.Printf("No response available for module %s", key)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// Get the header value
+			headerValue := resp.Header.Get(headerName)
+			if headerValue == "" {
+				log.Printf("Header %s not found in response", headerName)
+				// Return 0 to indicate header not found
+				return 0
+			}
+
+			// If buffer size is 0, return the required size without writing data
+			if bufferSize == 0 {
+				return uint32(len(headerValue))
+			}
+
+			// Check if buffer is large enough
+			if bufferSize < uint32(len(headerValue)) {
+				log.Printf("Buffer too small for header value: %d < %d", bufferSize, len(headerValue))
+				// Return error code (0xFFFFFFF5)
+				return 0xFFFFFFF5
+			}
+
+			// Write header value to WASM memory
+			ok = mem.Write(bufferPtr, []byte(headerValue))
+			if !ok {
+				log.Printf("Failed to write header value to WASM memory")
+				// Return error code (0xFFFFFFF6)
+				return 0xFFFFFFF6
+			}
+
+			// Return the size of the header value
+			return uint32(len(headerValue))
+		}).
+		Export("get_last_response_header")
+
+	// Function to trigger workflows or call agents
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, operationTypePtr, operationTypeSize, idPtr, idSize, paramsPtr, paramsSize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read operation type from WASM memory
+			operationType, err := readStringFromMemory(ctx, mem, operationTypePtr, operationTypeSize)
+			if err != nil {
+				log.Printf("Failed to read operation type from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Read ID from WASM memory
+			id, err := readStringFromMemory(ctx, mem, idPtr, idSize)
+			if err != nil {
+				log.Printf("Failed to read ID from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF1)
+				return 0xFFFFFFF1
+			}
+
+			// Read parameters from WASM memory
+			paramsStr, err := readStringFromMemory(ctx, mem, paramsPtr, paramsSize)
+			if err != nil {
+				log.Printf("Failed to read parameters from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF2)
+				return 0xFFFFFFF2
+			}
+
+			// Parse parameters JSON
+			var params map[string]interface{}
+			if err := json.Unmarshal([]byte(paramsStr), &params); err != nil {
+				log.Printf("Failed to parse parameters JSON: %v", err)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// Generate a unique key for this module instance
+			key := fmt.Sprintf("%p", module)
+
+			// Handle based on operation type
+			switch operationType {
+			case "workflow":
+				// Trigger workflow
+				result, err := e.triggerWorkflow(ctx, id, params)
+				if err != nil {
+					log.Printf("Failed to trigger workflow %s: %v", id, err)
+					e.lastOperationStatus[key] = 0xFFFFFFFC // Internal error
+					return 0xFFFFFFFC
+				}
+				e.lastOperationResult[key] = result
+				e.lastOperationStatus[key] = 200
+				return 0
+
+			case "agent":
+				// Call agent
+				result, err := e.callAgent(ctx, id, params)
+				if err != nil {
+					log.Printf("Failed to call agent %s: %v", id, err)
+					e.lastOperationStatus[key] = 0xFFFFFFFC // Internal error
+					return 0xFFFFFFFC
+				}
+				e.lastOperationResult[key] = result
+				e.lastOperationStatus[key] = 200
+				return 0
+
+			default:
+				log.Printf("Invalid operation type: %s", operationType)
+				// Return error code (0xFFFFFFF3)
+				return 0xFFFFFFF3
+			}
+		}).
+		Export("trigger_workflow_or_agent")
+
+	// Function to get the last operation result
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, bufferPtr uint32, bufferSize uint32) uint32 {
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Get the operation result for this module instance
+			key := fmt.Sprintf("%p", module)
+			result, ok := e.lastOperationResult[key]
+			if !ok {
+				log.Printf("No operation result available for module %s", key)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// If buffer size is 0, return the required size without writing data
+			if bufferSize == 0 {
+				return uint32(len(result))
+			}
+
+			// Check if buffer is large enough
+			if bufferSize < uint32(len(result)) {
+				log.Printf("Buffer too small for operation result: %d < %d", bufferSize, len(result))
+				// Return error code (0xFFFFFFF5)
+				return 0xFFFFFFF5
+			}
+
+			// Write result to WASM memory
+			ok = mem.Write(bufferPtr, result)
+			if !ok {
+				log.Printf("Failed to write operation result to WASM memory")
+				// Return error code (0xFFFFFFF6)
+				return 0xFFFFFFF6
+			}
+
+			// Return the size of the result
+			return uint32(len(result))
+		}).
+		Export("get_last_operation_result")
+
+	// Function to get the last operation status
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module) uint32 {
+			// Get the operation status for this module instance
+			key := fmt.Sprintf("%p", module)
+			status, ok := e.lastOperationStatus[key]
+			if !ok {
+				log.Printf("No operation status available for module %s", key)
+				// Return 0 to indicate no operation has been performed
+				return 0
+			}
+
+			// Return the status code
+			return uint32(status)
+		}).
+		Export("get_last_operation_status")
+
+	// Instantiate the host module
+	hostModuleInstance, err := hostModule.Instantiate(ctx)
+	if err != nil {
+		func() {
+			if closeErr := runtime.Close(ctx); closeErr != nil {
+				log.Printf("Failed to close runtime: %v", closeErr)
+			}
+		}()
+		log.Printf("Failed to instantiate host module: %v", err)
+		return nil, fmt.Errorf("failed to instantiate host module: %w", err)
+	}
+	// Don't forget to close the host module instance
+	defer func() {
+		if closeErr := hostModuleInstance.Close(ctx); closeErr != nil {
+			log.Printf("Failed to close host module instance: %v", closeErr)
+		}
+	}()
 
 	// Configure module with captured stdin/stdout/stderr and start function
 	// WithStartFunctions("_initialize") is CRITICAL for Go-compiled WASM
@@ -88,7 +732,11 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Compile the module first
 	compiledModule, err := runtime.CompileModule(ctx, moduleData)
 	if err != nil {
-		runtime.Close(ctx)
+		func() {
+			if closeErr := runtime.Close(ctx); closeErr != nil {
+				log.Printf("Failed to close runtime: %v", closeErr)
+			}
+		}()
 		return nil, fmt.Errorf("failed to compile WASM module: %w", err)
 	}
 
@@ -97,7 +745,11 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Instantiate the module WITHOUT auto-starting
 	instance, err := runtime.InstantiateModule(ctx, compiledModule, config)
 	if err != nil {
-		runtime.Close(ctx)
+		func() {
+			if closeErr := runtime.Close(ctx); closeErr != nil {
+				log.Printf("Failed to close runtime: %v", closeErr)
+			}
+		}()
 		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
 
@@ -108,7 +760,11 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		log.Printf("Calling _initialize...")
 		_, err = initFunc.Call(ctx)
 		if err != nil {
-			runtime.Close(ctx)
+			func() {
+				if closeErr := runtime.Close(ctx); closeErr != nil {
+					log.Printf("Failed to close runtime: %v", closeErr)
+				}
+			}()
 			return nil, fmt.Errorf("error calling _initialize: %w", err)
 		}
 		log.Printf("_initialize executed successfully")
@@ -123,22 +779,38 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			// This is expected for Go-compiled WASM modules - they call proc_exit after main()
 			log.Printf("WASM module exited with code: %d (normal for Go WASM)", exitErr.ExitCode())
 		} else if err != nil {
-			runtime.Close(ctx)
+			func() {
+				if closeErr := runtime.Close(ctx); closeErr != nil {
+					log.Printf("Failed to close runtime: %v", closeErr)
+				}
+			}()
 			return nil, fmt.Errorf("error calling _start: %w", err)
 		}
 		log.Printf("_start executed successfully")
 	} else {
-		runtime.Close(ctx)
+		func() {
+			if closeErr := runtime.Close(ctx); closeErr != nil {
+				log.Printf("Failed to close runtime: %v", closeErr)
+			}
+		}()
 		return nil, fmt.Errorf("_start function not found")
 	}
 
 	// Close instance
-	instance.Close(ctx)
+	func() {
+		if err := instance.Close(ctx); err != nil {
+			log.Printf("Failed to close instance: %v", err)
+		}
+	}()
 
 	// Note: The main() function should have executed and produced output during _start
 
 	// Close the runtime to ensure all resources are cleaned up
-	runtime.Close(ctx)
+	func() {
+		if err := runtime.Close(ctx); err != nil {
+			log.Printf("Failed to close runtime: %v", err)
+		}
+	}()
 
 	// Log the captured output for debugging
 	stdoutStr := stdoutBuf.String()
@@ -218,4 +890,187 @@ func (e *WASMExecutor) Close(ctx context.Context) error {
 	// Clear the cache
 	e.modules = make(map[string][]byte)
 	return nil
+}
+
+// isURLAllowed checks if a URL is allowed based on the allowlist
+func (e *WASMExecutor) isURLAllowed(urlStr string) bool {
+	// Parse the URL to validate it
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+
+	// Only allow http and https schemes
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return false
+	}
+
+	// Check if the URL matches any allowed prefix
+	for _, allowed := range e.urlAllowed {
+		if strings.HasPrefix(urlStr, allowed) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// readStringFromMemory reads a string from WASM memory
+func readStringFromMemory(ctx context.Context, memory api.Memory, ptr uint32, size uint32) (string, error) {
+	// Read the bytes from memory
+	bytes, ok := memory.Read(ptr, size)
+	if !ok {
+		return "", fmt.Errorf("failed to read memory at offset %d with size %d", ptr, size)
+	}
+
+	// Convert bytes to string
+	return string(bytes), nil
+}
+
+// triggerWorkflow triggers a workflow execution
+func (e *WASMExecutor) triggerWorkflow(ctx context.Context, workflowID string, params map[string]interface{}) ([]byte, error) {
+	// Validate that we have a workflow engine
+	if e.WorkflowEngine == nil {
+		return nil, fmt.Errorf("workflow engine not available")
+	}
+
+	// Check if the workflow exists by ID first
+	_, err := e.store.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		if err == primitive.ErrNotFound {
+			// Try to find by name
+			workflows, listErr := e.store.ListWorkflows(ctx)
+			if listErr != nil {
+				return nil, fmt.Errorf("failed to list workflows: %w", listErr)
+			}
+
+			found := false
+			for _, w := range workflows {
+				if strings.EqualFold(w.Name, workflowID) {
+					workflowID = w.ID
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				return nil, fmt.Errorf("workflow not found: %s", workflowID)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get workflow: %w", err)
+		}
+	}
+
+	// Check for async parameter
+	async := false
+	if asyncParam, ok := params["async"]; ok {
+		if asyncBool, ok := asyncParam.(bool); ok {
+			async = asyncBool
+		}
+	}
+
+	// Submit job to workflow engine
+	job, err := e.WorkflowEngine.SubmitJob(ctx, workflowID, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit workflow job: %w", err)
+	}
+
+	// If async, return immediately
+	if async {
+		result := map[string]interface{}{
+			"job_id":  job.ID,
+			"status":  string(job.Status),
+			"message": "Workflow job submitted successfully",
+		}
+		return json.Marshal(result)
+	}
+
+	// For synchronous execution, we need to wait for completion
+	// This is a simplified implementation - in a real system, you'd want to avoid blocking
+	// For now, we'll just return the job ID and let the caller check the status
+	result := map[string]interface{}{
+		"job_id":  job.ID,
+		"status":  string(job.Status),
+		"message": "Workflow job started",
+	}
+
+	return json.Marshal(result)
+}
+
+// callAgent calls an agent with the provided parameters
+func (e *WASMExecutor) callAgent(ctx context.Context, agentID string, params map[string]interface{}) ([]byte, error) {
+	// Check if the agent exists
+	agentModel, err := e.store.GetAgent(ctx, agentID)
+	if err != nil {
+		if err == primitive.ErrNotFound {
+			// Try to find by name
+			agents, listErr := e.store.ListAgents(ctx)
+			if listErr != nil {
+				return nil, fmt.Errorf("failed to list agents: %w", listErr)
+			}
+
+			found := false
+			for _, a := range agents {
+				if strings.EqualFold(a.Name, agentID) {
+					agentModel = a
+					agentID = a.ID
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				return nil, fmt.Errorf("agent not found: %s", agentID)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get agent: %w", err)
+		}
+	}
+
+	// Prepare the chat completion request
+	req := &agent.ChatCompletionRequest{
+		Model: fmt.Sprintf("agent/%s", agentModel.Name),
+	}
+
+	// Handle messages parameter
+	if messagesParam, ok := params["messages"]; ok {
+		if messages, ok := messagesParam.([]interface{}); ok {
+			for _, msg := range messages {
+				if msgMap, ok := msg.(map[string]interface{}); ok {
+					role, _ := msgMap["role"].(string)
+					content, _ := msgMap["content"].(string)
+					req.Messages = append(req.Messages, agent.ChatCompletionMessage{
+						Role:    role,
+						Content: content,
+					})
+				}
+			}
+		}
+	} else {
+		// If no messages, try to use prompt parameter
+		if promptParam, ok := params["prompt"]; ok {
+			if prompt, ok := promptParam.(string); ok {
+				req.Messages = append(req.Messages, agent.ChatCompletionMessage{
+					Role:    "user",
+					Content: prompt,
+				})
+			}
+		}
+	}
+
+	// Handle stream parameter
+	if streamParam, ok := params["stream"]; ok {
+		if stream, ok := streamParam.(bool); ok {
+			req.Stream = stream
+		}
+	}
+
+	// Execute the agent
+	resp, err := e.agentRuntime.ExecuteAgent(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute agent: %w", err)
+	}
+
+	// Return the response
+	return json.Marshal(resp)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,7 +74,11 @@ func (wmm *WasmModuleManager) ListWasmModules(ctx context.Context) ([]*dbmodels.
 	if err != nil {
 		return nil, fmt.Errorf("failed to query WASM modules: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var modules []*dbmodels.WasmModule
 	for rows.Next() {

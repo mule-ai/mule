@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -77,7 +78,11 @@ func (am *AgentManager) ListAgents(ctx context.Context) ([]*dbmodels.Agent, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agents: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var agents []*dbmodels.Agent
 	for rows.Next() {
@@ -180,7 +185,11 @@ func (am *AgentManager) GetAgentTools(ctx context.Context, agentID string) ([]*d
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent tools: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var tools []*dbmodels.Tool
 	for rows.Next() {

@@ -43,16 +43,20 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	wasmModuleMgr := manager.NewWasmModuleManager(db)
 	workflowMgr := manager.NewWorkflowManager(db)
 
-	// Create WASM executor
-	wasmExecutor := engine.NewWASMExecutor(db.DB)
-
 	// Create agent runtime (without workflow engine initially)
 	runtime := agent.NewRuntime(store, jobStore)
+
+	// Create WASM executor (will be updated with workflow engine after engine creation)
+	wasmExecutor := engine.NewWASMExecutor(db.DB, store, runtime, nil)
 
 	// Create workflow engine
 	workflowEngine := engine.NewEngine(store, jobStore, runtime, wasmExecutor, engine.Config{
 		Workers: 5, // Default to 5 workers
 	})
+
+	// Update WASM executor with workflow engine
+	// This is a bit of a hack, but it works because we're updating the same instance
+	wasmExecutor.WorkflowEngine = workflowEngine
 
 	// Set workflow engine on runtime (requires a setter method)
 	runtime.SetWorkflowEngine(workflowEngine)
@@ -385,7 +389,11 @@ func (h *apiHandler) getProviderModelsHandler(w http.ResponseWriter, r *http.Req
 		api.HandleError(w, fmt.Errorf("failed to fetch models from provider: %w", err), http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Error closing response body: %v", closeErr)
+		}
+	}()
 
 	// Read and return the response
 	body, err := io.ReadAll(resp.Body)
@@ -989,6 +997,29 @@ func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(steps)
 }
 
+func (h *apiHandler) cancelJobHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	jobID := vars["id"]
+
+	if err := h.jobStore.CancelJob(jobID); err != nil {
+		if err.Error() == "job not found or cannot be cancelled" {
+			api.HandleError(w, fmt.Errorf("job not found or cannot be cancelled: %s", jobID), http.StatusNotFound)
+		} else {
+			api.HandleError(w, fmt.Errorf("failed to cancel job: %w", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Return success response
+	response := map[string]interface{}{
+		"message": "Job cancelled successfully",
+		"id":      jobID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 // WASM Module handlers
 func (h *apiHandler) listWasmModulesHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1029,7 +1060,11 @@ func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 		api.HandleError(w, fmt.Errorf("failed to get module file: %w", err), http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("Error closing file: %v", closeErr)
+		}
+	}()
 
 	// Read file data
 	moduleData := make([]byte, 0)
@@ -1096,7 +1131,11 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	var moduleData []byte = nil
 	file, _, err := r.FormFile("module_data")
 	if err == nil && file != nil {
-		defer file.Close()
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				log.Printf("Error closing file: %v", closeErr)
+			}
+		}()
 
 		// Read file data
 		buf := make([]byte, 1024)

@@ -25,7 +25,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("Error closing database: %v", closeErr)
+		}
+	}()
 
 	ctx := context.Background()
 

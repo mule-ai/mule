@@ -72,7 +72,6 @@ type Setting struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
 	ID           string                 `json:"id"`

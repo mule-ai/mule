@@ -4,7 +4,7 @@
 .PHONY: download-golangci-lint
 download-golangci-lint:
 ifeq (,$(wildcard ./bin/golangci-lint))
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.64.5 
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.64.5
 endif
 
 # Install air if it doesn't exist
@@ -53,3 +53,23 @@ build:
 # Run the application
 run: all
 	./cmd/mule/bin/mule
+
+# WASM Inspector - Simple inspection
+.PHONY: wasm-inspect
+wasm-inspect:
+	@echo "Usage: make wasm-inspect WASM_FILE=path/to/file.wasm"
+	@if [ -z "$(WASM_FILE)" ]; then \
+		echo "Error: WASM_FILE not specified"; \
+		exit 1; \
+	fi
+	go run wasm_inspector.go $(WASM_FILE)
+
+# WASM Inspector - Detailed inspection
+.PHONY: wasm-inspect-detailed
+wasm-inspect-detailed:
+	@echo "Usage: make wasm-inspect-detailed WASM_FILE=path/to/file.wasm"
+	@if [ -z "$(WASM_FILE)" ]; then \
+		echo "Error: WASM_FILE not specified"; \
+		exit 1; \
+	fi
+	go run wasm_detailed_inspector.go $(WASM_FILE)

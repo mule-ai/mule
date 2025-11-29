@@ -40,15 +40,17 @@ function Jobs() {
   };
 
   const getStatusVariant = (status) => {
-    switch (status) {
-      case 'QUEUED':
+    switch (status.toLowerCase()) {
+      case 'queued':
         return 'warning';
-      case 'RUNNING':
+      case 'running':
         return 'info';
-      case 'COMPLETED':
+      case 'completed':
         return 'success';
-      case 'FAILED':
+      case 'failed':
         return 'danger';
+      case 'cancelled':
+        return 'secondary';
       default:
         return 'secondary';
     }
@@ -57,6 +59,30 @@ function Jobs() {
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleString();
+  };
+
+  const cancelJob = async (jobId) => {
+    if (!window.confirm('Are you sure you want to cancel this job?')) {
+      return;
+    }
+
+    try {
+      await jobsAPI.cancel(jobId);
+      // Refresh the job list
+      await loadJobs();
+
+      // If the details modal is open for this job, close it
+      if (selectedJob && selectedJob.id === jobId) {
+        setShowDetailsModal(false);
+        setSelectedJob(null);
+      }
+
+      // Show success message
+      alert('Job cancelled successfully');
+    } catch (error) {
+      console.error('Failed to cancel job:', error);
+      alert('Failed to cancel job: ' + (error.response?.data?.error || error.message));
+    }
   };
 
   return (
@@ -126,9 +152,20 @@ function Jobs() {
                   variant="outline-primary"
                   size="sm"
                   onClick={() => openJobDetails(job)}
+                  className="me-2"
                 >
                   View Details
                 </Button>
+
+                {(job.status === 'running' || job.status === 'queued') && (
+                  <Button
+                    variant="outline-danger"
+                    size="sm"
+                    onClick={() => cancelJob(job.id)}
+                  >
+                    Cancel
+                  </Button>
+                )}
               </Card.Body>
             </Card>
           </Col>
@@ -273,6 +310,11 @@ function Jobs() {
           )}
         </Modal.Body>
         <Modal.Footer>
+          {selectedJob && (selectedJob.status === 'running' || selectedJob.status === 'queued') && (
+            <Button variant="danger" onClick={() => cancelJob(selectedJob.id)}>
+              Cancel Job
+            </Button>
+          )}
           <Button variant="secondary" onClick={() => setShowDetailsModal(false)}>
             Close
           </Button>

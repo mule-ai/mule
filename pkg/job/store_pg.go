@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -92,7 +93,11 @@ func (s *PGStore) ListJobs() ([]*Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var jobs []*Job
 	for rows.Next() {
@@ -245,7 +250,11 @@ func (s *PGStore) ListJobSteps(jobID string) ([]*JobStep, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var steps []*JobStep
 	for rows.Next() {
@@ -436,6 +445,28 @@ func (s *PGStore) MarkJobFailed(jobID string, err error) error {
 
 	if rowsAffected == 0 {
 		return errors.New("job not found")
+	}
+
+	return nil
+}
+
+// CancelJob marks a job as cancelled
+func (s *PGStore) CancelJob(jobID string) error {
+	now := time.Now()
+	query := `UPDATE jobs SET status = 'cancelled', completed_at = $1 WHERE id = $2 AND status IN ('queued', 'running')`
+
+	result, err := s.db.Exec(query, now, jobID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("job not found or cannot be cancelled")
 	}
 
 	return nil
