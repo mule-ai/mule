@@ -43,16 +43,20 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	wasmModuleMgr := manager.NewWasmModuleManager(db)
 	workflowMgr := manager.NewWorkflowManager(db)
 
-	// Create WASM executor
-	wasmExecutor := engine.NewWASMExecutor(db.DB)
-
 	// Create agent runtime (without workflow engine initially)
 	runtime := agent.NewRuntime(store, jobStore)
+
+	// Create WASM executor (will be updated with workflow engine after engine creation)
+	wasmExecutor := engine.NewWASMExecutor(db.DB, store, runtime, nil)
 
 	// Create workflow engine
 	workflowEngine := engine.NewEngine(store, jobStore, runtime, wasmExecutor, engine.Config{
 		Workers: 5, // Default to 5 workers
 	})
+
+	// Update WASM executor with workflow engine
+	// This is a bit of a hack, but it works because we're updating the same instance
+	wasmExecutor.WorkflowEngine = workflowEngine
 
 	// Set workflow engine on runtime (requires a setter method)
 	runtime.SetWorkflowEngine(workflowEngine)
