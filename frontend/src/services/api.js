@@ -69,7 +69,9 @@ export const wasmModulesAPI = {
   create: (data) => {
     const formData = new FormData();
     Object.keys(data).forEach(key => {
-      formData.append(key, data[key]);
+      if (data[key] !== null && data[key] !== undefined) {
+        formData.append(key, data[key]);
+      }
     });
     return api.post('/api/v1/wasm-modules', formData, {
       headers: {
@@ -80,7 +82,9 @@ export const wasmModulesAPI = {
   update: (id, data) => {
     const formData = new FormData();
     Object.keys(data).forEach(key => {
-      formData.append(key, data[key]);
+      if (data[key] !== null && data[key] !== undefined) {
+        formData.append(key, data[key]);
+      }
     });
     return api.put(`/api/v1/wasm-modules/${id}`, formData, {
       headers: {

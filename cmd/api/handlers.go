@@ -20,7 +20,6 @@ import (
 	"github.com/mule-ai/mule/internal/manager"
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
-	"github.com/mule-ai/mule/pkg/database"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
@@ -40,7 +39,7 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	store := primitive.NewPGStore(db.DB) // Access the underlying *sql.DB
 	jobStore := job.NewPGStore(db.DB)    // Access the underlying *sql.DB
 	validator := validation.NewValidator()
-	wasmModuleMgr := manager.NewWasmModuleManager(db)
+	wasmModuleMgr := manager.NewWasmModuleManager(store)
 	workflowMgr := manager.NewWorkflowManager(db)
 
 	// Create agent runtime (without workflow engine initially)
@@ -1031,7 +1030,7 @@ func (h *apiHandler) listWasmModulesHandler(w http.ResponseWriter, r *http.Reque
 
 	// Ensure we return an empty array instead of null when there are no modules
 	if modules == nil {
-		modules = make([]*database.WasmModule, 0)
+		modules = make([]*primitive.WasmModuleListItem, 0)
 	}
 
 	resp := map[string]interface{}{
@@ -1053,6 +1052,7 @@ func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	// Get form values
 	name := r.FormValue("name")
 	description := r.FormValue("description")
+	config := r.FormValue("config")
 
 	// Get file
 	file, _, err := r.FormFile("module_data")
@@ -1081,8 +1081,20 @@ func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 		moduleData = append(moduleData, buf[:n]...)
 	}
 
+	// Parse config as JSON if provided
+	var configBytes []byte
+	if config != "" {
+		// Validate that config is valid JSON
+		var configObj map[string]interface{}
+		if err := json.Unmarshal([]byte(config), &configObj); err != nil {
+			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
+			return
+		}
+		configBytes = []byte(config)
+	}
+
 	// Create WASM module
-	module, err := h.wasmModuleMgr.CreateWasmModule(ctx, name, description, moduleData)
+	module, err := h.wasmModuleMgr.CreateWasmModule(ctx, name, description, moduleData, configBytes)
 	if err != nil {
 		api.HandleError(w, fmt.Errorf("failed to create WASM module: %w", err), http.StatusInternalServerError)
 		return
@@ -1126,6 +1138,7 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	// Get form values
 	name := r.FormValue("name")
 	description := r.FormValue("description")
+	config := r.FormValue("config")
 
 	// Get file (optional)
 	var moduleData []byte = nil
@@ -1152,8 +1165,20 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// Parse config as JSON if provided
+	var configBytes []byte = nil
+	if config != "" {
+		// Validate that config is valid JSON
+		var configObj map[string]interface{}
+		if err := json.Unmarshal([]byte(config), &configObj); err != nil {
+			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
+			return
+		}
+		configBytes = []byte(config)
+	}
+
 	// Update WASM module
-	module, err := h.wasmModuleMgr.UpdateWasmModule(ctx, id, name, description, moduleData)
+	module, err := h.wasmModuleMgr.UpdateWasmModule(ctx, id, name, description, moduleData, configBytes)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			api.HandleError(w, fmt.Errorf("WASM module not found: %s", id), http.StatusNotFound)

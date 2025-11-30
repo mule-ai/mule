@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/pkg/database"
 )
 
@@ -239,10 +240,10 @@ func outputError(err error) {
 
 // CreateWasmModuleWithSource creates a new WASM module with source code
 func CreateWasmModuleWithSource(ctx context.Context, compiler *Compiler, wasmModuleMgr interface {
-	CreateWasmModule(ctx context.Context, name, description string, moduleData []byte) (*database.WasmModule, error)
+	CreateWasmModule(ctx context.Context, name, description string, moduleData, config []byte) (*primitive.WasmModule, error)
 }, sourceMgr interface {
 	CreateSource(ctx context.Context, source *database.WasmModuleSource) error
-}, name, description, language, sourceCode string) (*database.WasmModule, *database.WasmModuleSource, error) {
+}, name, description, language, sourceCode string, config []byte) (*primitive.WasmModule, *database.WasmModuleSource, error) {
 
 	// First compile the source code
 	compileReq := CompileRequest{
@@ -265,7 +266,7 @@ func CreateWasmModuleWithSource(ctx context.Context, compiler *Compiler, wasmMod
 		moduleData = []byte{}
 	}
 
-	wasmModule, err := wasmModuleMgr.CreateWasmModule(ctx, name, description, moduleData)
+	wasmModule, err := wasmModuleMgr.CreateWasmModule(ctx, name, description, moduleData, config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create WASM module: %w", err)
 	}

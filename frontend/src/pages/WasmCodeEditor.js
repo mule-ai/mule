@@ -11,7 +11,8 @@ function WasmCodeEditor() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newModule, setNewModule] = useState({
     name: '',
-    description: ''
+    description: '',
+    config: ''
   });
   const [testInput, setTestInput] = useState('');
   const [testOutput, setTestOutput] = useState('');
@@ -139,12 +140,24 @@ func outputError(err error) {
     setError('');
     setSuccess('');
 
+    // Validate config if provided
+    if (newModule.config) {
+      try {
+        JSON.parse(newModule.config);
+      } catch (e) {
+        setError('Configuration must be valid JSON');
+        setIsCompiling(false);
+        return;
+      }
+    }
+
     try {
       const response = await wasmModulesAPI.compile({
         name: newModule.name,
         description: newModule.description,
         language: language,
-        source_code: sourceCode
+        source_code: sourceCode,
+        config: newModule.config
       });
 
       setCompilationResult({
@@ -156,7 +169,7 @@ func outputError(err error) {
       if (response.data.compilation_status === 'success') {
         setSuccess('Module compiled and created successfully!');
         setShowCreateModal(false);
-        setNewModule({ name: '', description: '' });
+        setNewModule({ name: '', description: '', config: '' });
         loadModules();
         setSelectedModule({
           id: response.data.module_id,
@@ -175,17 +188,29 @@ func outputError(err error) {
 
   const handleUpdateModule = async () => {
     if (!selectedModule) return;
-    
+
     setIsCompiling(true);
     setError('');
     setSuccess('');
+
+    // Validate config if provided
+    if (selectedModule.config) {
+      try {
+        JSON.parse(selectedModule.config);
+      } catch (e) {
+        setError('Configuration must be valid JSON');
+        setIsCompiling(false);
+        return;
+      }
+    }
 
     try {
       const response = await wasmModulesAPI.updateSource(selectedModule.id, {
         name: selectedModule.name,
         description: selectedModule.description,
         language: language,
-        source_code: sourceCode
+        source_code: sourceCode,
+        config: selectedModule.config
       });
 
       setCompilationResult({
@@ -243,8 +268,20 @@ func outputError(err error) {
     }
   };
 
-  const handleSelectModule = (module) => {
-    setSelectedModule(module);
+  const handleSelectModule = async (module) => {
+    // Load the full module details to get the config
+    try {
+      const response = await wasmModulesAPI.get(module.id);
+      const fullModule = response.data;
+
+      setSelectedModule({
+        ...module,
+        config: fullModule.config ? JSON.stringify(JSON.parse(new TextDecoder().decode(fullModule.config)), null, 2) : ''
+      });
+    } catch (error) {
+      console.error('Failed to load module details:', error);
+      setSelectedModule(module);
+    }
     setActiveTab('editor');
   };
 
@@ -572,6 +609,45 @@ User Question: ${chatInput}`;
               )}
             </Tab>
 
+            <Tab eventKey="config" title="Configuration">
+              <Card>
+                <Card.Header>
+                  <Card.Title className="mb-0">Module Configuration</Card.Title>
+                </Card.Header>
+                <Card.Body>
+                  <p className="text-muted">
+                    Configure static settings for your WASM module. This configuration will be merged with
+                    input data when the module executes in a workflow.
+                  </p>
+
+                  {selectedModule ? (
+                    <Form.Group>
+                      <Form.Label>Configuration (JSON)</Form.Label>
+                      <Form.Control
+                        as="textarea"
+                        rows={10}
+                        value={selectedModule.config || ''}
+                        onChange={(e) => setSelectedModule({...selectedModule, config: e.target.value})}
+                        placeholder={`{
+  "api_key": "your-api-key",
+  "endpoint": "https://api.example.com",
+  "timeout": 30
+}`}
+                      />
+                      <Form.Text className="text-muted">
+                        JSON configuration that will be merged with input data when the module executes.
+                        This is useful for API keys, endpoints, and other static configuration values.
+                      </Form.Text>
+                    </Form.Group>
+                  ) : (
+                    <div className="text-center py-5">
+                      <p className="text-muted">Create or select a module to configure it</p>
+                    </div>
+                  )}
+                </Card.Body>
+              </Card>
+            </Tab>
+
             <Tab eventKey="test" title="Test Module">
               <Row>
                 <Col md={6}>
@@ -673,6 +749,31 @@ User Question: ${chatInput}`;
                     <li>Be flexible with input structure - previous steps may output different formats</li>
                   </ul>
 
+                  <h5 className="mt-4">Configuration</h5>
+                  <p>
+                    You can define static configuration for your WASM modules in the Configuration tab.
+                    This configuration will be merged with the input data when the module executes.
+                    For example, if your configuration is:
+                  </p>
+                  <pre>{`{
+  "api_key": "secret123",
+  "endpoint": "https://api.example.com"
+}`}</pre>
+                  <p>
+                    And your input data is:
+                  </p>
+                  <pre>{`{
+  "prompt": "Process this text"
+}`}</pre>
+                  <p>
+                    Your WASM module will receive:
+                  </p>
+                  <pre>{`{
+  "prompt": "Process this text",
+  "api_key": "secret123",
+  "endpoint": "https://api.example.com"
+}`}</pre>
+
                   <div className="alert alert-info mt-4">
                     <strong>Workflow Integration:</strong> In a workflow, the output from each step becomes
                     the input to the next step. WASM modules should expect a <code>prompt</code> field containing
@@ -717,6 +818,23 @@ User Question: ${chatInput}`;
                 onChange={(e) => setNewModule({ ...newModule, description: e.target.value })}
                 placeholder="Describe what this module does..."
               />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Configuration (JSON, optional)</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={4}
+                value={newModule.config}
+                onChange={(e) => setNewModule({ ...newModule, config: e.target.value })}
+                placeholder={`{
+  "api_key": "your-api-key",
+  "endpoint": "https://api.example.com",
+  "timeout": 30
+}`}
+              />
+              <Form.Text className="text-muted">
+                Optional JSON configuration that will be merged with input data when the module executes
+              </Form.Text>
             </Form.Group>
           </Form>
         </Modal.Body>

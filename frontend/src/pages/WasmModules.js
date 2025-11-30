@@ -11,6 +11,7 @@ function WasmModules() {
     name: '',
     description: '',
     module_data: null,
+    config: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -33,20 +34,35 @@ function WasmModules() {
     setError('');
 
     try {
-      await wasmModulesAPI.create({
-        ...newModule,
-        module_data: newModule.module_data,
-      });
-      
+      // Validate config if provided
+      if (newModule.config) {
+        try {
+          JSON.parse(newModule.config);
+        } catch (e) {
+          throw new Error('Configuration must be valid JSON');
+        }
+      }
+
+      const formData = new FormData();
+      formData.append('name', newModule.name);
+      formData.append('description', newModule.description);
+      formData.append('module_data', newModule.module_data);
+      if (newModule.config) {
+        formData.append('config', newModule.config);
+      }
+
+      await wasmModulesAPI.create(formData);
+
       setShowCreateModal(false);
       setNewModule({
         name: '',
         description: '',
         module_data: null,
+        config: '',
       });
       loadModules();
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to create WASM module');
+      setError(error.message || error.response?.data?.error || 'Failed to create WASM module');
     } finally {
       setLoading(false);
     }
@@ -55,24 +71,36 @@ function WasmModules() {
   const handleUpdateModule = async () => {
     setLoading(true);
     setError('');
-    
+
     try {
-      const updateData = {
-        name: selectedModule.name,
-        description: selectedModule.description,
-      };
+      // Validate config if provided
+      if (selectedModule.config) {
+        try {
+          JSON.parse(selectedModule.config);
+        } catch (e) {
+          throw new Error('Configuration must be valid JSON');
+        }
+      }
+
+      const formData = new FormData();
+      formData.append('name', selectedModule.name);
+      formData.append('description', selectedModule.description);
 
       // Only update module data if a new file is provided
       if (selectedModule.new_module_data) {
-        updateData.module_data = selectedModule.new_module_data;
+        formData.append('module_data', selectedModule.new_module_data);
       }
 
-      await wasmModulesAPI.update(selectedModule.id, updateData);
+      if (selectedModule.config !== undefined) {
+        formData.append('config', selectedModule.config);
+      }
+
+      await wasmModulesAPI.update(selectedModule.id, formData);
       setShowEditModal(false);
       setSelectedModule(null);
       loadModules();
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to update WASM module');
+      setError(error.message || error.response?.data?.error || 'Failed to update WASM module');
     } finally {
       setLoading(false);
     }
@@ -93,17 +121,11 @@ function WasmModules() {
     setSelectedModule({
       ...module,
       new_module_data: null,
+      config: module.config ? JSON.stringify(JSON.parse(new TextDecoder().decode(module.config)), null, 2) : '',
     });
     setShowEditModal(true);
   };
 
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
 
   return (
     <div>
@@ -125,12 +147,6 @@ function WasmModules() {
               </Card.Header>
               <Card.Body>
                 <p className="text-muted">{module.description}</p>
-                <div className="mb-2">
-                  <strong>Size:</strong>{' '}
-                  <span className="small text-muted">
-                    {formatFileSize(module.module_data?.length || 0)}
-                  </span>
-                </div>
                 <div className="mb-2">
                   <strong>Created:</strong>{' '}
                   <span className="small text-muted">
@@ -206,6 +222,25 @@ function WasmModules() {
               />
             </Form.Group>
             <Form.Group className="mb-3">
+              <Form.Label>Configuration (JSON, optional)</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={4}
+                value={newModule.config}
+                onChange={(e) =>
+                  setNewModule({ ...newModule, config: e.target.value })
+                }
+                placeholder={`{
+  "api_key": "your-api-key",
+  "endpoint": "https://api.example.com",
+  "timeout": 30
+}`}
+              />
+              <Form.Text className="text-muted">
+                Optional JSON configuration that will be merged with input data when the module executes
+              </Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
               <Form.Label>WASM File (.wasm)</Form.Label>
               <Form.Control
                 type="file"
@@ -225,9 +260,9 @@ function WasmModules() {
           <Button variant="secondary" onClick={() => setShowCreateModal(false)}>
             Cancel
           </Button>
-          <Button 
-            variant="primary" 
-            onClick={handleCreateModule} 
+          <Button
+            variant="primary"
+            onClick={handleCreateModule}
             disabled={loading || !newModule.name || !newModule.module_data}
           >
             {loading ? 'Uploading...' : 'Upload Module'}
@@ -266,13 +301,32 @@ function WasmModules() {
                 />
               </Form.Group>
               <Form.Group className="mb-3">
+                <Form.Label>Configuration (JSON, optional)</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={4}
+                  value={selectedModule.config}
+                  onChange={(e) =>
+                    setSelectedModule({ ...selectedModule, config: e.target.value })
+                  }
+                  placeholder={`{
+  "api_key": "your-api-key",
+  "endpoint": "https://api.example.com",
+  "timeout": 30
+}`}
+                />
+                <Form.Text className="text-muted">
+                  Optional JSON configuration that will be merged with input data when the module executes
+                </Form.Text>
+              </Form.Group>
+              <Form.Group className="mb-3">
                 <Form.Label>Update WASM File (optional)</Form.Label>
                 <Form.Control
                   type="file"
                   accept=".wasm"
                   onChange={(e) =>
                     setSelectedModule({ ...selectedModule, new_module_data: e.target.files[0] })
-                }
+                  }
                 />
                 <Form.Text className="text-muted">
                   Leave empty to keep the current module file
@@ -285,9 +339,9 @@ function WasmModules() {
           <Button variant="secondary" onClick={() => setShowEditModal(false)}>
             Cancel
           </Button>
-          <Button 
-            variant="primary" 
-            onClick={handleUpdateModule} 
+          <Button
+            variant="primary"
+            onClick={handleUpdateModule}
             disabled={loading || !selectedModule?.name}
           >
             {loading ? 'Updating...' : 'Update Module'}

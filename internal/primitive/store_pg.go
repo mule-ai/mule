@@ -592,3 +592,79 @@ func (s *PGStore) UpdateSetting(ctx context.Context, setting *Setting) error {
 
 	return nil
 }
+
+// WASM module methods
+func (s *PGStore) CreateWasmModule(ctx context.Context, w *WasmModule) error {
+	if w.ID == "" {
+		w.ID = uuid.New().String()
+	}
+	query := `INSERT INTO wasm_modules (id, name, description, module_data, config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
+	_, err := s.db.ExecContext(ctx, query, w.ID, w.Name, w.Description, w.ModuleData, w.Config)
+	return err
+}
+
+func (s *PGStore) GetWasmModule(ctx context.Context, id string) (*WasmModule, error) {
+	w := &WasmModule{}
+	query := `SELECT id, name, description, module_data, config, created_at, updated_at FROM wasm_modules WHERE id = $1`
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&w.ID, &w.Name, &w.Description, &w.ModuleData, &w.Config, &w.CreatedAt, &w.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return w, err
+}
+
+func (s *PGStore) ListWasmModules(ctx context.Context) ([]*WasmModuleListItem, error) {
+	query := `SELECT id, name, description, config, created_at, updated_at FROM wasm_modules ORDER BY created_at DESC`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
+
+	var modules []*WasmModuleListItem
+	for rows.Next() {
+		w := &WasmModuleListItem{}
+		err := rows.Scan(&w.ID, &w.Name, &w.Description, &w.Config, &w.CreatedAt, &w.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		modules = append(modules, w)
+	}
+	return modules, rows.Err()
+}
+
+func (s *PGStore) UpdateWasmModule(ctx context.Context, w *WasmModule) error {
+	query := `UPDATE wasm_modules SET name = $1, description = $2, module_data = $3, config = $4, updated_at = NOW() WHERE id = $5`
+	res, err := s.db.ExecContext(ctx, query, w.Name, w.Description, w.ModuleData, w.Config, w.ID)
+	if err != nil {
+		return err
+	}
+	count, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PGStore) DeleteWasmModule(ctx context.Context, id string) error {
+	query := `DELETE FROM wasm_modules WHERE id = $1`
+	res, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	count, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
