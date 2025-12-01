@@ -21,7 +21,9 @@ services:
       - mule-network
 
   mule:
-    image: mule-mule-fixed
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: mule-api
     ports:
       - "8140:8080"
