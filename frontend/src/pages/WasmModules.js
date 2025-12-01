@@ -43,15 +43,17 @@ function WasmModules() {
         }
       }
 
-      const formData = new FormData();
-      formData.append('name', newModule.name);
-      formData.append('description', newModule.description);
-      formData.append('module_data', newModule.module_data);
+      // Pass plain JS object instead of FormData
+      const moduleData = {
+        name: newModule.name,
+        description: newModule.description,
+        module_data: newModule.module_data,
+      };
       if (newModule.config) {
-        formData.append('config', newModule.config);
+        moduleData.config = newModule.config;
       }
 
-      await wasmModulesAPI.create(formData);
+      await wasmModulesAPI.create(moduleData);
 
       setShowCreateModal(false);
       setNewModule({
@@ -82,20 +84,22 @@ function WasmModules() {
         }
       }
 
-      const formData = new FormData();
-      formData.append('name', selectedModule.name);
-      formData.append('description', selectedModule.description);
+      // Pass plain JS object instead of FormData
+      const moduleData = {
+        name: selectedModule.name,
+        description: selectedModule.description,
+      };
 
       // Only update module data if a new file is provided
       if (selectedModule.new_module_data) {
-        formData.append('module_data', selectedModule.new_module_data);
+        moduleData.module_data = selectedModule.new_module_data;
       }
 
       if (selectedModule.config !== undefined) {
-        formData.append('config', selectedModule.config);
+        moduleData.config = selectedModule.config;
       }
 
-      await wasmModulesAPI.update(selectedModule.id, formData);
+      await wasmModulesAPI.update(selectedModule.id, moduleData);
       setShowEditModal(false);
       setSelectedModule(null);
       loadModules();
@@ -118,10 +122,23 @@ function WasmModules() {
   };
 
   const openEditModal = (module) => {
+    let configStr = '';
+    if (module.config) {
+      try {
+        // Config is base64 encoded when coming from the API
+        const decodedConfig = atob(module.config);
+        configStr = JSON.stringify(JSON.parse(decodedConfig), null, 2);
+      } catch (e) {
+        console.error('Failed to parse config:', e);
+        // If parsing fails, use the raw config
+        configStr = module.config;
+      }
+    }
+
     setSelectedModule({
       ...module,
       new_module_data: null,
-      config: module.config ? JSON.stringify(JSON.parse(new TextDecoder().decode(module.config)), null, 2) : '',
+      config: configStr,
     });
     setShowEditModal(true);
   };

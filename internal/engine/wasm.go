@@ -32,8 +32,8 @@ type WASMExecutor struct {
 	modules        map[string][]byte // Store compiled module bytes instead of instantiated modules
 	urlAllowed     []string          // List of allowed URL prefixes for HTTP requests
 	// Store the last response for each module instance
-	lastResponse        map[string]*http.Response
-	lastResponseBody    map[string][]byte
+	lastResponse     map[string]*http.Response
+	lastResponseBody map[string][]byte
 	// Store the last workflow/agent execution result for each module instance
 	lastOperationResult map[string][]byte
 	lastOperationStatus map[string]int
@@ -47,13 +47,13 @@ func (e *WASMExecutor) Modules() map[string][]byte {
 // NewWASMExecutor creates a new WASM executor
 func NewWASMExecutor(db *sql.DB, store primitive.PrimitiveStore, agentRuntime *agent.Runtime, workflowEngine *Engine) *WASMExecutor {
 	return &WASMExecutor{
-		db:             db,
-		store:          store,
-		agentRuntime:   agentRuntime,
-		WorkflowEngine: workflowEngine,
-		modules:        make(map[string][]byte),
-		urlAllowed:     []string{"https://", "http://"}, // Allow all URLs by default (can be configured)
-		lastResponse:   make(map[string]*http.Response),
+		db:                  db,
+		store:               store,
+		agentRuntime:        agentRuntime,
+		WorkflowEngine:      workflowEngine,
+		modules:             make(map[string][]byte),
+		urlAllowed:          []string{"https://", "http://"}, // Allow all URLs by default (can be configured)
+		lastResponse:        make(map[string]*http.Response),
 		lastResponseBody:    make(map[string][]byte),
 		lastOperationResult: make(map[string][]byte),
 		lastOperationStatus: make(map[string]int),
@@ -352,7 +352,8 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 
 			// Return 0 for success
 			return 0
-		})
+		}).
+		Export("http_request_with_headers")
 	// Add host function for triggering workflows or calling agents
 	// This function can handle both workflows and agents based on the target type
 	hostModule.NewFunctionBuilder().

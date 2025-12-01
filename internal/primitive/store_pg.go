@@ -598,8 +598,17 @@ func (s *PGStore) CreateWasmModule(ctx context.Context, w *WasmModule) error {
 	if w.ID == "" {
 		w.ID = uuid.New().String()
 	}
+
+	// Convert config bytes to JSON string for PostgreSQL JSONB column
+	var configJSON interface{}
+	if len(w.Config) > 0 {
+		configJSON = string(w.Config)
+	} else {
+		configJSON = nil
+	}
+
 	query := `INSERT INTO wasm_modules (id, name, description, module_data, config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
-	_, err := s.db.ExecContext(ctx, query, w.ID, w.Name, w.Description, w.ModuleData, w.Config)
+	_, err := s.db.ExecContext(ctx, query, w.ID, w.Name, w.Description, w.ModuleData, configJSON)
 	return err
 }
 
@@ -638,8 +647,16 @@ func (s *PGStore) ListWasmModules(ctx context.Context) ([]*WasmModuleListItem, e
 }
 
 func (s *PGStore) UpdateWasmModule(ctx context.Context, w *WasmModule) error {
+	// Convert config bytes to JSON string for PostgreSQL JSONB column
+	var configJSON interface{}
+	if len(w.Config) > 0 {
+		configJSON = string(w.Config)
+	} else {
+		configJSON = nil
+	}
+
 	query := `UPDATE wasm_modules SET name = $1, description = $2, module_data = $3, config = $4, updated_at = NOW() WHERE id = $5`
-	res, err := s.db.ExecContext(ctx, query, w.Name, w.Description, w.ModuleData, w.Config, w.ID)
+	res, err := s.db.ExecContext(ctx, query, w.Name, w.Description, w.ModuleData, configJSON, w.ID)
 	if err != nil {
 		return err
 	}
