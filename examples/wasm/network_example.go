@@ -9,10 +9,9 @@ import (
 	"unsafe"
 )
 
-// InputData represents the flexible input structure from workflow steps
+// InputData represents the input structure for WASM modules
 type InputData struct {
-	Prompt  string                 `json:"prompt"`           // Main input from previous workflow step
-	Message string                 `json:"message,omitempty"` // Alternative input field (backward compatibility)
+	Prompt  string                 `json:"prompt"`           // Main input from previous workflow step or user input
 	Data    map[string]interface{} `json:"data,omitempty"`    // Additional data
 	URL     string                 `json:"url,omitempty"`     // URL for HTTP request
 	Method  string                 `json:"method,omitempty"`  // HTTP method (default: GET)

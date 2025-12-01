@@ -319,6 +319,27 @@ func (m *MockAgentStore) UpdateSetting(ctx context.Context, setting *primitive.S
 	return nil
 }
 
+// WASM module methods
+func (m *MockAgentStore) CreateWasmModule(ctx context.Context, w *primitive.WasmModule) error {
+	return nil
+}
+
+func (m *MockAgentStore) GetWasmModule(ctx context.Context, id string) (*primitive.WasmModule, error) {
+	return nil, primitive.ErrNotFound
+}
+
+func (m *MockAgentStore) ListWasmModules(ctx context.Context) ([]*primitive.WasmModuleListItem, error) {
+	return nil, nil
+}
+
+func (m *MockAgentStore) UpdateWasmModule(ctx context.Context, w *primitive.WasmModule) error {
+	return nil
+}
+
+func (m *MockAgentStore) DeleteWasmModule(ctx context.Context, id string) error {
+	return nil
+}
+
 // MockJobStore implements job.JobStore for testing
 type MockJobStore struct{}
 

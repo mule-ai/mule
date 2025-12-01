@@ -61,7 +61,7 @@ func ExampleMainFlow() {
 		"prompt": "Hello, process this text",
 	}
 	
-	// Extract the prompt/message from input
+	// Extract the prompt from input
 	message := ""
 	if msg, ok := inputData["prompt"].(string); ok {
 		message = msg

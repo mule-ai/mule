@@ -20,6 +20,7 @@ type CompileWasmModuleRequest struct {
 	Description string `json:"description"`
 	Language    string `json:"language"`
 	SourceCode  string `json:"source_code"`
+	Config      string `json:"config,omitempty"`
 }
 
 // CompileWasmModuleResponse represents the response from a compilation request
@@ -89,6 +90,18 @@ func (h *apiHandler) compileWasmModuleHandler(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// Parse config as JSON if provided
+	var configBytes []byte
+	if req.Config != "" {
+		// Validate that config is valid JSON
+		var configObj map[string]interface{}
+		if err := json.Unmarshal([]byte(req.Config), &configObj); err != nil {
+			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
+			return
+		}
+		configBytes = []byte(req.Config)
+	}
+
 	// Create compiler
 	compiler := wasmcompiler.NewCompiler("/tmp/wasm-compile")
 
@@ -105,6 +118,7 @@ func (h *apiHandler) compileWasmModuleHandler(w http.ResponseWriter, r *http.Req
 		req.Description,
 		req.Language,
 		req.SourceCode,
+		configBytes,
 	)
 	if err != nil {
 		api.HandleError(w, fmt.Errorf("failed to compile WASM module: %w", err), http.StatusInternalServerError)
@@ -179,6 +193,18 @@ func (h *apiHandler) updateWasmModuleSourceHandler(w http.ResponseWriter, r *htt
 		}
 	}
 
+	// Parse config as JSON if provided
+	var configBytes []byte = nil
+	if req.Config != "" {
+		// Validate that config is valid JSON
+		var configObj map[string]interface{}
+		if err := json.Unmarshal([]byte(req.Config), &configObj); err != nil {
+			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
+			return
+		}
+		configBytes = []byte(req.Config)
+	}
+
 	// Get existing module
 	wasmModule, err := h.wasmModuleMgr.GetWasmModule(ctx, moduleID)
 	if err != nil {
@@ -204,7 +230,7 @@ func (h *apiHandler) updateWasmModuleSourceHandler(w http.ResponseWriter, r *htt
 
 	// Update the WASM module with new compiled data if successful
 	if compileResult.Success {
-		_, err = h.wasmModuleMgr.UpdateWasmModule(ctx, moduleID, wasmModule.Name, wasmModule.Description, compileResult.ModuleData)
+		_, err = h.wasmModuleMgr.UpdateWasmModule(ctx, moduleID, wasmModule.Name, wasmModule.Description, compileResult.ModuleData, configBytes)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to update WASM module: %w", err), http.StatusInternalServerError)
 			return

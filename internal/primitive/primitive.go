@@ -84,6 +84,27 @@ type WorkflowStep struct {
 	CreatedAt    time.Time              `json:"created_at"`
 }
 
+// WasmModule represents a WebAssembly module.
+type WasmModule struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	ModuleData  []byte    `json:"module_data"`
+	Config      []byte    `json:"config"` // JSON configuration schema/metadata
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// WasmModuleListItem represents a lightweight version of a WebAssembly module for listing.
+type WasmModuleListItem struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Config      []byte    `json:"config"` // JSON configuration schema/metadata
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // PrimitiveStore defines interface for primitive management.
 type PrimitiveStore interface {
 	CreateProvider(ctx context.Context, p *Provider) error
@@ -112,6 +133,13 @@ type PrimitiveStore interface {
 
 	CreateWorkflowStep(ctx context.Context, s *WorkflowStep) error
 	ListWorkflowSteps(ctx context.Context, workflowID string) ([]*WorkflowStep, error)
+
+	// WASM module methods
+	CreateWasmModule(ctx context.Context, w *WasmModule) error
+	GetWasmModule(ctx context.Context, id string) (*WasmModule, error)
+	ListWasmModules(ctx context.Context) ([]*WasmModuleListItem, error)
+	UpdateWasmModule(ctx context.Context, w *WasmModule) error
+	DeleteWasmModule(ctx context.Context, id string) error
 
 	// GetAgentTools retrieves tools associated with an agent
 	GetAgentTools(ctx context.Context, agentID string) ([]*Tool, error)

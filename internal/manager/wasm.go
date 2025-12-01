@@ -2,42 +2,39 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mule-ai/mule/internal/database"
-	dbmodels "github.com/mule-ai/mule/pkg/database"
+	"github.com/mule-ai/mule/internal/primitive"
 )
 
 // WasmModuleManager handles WASM module operations
 type WasmModuleManager struct {
-	db *database.DB
+	store primitive.PrimitiveStore
 }
 
 // NewWasmModuleManager creates a new WASM module manager
-func NewWasmModuleManager(db *database.DB) *WasmModuleManager {
-	return &WasmModuleManager{db: db}
+func NewWasmModuleManager(store primitive.PrimitiveStore) *WasmModuleManager {
+	return &WasmModuleManager{store: store}
 }
 
 // CreateWasmModule creates a new WASM module
-func (wmm *WasmModuleManager) CreateWasmModule(ctx context.Context, name, description string, moduleData []byte) (*dbmodels.WasmModule, error) {
+func (wmm *WasmModuleManager) CreateWasmModule(ctx context.Context, name, description string, moduleData, config []byte) (*primitive.WasmModule, error) {
 	id := uuid.New().String()
 
 	now := time.Now()
-	module := &dbmodels.WasmModule{
+	module := &primitive.WasmModule{
 		ID:          id,
 		Name:        name,
 		Description: description,
 		ModuleData:  moduleData,
+		Config:      config,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 
-	query := `INSERT INTO wasm_modules (id, name, description, module_data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
-	_, err := wmm.db.ExecContext(ctx, query, module.ID, module.Name, module.Description, module.ModuleData, module.CreatedAt, module.UpdatedAt)
+	err := wmm.store.CreateWasmModule(ctx, module)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert WASM module: %w", err)
 	}
@@ -46,62 +43,27 @@ func (wmm *WasmModuleManager) CreateWasmModule(ctx context.Context, name, descri
 }
 
 // GetWasmModule retrieves a WASM module by ID
-func (wmm *WasmModuleManager) GetWasmModule(ctx context.Context, id string) (*dbmodels.WasmModule, error) {
-	query := `SELECT id, name, description, module_data, created_at, updated_at FROM wasm_modules WHERE id = $1`
-	module := &dbmodels.WasmModule{}
-	err := wmm.db.QueryRowContext(ctx, query, id).Scan(
-		&module.ID,
-		&module.Name,
-		&module.Description,
-		&module.ModuleData,
-		&module.CreatedAt,
-		&module.UpdatedAt,
-	)
+func (wmm *WasmModuleManager) GetWasmModule(ctx context.Context, id string) (*primitive.WasmModule, error) {
+	module, err := wmm.store.GetWasmModule(ctx, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("WASM module not found: %s", id)
-		}
 		return nil, fmt.Errorf("failed to query WASM module: %w", err)
 	}
 
 	return module, nil
 }
 
-// ListWasmModules lists all WASM modules
-func (wmm *WasmModuleManager) ListWasmModules(ctx context.Context) ([]*dbmodels.WasmModule, error) {
-	query := `SELECT id, name, description, module_data, created_at, updated_at FROM wasm_modules ORDER BY created_at DESC`
-	rows, err := wmm.db.QueryContext(ctx, query)
+// ListWasmModules lists all WASM modules (without module data for performance)
+func (wmm *WasmModuleManager) ListWasmModules(ctx context.Context) ([]*primitive.WasmModuleListItem, error) {
+	modules, err := wmm.store.ListWasmModules(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query WASM modules: %w", err)
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
-
-	var modules []*dbmodels.WasmModule
-	for rows.Next() {
-		module := &dbmodels.WasmModule{}
-		err := rows.Scan(
-			&module.ID,
-			&module.Name,
-			&module.Description,
-			&module.ModuleData,
-			&module.CreatedAt,
-			&module.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan WASM module: %w", err)
-		}
-		modules = append(modules, module)
 	}
 
 	return modules, nil
 }
 
 // UpdateWasmModule updates a WASM module
-func (wmm *WasmModuleManager) UpdateWasmModule(ctx context.Context, id, name, description string, moduleData []byte) (*dbmodels.WasmModule, error) {
+func (wmm *WasmModuleManager) UpdateWasmModule(ctx context.Context, id, name, description string, moduleData, config []byte) (*primitive.WasmModule, error) {
 	module, err := wmm.GetWasmModule(ctx, id)
 	if err != nil {
 		return nil, err
@@ -112,10 +74,12 @@ func (wmm *WasmModuleManager) UpdateWasmModule(ctx context.Context, id, name, de
 	if moduleData != nil {
 		module.ModuleData = moduleData
 	}
+	if config != nil {
+		module.Config = config
+	}
 	module.UpdatedAt = time.Now()
 
-	query := `UPDATE wasm_modules SET name = $1, description = $2, module_data = $3, updated_at = $4 WHERE id = $5`
-	_, err = wmm.db.ExecContext(ctx, query, module.Name, module.Description, module.ModuleData, module.UpdatedAt, module.ID)
+	err = wmm.store.UpdateWasmModule(ctx, module)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update WASM module: %w", err)
 	}
@@ -125,19 +89,9 @@ func (wmm *WasmModuleManager) UpdateWasmModule(ctx context.Context, id, name, de
 
 // DeleteWasmModule deletes a WASM module
 func (wmm *WasmModuleManager) DeleteWasmModule(ctx context.Context, id string) error {
-	query := `DELETE FROM wasm_modules WHERE id = $1`
-	result, err := wmm.db.ExecContext(ctx, query, id)
+	err := wmm.store.DeleteWasmModule(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete WASM module: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("WASM module not found: %s", id)
 	}
 
 	return nil

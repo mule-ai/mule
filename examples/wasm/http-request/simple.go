@@ -122,8 +122,8 @@ func main() {
 	statusCode := int(get_last_response_status())
 
 	// Try to get response body
-	// Allocate a buffer for the response body (10KB max)
-	buffer := make([]byte, 10240)
+	// Allocate a buffer for the response body (100KB max)
+	buffer := make([]byte, 102400)
 	bufferPtr := uintptr(unsafe.Pointer(&buffer[0]))
 	bufferSize := uintptr(len(buffer))
 

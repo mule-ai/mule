@@ -32,8 +32,8 @@ type WASMExecutor struct {
 	modules        map[string][]byte // Store compiled module bytes instead of instantiated modules
 	urlAllowed     []string          // List of allowed URL prefixes for HTTP requests
 	// Store the last response for each module instance
-	lastResponse        map[string]*http.Response
-	lastResponseBody    map[string][]byte
+	lastResponse     map[string]*http.Response
+	lastResponseBody map[string][]byte
 	// Store the last workflow/agent execution result for each module instance
 	lastOperationResult map[string][]byte
 	lastOperationStatus map[string]int
@@ -47,13 +47,13 @@ func (e *WASMExecutor) Modules() map[string][]byte {
 // NewWASMExecutor creates a new WASM executor
 func NewWASMExecutor(db *sql.DB, store primitive.PrimitiveStore, agentRuntime *agent.Runtime, workflowEngine *Engine) *WASMExecutor {
 	return &WASMExecutor{
-		db:             db,
-		store:          store,
-		agentRuntime:   agentRuntime,
-		WorkflowEngine: workflowEngine,
-		modules:        make(map[string][]byte),
-		urlAllowed:     []string{"https://", "http://"}, // Allow all URLs by default (can be configured)
-		lastResponse:   make(map[string]*http.Response),
+		db:                  db,
+		store:               store,
+		agentRuntime:        agentRuntime,
+		WorkflowEngine:      workflowEngine,
+		modules:             make(map[string][]byte),
+		urlAllowed:          []string{"https://", "http://"}, // Allow all URLs by default (can be configured)
+		lastResponse:        make(map[string]*http.Response),
 		lastResponseBody:    make(map[string][]byte),
 		lastOperationResult: make(map[string][]byte),
 		lastOperationStatus: make(map[string]int),
@@ -73,7 +73,32 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		return nil, fmt.Errorf("failed to get WASM module data: %w", err)
 	}
 
-	log.Printf("Executing WASM module %s (size: %d bytes) with input data: %+v", moduleID, len(moduleData), inputData)
+	// Get module configuration from primitive store
+	module, err := e.store.GetWasmModule(ctx, moduleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get WASM module: %w", err)
+	}
+
+	// Merge configuration with input data
+	mergedInputData := make(map[string]interface{})
+
+	// Add configuration data if present
+	if len(module.Config) > 0 {
+		var configData map[string]interface{}
+		if err := json.Unmarshal(module.Config, &configData); err == nil {
+			// Add all config fields to merged input
+			for k, v := range configData {
+				mergedInputData[k] = v
+			}
+		}
+	}
+
+	// Add input data fields (these override config if there are conflicts)
+	for k, v := range inputData {
+		mergedInputData[k] = v
+	}
+
+	log.Printf("Executing WASM module %s (size: %d bytes) with merged input data: %+v", moduleID, len(moduleData), mergedInputData)
 
 	// Add panic recovery for WASI-related issues
 	defer func() {
@@ -84,16 +109,16 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		}
 	}()
 
-	// Serialize input data to JSON for passing to WASM module via stdin
+	// Serialize merged input data to JSON for passing to WASM module via stdin
 	var stdinData []byte
-	if len(inputData) > 0 {
-		stdinData, err = json.Marshal(inputData)
+	if len(mergedInputData) > 0 {
+		stdinData, err = json.Marshal(mergedInputData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize input data: %w", err)
 		}
 		log.Printf("Passing %d bytes of input data to WASM module via stdin: %s", len(stdinData), string(stdinData))
 	} else {
-		log.Printf("No input data provided to WASM module (inputData: %+v)", inputData)
+		log.Printf("No input data provided to WASM module (mergedInputData: %+v)", mergedInputData)
 	}
 
 	// Create buffers for stdin, stdout, and stderr
@@ -327,7 +352,8 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 
 			// Return 0 for success
 			return 0
-		})
+		}).
+		Export("http_request_with_headers")
 	// Add host function for triggering workflows or calling agents
 	// This function can handle both workflows and agents based on the target type
 	hostModule.NewFunctionBuilder().
@@ -872,17 +898,16 @@ func (e *WASMExecutor) getModuleData(ctx context.Context, moduleID string) ([]by
 		return data, nil
 	}
 
-	// Load from database
-	var moduleData []byte
-	err := e.db.QueryRowContext(ctx, "SELECT module_data FROM wasm_modules WHERE id = $1", moduleID).Scan(&moduleData)
+	// Load from primitive store
+	module, err := e.store.GetWasmModule(ctx, moduleID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch WASM module from database: %w", err)
+		return nil, fmt.Errorf("failed to fetch WASM module from store: %w", err)
 	}
 
 	// Cache the module data
-	e.modules[moduleID] = moduleData
+	e.modules[moduleID] = module.ModuleData
 
-	return moduleData, nil
+	return module.ModuleData, nil
 }
 
 // Close closes the WASM executor and cleans up cached modules

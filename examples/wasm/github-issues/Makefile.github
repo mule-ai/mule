@@ -1,0 +1,21 @@
+.PHONY: build upload clean test
+
+# Build the WASM module
+build:
+	cd /data/jbutler/git/mule-ai/mule && GOOS=wasip1 GOARCH=wasm go build -o examples/wasm/github-issues/github_issues.wasm examples/wasm/github-issues/github_issues.go
+	@echo "WASM module built successfully: github_issues.wasm"
+
+# Upload the WASM module to the Mule system
+upload: build
+	./upload_wasm.sh
+	@echo "WASM module uploaded successfully"
+
+# Clean build artifacts
+clean:
+	rm -f github_issues.wasm
+	@echo "Cleaned build artifacts"
+
+# Test the WASM module locally (requires wasmtime)
+test: build
+	@echo "Testing WASM module locally..."
+	@echo "Run: wasmtime github_issues.wasm < test_input.json"

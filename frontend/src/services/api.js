@@ -67,9 +67,21 @@ export const wasmModulesAPI = {
   list: () => api.get('/api/v1/wasm-modules'),
   get: (id) => api.get(`/api/v1/wasm-modules/${id}`),
   create: (data) => {
+    // If data is already a FormData object, use it directly
+    if (data instanceof FormData) {
+      return api.post('/api/v1/wasm-modules', data, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+    }
+
+    // Otherwise, create FormData from the object
     const formData = new FormData();
     Object.keys(data).forEach(key => {
-      formData.append(key, data[key]);
+      if (data[key] !== null && data[key] !== undefined) {
+        formData.append(key, data[key]);
+      }
     });
     return api.post('/api/v1/wasm-modules', formData, {
       headers: {
@@ -78,9 +90,21 @@ export const wasmModulesAPI = {
     });
   },
   update: (id, data) => {
+    // If data is already a FormData object, use it directly
+    if (data instanceof FormData) {
+      return api.put(`/api/v1/wasm-modules/${id}`, data, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+    }
+
+    // Otherwise, create FormData from the object
     const formData = new FormData();
     Object.keys(data).forEach(key => {
-      formData.append(key, data[key]);
+      if (data[key] !== null && data[key] !== undefined) {
+        formData.append(key, data[key]);
+      }
     });
     return api.put(`/api/v1/wasm-modules/${id}`, formData, {
       headers: {

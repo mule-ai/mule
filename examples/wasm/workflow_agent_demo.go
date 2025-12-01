@@ -188,8 +188,8 @@ func makeHTTPRequest(url string, params map[string]interface{}) (string, error) 
 	statusCode := get_last_response_status()
 	
 	// Try to get response body
-	// Allocate a buffer for the response body (10KB max)
-	buffer := make([]byte, 10240)
+	// Allocate a buffer for the response body (100KB max)
+	buffer := make([]byte, 102400)
 	bodySize := get_last_response_body(uint32(uintptr(unsafe.Pointer(&buffer[0]))), uint32(len(buffer)))
 	
 	var responseData interface{}

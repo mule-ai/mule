@@ -3,9 +3,9 @@ package engine
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/mule-ai/mule/internal/agent"
 	"github.com/mule-ai/mule/internal/primitive"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestWASMExecutorURLFiltering(t *testing.T) {
