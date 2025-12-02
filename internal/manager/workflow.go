@@ -361,7 +361,12 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 	if err != nil {
 		return fmt.Errorf("failed to verify step IDs: %w", err)
 	}
-	defer rows.Close()
+	
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
 
 	var verifiedIDs []string
 	for rows.Next() {
@@ -377,12 +382,27 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 		return fmt.Errorf("some step IDs do not belong to the specified workflow")
 	}
 
-	// Update the step orders
+	// Use a two-phase approach to avoid unique constraint violations:
+	// 1. Set all step_orders to negative temporary values
+	// 2. Set the final step_orders to positive values
+
+	// Phase 1: Set temporary negative values
 	for i, stepID := range stepIDs {
+		tempOrder := -(i + 1) // Negative temporary values
 		updateQuery := `UPDATE workflow_steps SET step_order = $1 WHERE id = $2`
-		_, err := tx.ExecContext(ctx, updateQuery, i+1, stepID)
+		_, err := tx.ExecContext(ctx, updateQuery, tempOrder, stepID)
 		if err != nil {
-			return fmt.Errorf("failed to update step order for step %s: %w", stepID, err)
+			return fmt.Errorf("failed to set temporary step order for step %s: %w", stepID, err)
+		}
+	}
+
+	// Phase 2: Set final positive values
+	for i, stepID := range stepIDs {
+		finalOrder := i + 1 // Positive final values
+		updateQuery := `UPDATE workflow_steps SET step_order = $1 WHERE id = $2`
+		_, err := tx.ExecContext(ctx, updateQuery, finalOrder, stepID)
+		if err != nil {
+			return fmt.Errorf("failed to set final step order for step %s: %w", stepID, err)
 		}
 	}
 

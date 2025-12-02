@@ -35,6 +35,12 @@ The `ReorderWorkflowSteps` method was added to the `WorkflowManager` in `/intern
 
 The implementation ensures data integrity by validating that all step IDs belong to the workflow before making any changes.
 
+**Important Note on Database Constraints**: The workflow_steps table has a unique constraint on `(workflow_id, step_order)`. To avoid violating this constraint during reordering, the implementation uses a two-phase approach:
+1. First, it sets all step orders to temporary negative values
+2. Then, it sets the final positive values
+
+This ensures that at no point during the transaction are two steps assigned the same order value.
+
 ### Handler Implementation
 
 In `/cmd/api/handlers.go`, the `reorderWorkflowStepsHandler` method:
@@ -68,7 +74,7 @@ A new component `/frontend/src/components/SortableWorkflowSteps.js` was created 
 
 Significant changes were made to `/frontend/src/pages/WorkflowBuilder.js`:
 
-1. **Drag Context Setup**: 
+1. **Drag Context Setup**:
    - Configured sensors for pointer and keyboard interactions
    - Implemented collision detection and sorting strategies
 
@@ -125,3 +131,11 @@ The reordering happens in real-time with immediate visual feedback. If the backe
 - Database operations use transactions to ensure atomicity
 - Minimal data transfer (only step IDs, not full step objects)
 - Immediate UI updates provide responsive user experience
+
+### Database Constraint Handling
+
+The implementation carefully handles the unique constraint on `(workflow_id, step_order)` by using a two-phase update approach:
+1. Temporarily set all step orders to negative values
+2. Then set the final positive values
+
+This prevents constraint violations during the reordering process.
