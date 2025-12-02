@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Button, Form, Modal, ListGroup } from 'react-bootstrap';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { workflowsAPI, agentsAPI, wasmModulesAPI } from '../services/api';
+import SortableWorkflowStepItem from '../components/SortableWorkflowSteps';
 
 function WorkflowBuilder() {
   const [workflows, setWorkflows] = useState([]);
@@ -15,6 +30,14 @@ function WorkflowBuilder() {
   const [newWorkflow, setNewWorkflow] = useState({ name: '', description: '' });
   const [newStep, setNewStep] = useState({ type: 'agent', agent_id: '', wasm_module_id: '', config: {} });
   const [loading, setLoading] = useState(false);
+
+  // Set up drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   useEffect(() => {
     loadWorkflows();
@@ -71,6 +94,47 @@ function WorkflowBuilder() {
       setWorkflowSteps(response.data || []);
     } catch (error) {
       console.error('Failed to load workflow steps:', error);
+    }
+  };
+
+  // Handle drag end event for reordering steps
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    if (!selectedWorkflow) return;
+
+    setLoading(true);
+    try {
+      // Find the indices of the dragged and dropped items
+      const oldIndex = workflowSteps.findIndex(step => step.id === active.id);
+      const newIndex = workflowSteps.findIndex(step => step.id === over.id);
+
+      if (oldIndex === -1 || newIndex === -1) {
+        return;
+      }
+
+      // Reorder the steps
+      const newSteps = arrayMove(workflowSteps, oldIndex, newIndex);
+      setWorkflowSteps(newSteps);
+
+      // Get the new order of step IDs
+      const stepIds = newSteps.map(step => step.id);
+
+      // Send the new order to the backend
+      await workflowsAPI.reorderSteps(selectedWorkflow.id, stepIds);
+
+      // Reload steps to ensure consistency
+      await loadWorkflowSteps(selectedWorkflow.id);
+    } catch (error) {
+      console.error('Failed to reorder steps:', error);
+      // Reload steps to restore previous state
+      loadWorkflowSteps(selectedWorkflow.id);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -225,45 +289,30 @@ function WorkflowBuilder() {
                 {workflowSteps.length === 0 ? (
                   <p className="text-muted">No steps defined yet</p>
                 ) : (
-                  <ListGroup>
-                    {workflowSteps.map((step, index) => (
-                      <ListGroup.Item key={step.id}>
-                        <div className="d-flex justify-content-between align-items-center">
-                          <div>
-                            <strong>Step {index + 1}:</strong> {step.type}
-                            {step.agent_id && (
-                              <span className="ms-2 badge bg-primary">
-                                {agents.find(a => a.id === step.agent_id)?.name || 'Unknown Agent'}
-                              </span>
-                            )}
-                            {step.wasm_module_id && (
-                              <span className="ms-2 badge bg-success">
-                                {wasmModules.find(m => m.id === step.wasm_module_id)?.name || 'Unknown WASM Module'}
-                              </span>
-                            )}
-                          </div>
-                          <div>
-                            <small className="text-muted me-2">Order: {step.step_order}</small>
-                            <Button
-                              variant="outline-primary"
-                              size="sm"
-                              className="me-1"
-                              onClick={() => handleEditStep(step)}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="outline-danger"
-                              size="sm"
-                              onClick={() => handleDeleteStep(step.id)}
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      </ListGroup.Item>
-                    ))}
-                  </ListGroup>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext
+                      items={workflowSteps.map(step => step.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <ListGroup>
+                        {workflowSteps.map((step, index) => (
+                          <SortableWorkflowStepItem
+                            key={step.id}
+                            step={step}
+                            index={index}
+                            agents={agents}
+                            wasmModules={wasmModules}
+                            onEdit={handleEditStep}
+                            onDelete={handleDeleteStep}
+                          />
+                        ))}
+                      </ListGroup>
+                    </SortableContext>
+                  </DndContext>
                 )}
               </Card.Body>
             </Card>

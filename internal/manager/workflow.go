@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/mule-ai/mule/internal/database"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 )
@@ -341,4 +342,54 @@ func (wm *WorkflowManager) GetWorkflowStepConfig(ctx context.Context, id string)
 	}
 
 	return config, nil
+}
+
+// ReorderWorkflowSteps reorders the steps in a workflow according to the provided order
+func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID string, stepIDs []string) error {
+	// Start a transaction to ensure atomicity
+	tx, err := wm.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Verify all step IDs belong to the workflow
+	query := `SELECT id FROM workflow_steps WHERE workflow_id = $1 AND id = ANY($2)`
+	rows, err := tx.QueryContext(ctx, query, workflowID, pq.Array(stepIDs))
+	if err != nil {
+		return fmt.Errorf("failed to verify step IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var verifiedIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("failed to scan step ID: %w", err)
+		}
+		verifiedIDs = append(verifiedIDs, id)
+	}
+
+	// Check if all provided IDs were found
+	if len(verifiedIDs) != len(stepIDs) {
+		return fmt.Errorf("some step IDs do not belong to the specified workflow")
+	}
+
+	// Update the step orders
+	for i, stepID := range stepIDs {
+		updateQuery := `UPDATE workflow_steps SET step_order = $1 WHERE id = $2`
+		_, err := tx.ExecContext(ctx, updateQuery, i+1, stepID)
+		if err != nil {
+			return fmt.Errorf("failed to update step order for step %s: %w", stepID, err)
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
