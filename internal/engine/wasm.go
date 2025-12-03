@@ -84,12 +84,9 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 
 	// Add configuration data if present
 	if len(module.Config) > 0 {
-		var configData map[string]interface{}
-		if err := json.Unmarshal(module.Config, &configData); err == nil {
-			// Add all config fields to merged input
-			for k, v := range configData {
-				mergedInputData[k] = v
-			}
+		// Add all config fields to merged input
+		for k, v := range module.Config {
+			mergedInputData[k] = v
 		}
 	}
 
@@ -908,6 +905,11 @@ func (e *WASMExecutor) getModuleData(ctx context.Context, moduleID string) ([]by
 	e.modules[moduleID] = module.ModuleData
 
 	return module.ModuleData, nil
+}
+
+// InvalidateModuleCache removes a specific module from the cache
+func (e *WASMExecutor) InvalidateModuleCache(moduleID string) {
+	delete(e.modules, moduleID)
 }
 
 // Close closes the WASM executor and cleans up cached modules

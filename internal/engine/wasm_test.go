@@ -126,3 +126,29 @@ func TestWASMExecutorHTTPRequestFunction(t *testing.T) {
 	assert.False(t, executor.isURLAllowed("https://malicious.com"))
 	assert.False(t, executor.isURLAllowed("ftp://example.com"))
 }
+
+func TestWASMExecutorCacheInvalidation(t *testing.T) {
+	// Create mock store that returns ErrNotFound for all modules
+	mockStore := &MockPrimitiveStore{}
+
+	// Create mock agent runtime
+	mockAgentRuntime := &agent.Runtime{}
+
+	executor := NewWASMExecutor(nil, mockStore, mockAgentRuntime, nil)
+
+	// Manually add data to cache
+	testData := []byte("test wasm data")
+	executor.modules["test-module"] = testData
+
+	// Verify it's in the cache
+	cachedData, ok := executor.modules["test-module"]
+	assert.True(t, ok)
+	assert.Equal(t, testData, cachedData)
+
+	// Now invalidate the cache
+	executor.InvalidateModuleCache("test-module")
+
+	// Verify it's no longer in the cache
+	_, ok = executor.modules["test-module"]
+	assert.False(t, ok)
+}

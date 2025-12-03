@@ -7,8 +7,8 @@ WASM_FILE=$(MODULE_NAME).wasm
 
 build: $(WASM_FILE)
 
-$(WASM_FILE): main.go
-	GOOS=wasip1 GOARCH=wasm go build -o $(WASM_FILE) main.go
+$(WASM_FILE): cmd/main.go
+	GOOS=wasip1 GOARCH=wasm go build -o $(WASM_FILE) cmd/main.go
 
 test: build
 	cat test_input.json | wasmtime --mapdir=/tmp::$$PWD $(WASM_FILE)

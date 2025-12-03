@@ -27,8 +27,30 @@ The module accepts input in the standard WASM module format:
 {
   "prompt": "The message content to send",
   "data": {
-    // Optional additional data
+    // Optional additional data that will be merged with the message payload
   }
+}
+```
+
+Any fields in the `data` object will be merged directly into the message payload that is sent to the target service. For example:
+
+```json
+{
+  "prompt": "Hello, this is a test message",
+  "data": {
+    "option1": true,
+    "option2": "results.md"
+  }
+}
+```
+
+Will result in the following payload being sent to the service:
+
+```json
+{
+  "message": "Hello, this is a test message",
+  "option1": true,
+  "option2": "results.md"
 }
 ```
 

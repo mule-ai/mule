@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -319,8 +320,13 @@ func (e *Engine) processAgentStep(ctx context.Context, step *primitive.WorkflowS
 	// Convert input data to prompt string
 	prompt, ok := inputData["prompt"].(string)
 	if !ok {
-		// If no prompt, try to convert entire input data to string
-		prompt = fmt.Sprintf("%v", inputData)
+		// If no prompt, try to convert entire input data to JSON string
+		promptBytes, err := json.Marshal(inputData)
+		if err != nil {
+			prompt = fmt.Sprintf("%v", inputData) // Fallback to original behavior
+		} else {
+			prompt = string(promptBytes)
+		}
 	}
 
 	// Create chat completion request

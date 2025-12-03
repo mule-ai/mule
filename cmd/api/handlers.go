@@ -39,7 +39,6 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	store := primitive.NewPGStore(db.DB) // Access the underlying *sql.DB
 	jobStore := job.NewPGStore(db.DB)    // Access the underlying *sql.DB
 	validator := validation.NewValidator()
-	wasmModuleMgr := manager.NewWasmModuleManager(store)
 	workflowMgr := manager.NewWorkflowManager(db)
 
 	// Create agent runtime (without workflow engine initially)
@@ -47,6 +46,9 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 
 	// Create WASM executor (will be updated with workflow engine after engine creation)
 	wasmExecutor := engine.NewWASMExecutor(db.DB, store, runtime, nil)
+
+	// Create WASM module manager with WASM executor reference for cache invalidation
+	wasmModuleMgr := manager.NewWasmModuleManager(store, wasmExecutor)
 
 	// Create workflow engine
 	workflowEngine := engine.NewEngine(store, jobStore, runtime, wasmExecutor, engine.Config{

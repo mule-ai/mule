@@ -125,13 +125,18 @@ function WasmModules() {
     let configStr = '';
     if (module.config) {
       try {
-        // Config is base64 encoded when coming from the API
-        const decodedConfig = atob(module.config);
-        configStr = JSON.stringify(JSON.parse(decodedConfig), null, 2);
+        // Config is a JSON object when coming from the API
+        if (typeof module.config === 'string') {
+          // If it's already a string, try to parse it as JSON
+          configStr = JSON.stringify(JSON.parse(module.config), null, 2);
+        } else {
+          // If it's an object, stringify it directly
+          configStr = JSON.stringify(module.config, null, 2);
+        }
       } catch (e) {
         console.error('Failed to parse config:', e);
         // If parsing fails, use the raw config
-        configStr = module.config;
+        configStr = typeof module.config === 'string' ? module.config : JSON.stringify(module.config);
       }
     }
 

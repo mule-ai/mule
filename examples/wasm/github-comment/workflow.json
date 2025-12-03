@@ -1,0 +1,17 @@
+{
+  "name": "Post GitHub Comment",
+  "description": "Posts a comment on a GitHub issue",
+  "steps": [
+    {
+      "name": "post_comment",
+      "type": "WASM",
+      "wasm_module_id": "github-comment-module-id",
+      "config": {
+        "token": "{{GITHUB_TOKEN}}"
+      },
+      "input": {
+        "prompt": "{\"issue\": \"https://api.github.com/repos/octocat/Hello-World/issues/1\", \"comment\": \"This is an automated comment from Mule AI!\"}"
+      }
+    }
+  ]
+}

@@ -599,12 +599,17 @@ func (s *PGStore) CreateWasmModule(ctx context.Context, w *WasmModule) error {
 		w.ID = uuid.New().String()
 	}
 
-	// Convert config bytes to JSON string for PostgreSQL JSONB column
+	// Convert config map to JSON bytes for PostgreSQL JSONB column
 	var configJSON interface{}
-	if len(w.Config) > 0 {
-		configJSON = string(w.Config)
+	if w.Config != nil {
+		var err error
+		configJSON, err = json.Marshal(w.Config)
+		if err != nil {
+			return fmt.Errorf("failed to marshal WASM module config: %w", err)
+		}
 	} else {
-		configJSON = nil
+		// Explicitly set to JSON null value instead of SQL NULL
+		configJSON = []byte("null")
 	}
 
 	query := `INSERT INTO wasm_modules (id, name, description, module_data, config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
@@ -614,12 +619,26 @@ func (s *PGStore) CreateWasmModule(ctx context.Context, w *WasmModule) error {
 
 func (s *PGStore) GetWasmModule(ctx context.Context, id string) (*WasmModule, error) {
 	w := &WasmModule{}
+	var configJSON []byte
 	query := `SELECT id, name, description, module_data, config, created_at, updated_at FROM wasm_modules WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&w.ID, &w.Name, &w.Description, &w.ModuleData, &w.Config, &w.CreatedAt, &w.UpdatedAt)
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&w.ID, &w.Name, &w.Description, &w.ModuleData, &configJSON, &w.CreatedAt, &w.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return w, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert config JSON bytes back to map
+	if len(configJSON) > 0 {
+		if err = json.Unmarshal(configJSON, &w.Config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal WASM module config: %w", err)
+		}
+	} else {
+		w.Config = make(map[string]interface{})
+	}
+
+	return w, nil
 }
 
 func (s *PGStore) ListWasmModules(ctx context.Context) ([]*WasmModuleListItem, error) {
@@ -637,22 +656,38 @@ func (s *PGStore) ListWasmModules(ctx context.Context) ([]*WasmModuleListItem, e
 	var modules []*WasmModuleListItem
 	for rows.Next() {
 		w := &WasmModuleListItem{}
-		err := rows.Scan(&w.ID, &w.Name, &w.Description, &w.Config, &w.CreatedAt, &w.UpdatedAt)
+		var configJSON []byte
+		err := rows.Scan(&w.ID, &w.Name, &w.Description, &configJSON, &w.CreatedAt, &w.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
+
+		// Convert config JSON bytes back to map
+		if len(configJSON) > 0 {
+			if err = json.Unmarshal(configJSON, &w.Config); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal WASM module config: %w", err)
+			}
+		} else {
+			w.Config = make(map[string]interface{})
+		}
+
 		modules = append(modules, w)
 	}
 	return modules, rows.Err()
 }
 
 func (s *PGStore) UpdateWasmModule(ctx context.Context, w *WasmModule) error {
-	// Convert config bytes to JSON string for PostgreSQL JSONB column
+	// Convert config map to JSON bytes for PostgreSQL JSONB column
 	var configJSON interface{}
-	if len(w.Config) > 0 {
-		configJSON = string(w.Config)
+	if w.Config != nil {
+		var err error
+		configJSON, err = json.Marshal(w.Config)
+		if err != nil {
+			return fmt.Errorf("failed to marshal WASM module config: %w", err)
+		}
 	} else {
-		configJSON = nil
+		// Explicitly set to JSON null value instead of SQL NULL
+		configJSON = []byte("null")
 	}
 
 	query := `UPDATE wasm_modules SET name = $1, description = $2, module_data = $3, config = $4, updated_at = NOW() WHERE id = $5`

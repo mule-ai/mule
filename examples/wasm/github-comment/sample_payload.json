@@ -1,0 +1,4 @@
+{
+  "prompt": "{\"issue\": \"https://api.github.com/repos/octocat/Hello-World/issues/1\", \"comment\": \"This is a test comment posted from a Mule AI WASM module!\"}",
+  "token": "your-github-personal-access-token"
+}
