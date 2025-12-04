@@ -1,0 +1,10 @@
+{
+  "repo_url": "https://github.com/your-org/your-repo",
+  "token": "your-github-token",
+  "filters": {
+    "state": "open",
+    "assignee": "@me",
+    "per_page": 30,
+    "fetch_comments": true
+  }
+}

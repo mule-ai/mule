@@ -89,6 +89,21 @@ func (c *Compiler) compileGo(ctx context.Context, req CompileRequest) (*CompileR
 		}
 	}()
 
+	// Create cache directories for Go build and module cache
+	goCacheDir := filepath.Join(tmpDir, "go-cache")
+	if err := os.MkdirAll(goCacheDir, 0755); err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("failed to create go cache directory: %v", err)
+		return result, nil
+	}
+
+	goModCacheDir := filepath.Join(tmpDir, "go-mod-cache")
+	if err := os.MkdirAll(goModCacheDir, 0755); err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("failed to create go mod cache directory: %v", err)
+		return result, nil
+	}
+
 	// Write source code to main.go
 	mainFile := filepath.Join(tmpDir, "main.go")
 	if err := os.WriteFile(mainFile, []byte(req.SourceCode), 0644); err != nil {
@@ -117,6 +132,8 @@ go 1.24
 		"GOOS=wasip1",
 		"GOARCH=wasm",
 		"CGO_ENABLED=0",
+		"GOCACHE="+goCacheDir,
+		"GOMODCACHE="+goModCacheDir,
 	)
 
 	output, err := cmd.CombinedOutput()
@@ -240,10 +257,10 @@ func outputError(err error) {
 
 // CreateWasmModuleWithSource creates a new WASM module with source code
 func CreateWasmModuleWithSource(ctx context.Context, compiler *Compiler, wasmModuleMgr interface {
-	CreateWasmModule(ctx context.Context, name, description string, moduleData, config []byte) (*primitive.WasmModule, error)
+	CreateWasmModule(ctx context.Context, name, description string, moduleData []byte, config map[string]interface{}) (*primitive.WasmModule, error)
 }, sourceMgr interface {
 	CreateSource(ctx context.Context, source *database.WasmModuleSource) error
-}, name, description, language, sourceCode string, config []byte) (*primitive.WasmModule, *database.WasmModuleSource, error) {
+}, name, description, language, sourceCode string, config map[string]interface{}) (*primitive.WasmModule, *database.WasmModuleSource, error) {
 
 	// First compile the source code
 	compileReq := CompileRequest{

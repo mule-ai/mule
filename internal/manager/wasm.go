@@ -6,21 +6,26 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mule-ai/mule/internal/engine"
 	"github.com/mule-ai/mule/internal/primitive"
 )
 
 // WasmModuleManager handles WASM module operations
 type WasmModuleManager struct {
-	store primitive.PrimitiveStore
+	store        primitive.PrimitiveStore
+	wasmExecutor *engine.WASMExecutor
 }
 
 // NewWasmModuleManager creates a new WASM module manager
-func NewWasmModuleManager(store primitive.PrimitiveStore) *WasmModuleManager {
-	return &WasmModuleManager{store: store}
+func NewWasmModuleManager(store primitive.PrimitiveStore, wasmExecutor *engine.WASMExecutor) *WasmModuleManager {
+	return &WasmModuleManager{
+		store:        store,
+		wasmExecutor: wasmExecutor,
+	}
 }
 
 // CreateWasmModule creates a new WASM module
-func (wmm *WasmModuleManager) CreateWasmModule(ctx context.Context, name, description string, moduleData, config []byte) (*primitive.WasmModule, error) {
+func (wmm *WasmModuleManager) CreateWasmModule(ctx context.Context, name, description string, moduleData []byte, config map[string]interface{}) (*primitive.WasmModule, error) {
 	id := uuid.New().String()
 
 	now := time.Now()
@@ -63,7 +68,7 @@ func (wmm *WasmModuleManager) ListWasmModules(ctx context.Context) ([]*primitive
 }
 
 // UpdateWasmModule updates a WASM module
-func (wmm *WasmModuleManager) UpdateWasmModule(ctx context.Context, id, name, description string, moduleData, config []byte) (*primitive.WasmModule, error) {
+func (wmm *WasmModuleManager) UpdateWasmModule(ctx context.Context, id, name, description string, moduleData []byte, config map[string]interface{}) (*primitive.WasmModule, error) {
 	module, err := wmm.GetWasmModule(ctx, id)
 	if err != nil {
 		return nil, err
@@ -82,6 +87,11 @@ func (wmm *WasmModuleManager) UpdateWasmModule(ctx context.Context, id, name, de
 	err = wmm.store.UpdateWasmModule(ctx, module)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update WASM module: %w", err)
+	}
+
+	// Invalidate the WASM module cache so the updated module will be used
+	if wmm.wasmExecutor != nil {
+		wmm.wasmExecutor.InvalidateModuleCache(id)
 	}
 
 	return module, nil

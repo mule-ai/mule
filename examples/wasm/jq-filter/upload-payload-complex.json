@@ -1,0 +1,8 @@
+{
+  "name": "jq-filter-complex",
+  "description": "Applies complex jq filters to JSON data using WASM",
+  "module_data": "<base64-encoded-content-of-jq-filter.wasm>",
+  "config": {
+    "query": ".users[] | select(.age > 25) | {name, age}"
+  }
+}

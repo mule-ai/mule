@@ -24,6 +24,10 @@ function WasmCodeEditor() {
   const [success, setSuccess] = useState('');
   const [activeTab, setActiveTab] = useState('editor');
 
+  // View state
+  const [isExpandedHeight, setIsExpandedHeight] = useState(false);
+  const [isExpandedWidth, setIsExpandedWidth] = useState(false);
+
   // Chat functionality state
   const [availableAgents, setAvailableAgents] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState(null);
@@ -110,8 +114,16 @@ func outputError(err error) {
       });
     } catch (error) {
       console.error('Failed to load module source:', error);
-      // If no source exists, load example code
-      loadExampleCode();
+      // Check if it's a 404 error (no source code available)
+      if (error.response && error.response.status === 404) {
+        // Set empty source with a helpful message
+        setSourceCode('// No source code available for this module.\n// This module was likely uploaded as a pre-compiled WASM binary.');
+        setLanguage('go'); // Default to Go
+        setCompilationResult(null);
+      } else {
+        // For other errors, load example code
+        loadExampleCode();
+      }
     }
   }, [loadExampleCode]);
 
@@ -276,7 +288,7 @@ func outputError(err error) {
 
       setSelectedModule({
         ...module,
-        config: fullModule.config ? JSON.stringify(JSON.parse(new TextDecoder().decode(fullModule.config)), null, 2) : ''
+        config: fullModule.config ? JSON.stringify(fullModule.config, null, 2) : ''
       });
     } catch (error) {
       console.error('Failed to load module details:', error);
@@ -425,6 +437,18 @@ User Question: ${chatInput}`;
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h1>WASM Code Editor</h1>
         <div className="d-flex gap-2">
+          <Button
+            variant="outline-secondary"
+            onClick={() => setIsExpandedHeight(!isExpandedHeight)}
+          >
+            {isExpandedHeight ? 'Normal Height' : 'Full Height'}
+          </Button>
+          <Button
+            variant="outline-secondary"
+            onClick={() => setIsExpandedWidth(!isExpandedWidth)}
+          >
+            {isExpandedWidth ? 'Normal Width' : 'Full Width'}
+          </Button>
           <Button variant="outline-info" onClick={toggleChat}>
             {showChat ? 'Hide' : 'Show'} AI Assistant
           </Button>
@@ -432,7 +456,11 @@ User Question: ${chatInput}`;
             Create New Module
           </Button>
           {selectedModule && (
-            <Button variant="primary" onClick={handleUpdateModule} disabled={isCompiling}>
+            <Button
+              variant="primary"
+              onClick={handleUpdateModule}
+              disabled={isCompiling || sourceCode.startsWith('// No source code available')}
+            >
               {isCompiling ? 'Compiling...' : 'Compile & Save'}
             </Button>
           )}
@@ -442,355 +470,379 @@ User Question: ${chatInput}`;
       {error && <Alert variant="danger" dismissible onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert variant="success" dismissible onClose={() => setSuccess('')}>{success}</Alert>}
 
-      <Row>
-        {showChat && (
-          <Col md={3} className="d-flex flex-column" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-            <Card className="mb-4 flex-grow-1 d-flex flex-column">
-              <Card.Header>
-                <div className="d-flex justify-content-between align-items-center">
-                  <Card.Title className="mb-0">AI Assistant</Card.Title>
-                  <Dropdown>
-                    <Dropdown.Toggle variant="outline-secondary" size="sm">
-                      {selectedAgent?.name || 'Select Agent'}
-                    </Dropdown.Toggle>
-                    <Dropdown.Menu>
-                      {availableAgents.map((agent) => (
-                        <Dropdown.Item key={agent.id} onClick={() => setSelectedAgent(agent)}>
-                          {agent.name}
-                        </Dropdown.Item>
-                      ))}
-                    </Dropdown.Menu>
-                  </Dropdown>
-                </div>
-              </Card.Header>
-              <Card.Body className="flex-grow-1 d-flex flex-column" style={{ overflow: 'hidden' }}>
-                <div className="flex-grow-1 mb-3" style={{ overflowY: 'auto', maxHeight: '400px' }}>
-                  {chatMessages.length === 0 ? (
-                    <p className="text-muted small">
-                      Ask me anything about your WASM module! I can help you write code, debug errors, and optimize your module.
-                    </p>
-                  ) : (
-                    chatMessages.map((msg, index) => (
-                      <div key={index} className={`mb-3 ${msg.role === 'user' ? 'text-end' : ''}`}>
-                        <div className={`d-inline-block p-2 rounded ${msg.role === 'user' ? 'bg-primary text-white' : msg.isError ? 'bg-danger text-white' : 'bg-light'}`}>
-                          {formatChatMessage(msg.content)}
-                        </div>
-                        <div className="small text-muted mt-1">
-                          {msg.role === 'user' ? 'You' : selectedAgent?.name} • {msg.timestamp.toLocaleTimeString()}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  {isChatLoading && (
-                    <div className="text-center">
-                      <Spinner animation="border" size="sm" />
-                      <span className="ms-2 text-muted">Thinking...</span>
-                    </div>
-                  )}
-                </div>
-                <InputGroup>
-                  <Form.Control
-                    as="textarea"
-                    rows={2}
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleChatSubmit();
-                      }
-                    }}
-                    placeholder="Ask about your WASM module..."
-                    disabled={isChatLoading}
-                  />
-                  <Button variant="primary" onClick={handleChatSubmit} disabled={isChatLoading || !chatInput.trim()}>
-                    Send
-                  </Button>
-                </InputGroup>
-              </Card.Body>
-            </Card>
-          </Col>
-        )}
-
-        <Col md={showChat ? 3 : 3}>
-          <Card className="mb-4">
-            <Card.Header>
-              <Card.Title className="mb-0">WASM Modules</Card.Title>
-            </Card.Header>
-            <Card.Body>
-              <div className="d-grid gap-2">
-                {modules.map((module) => (
-                  <Button
-                    key={module.id}
-                    variant={selectedModule?.id === module.id ? "primary" : "outline-primary"}
-                    size="sm"
-                    className="text-start"
-                    onClick={() => handleSelectModule(module)}
-                  >
-                    {module.name}
-                  </Button>
-                ))}
-              </div>
-              {modules.length === 0 && (
-                <p className="text-muted text-center mt-3">No modules found</p>
-              )}
-            </Card.Body>
-          </Card>
-
-          <Card>
-            <Card.Header>
-              <Card.Title className="mb-0">Quick Info</Card.Title>
-            </Card.Header>
-            <Card.Body>
-              <div className="mb-3">
-                <strong>Language:</strong> 
-                <Badge bg="info" className="ms-2">{language.toUpperCase()}</Badge>
-              </div>
-              <div className="mb-3">
-                <strong>Status:</strong>
-                <div className="mt-2">
-                  {getCompilationBadge()}
-                </div>
-              </div>
-              {compilationResult?.compiledAt && (
-                <div className="text-muted small">
-                  <strong>Last Compiled:</strong><br/>
-                  {new Date(compilationResult.compiledAt).toLocaleString()}
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-
-        <Col md={showChat ? 6 : 9}>
-          <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
-            <Tab eventKey="editor" title="Code Editor">
-              <Card>
+      <div className={isExpandedHeight ? 'expanded-height-container' : ''}>
+        <Row className={isExpandedWidth ? 'expanded-width-row' : ''}>
+          {!isExpandedWidth && showChat && (
+            <Col md={3} className="d-flex flex-column" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+              <Card className="mb-4 flex-grow-1 d-flex flex-column">
                 <Card.Header>
                   <div className="d-flex justify-content-between align-items-center">
-                    <Card.Title className="mb-0">
-                      {selectedModule ? `Editing: ${selectedModule.name}` : 'Create New Module'}
-                    </Card.Title>
-                    <Button
-                      variant="outline-secondary"
-                      size="sm"
-                      onClick={loadExampleCode}
-                    >
-                      Load Example
-                    </Button>
+                    <Card.Title className="mb-0">AI Assistant</Card.Title>
+                    <Dropdown>
+                      <Dropdown.Toggle variant="outline-secondary" size="sm">
+                        {selectedAgent?.name || 'Select Agent'}
+                      </Dropdown.Toggle>
+                      <Dropdown.Menu>
+                        {availableAgents.map((agent) => (
+                          <Dropdown.Item key={agent.id} onClick={() => setSelectedAgent(agent)}>
+                            {agent.name}
+                          </Dropdown.Item>
+                        ))}
+                      </Dropdown.Menu>
+                    </Dropdown>
                   </div>
                 </Card.Header>
-                <Card.Body style={{ height: '500px' }}>
-                  <Editor
-                    height="100%"
-                    language={language}
-                    theme="vs-dark"
-                    value={sourceCode}
-                    onChange={(value) => setSourceCode(value)}
-                    options={{
-                      minimap: { enabled: false },
-                      fontSize: 14,
-                      scrollBeyondLastLine: false,
-                      automaticLayout: true,
-                    }}
-                  />
+                <Card.Body className="flex-grow-1 d-flex flex-column" style={{ overflow: 'hidden' }}>
+                  <div className="flex-grow-1 mb-3" style={{ overflowY: 'auto', maxHeight: '400px' }}>
+                    {chatMessages.length === 0 ? (
+                      <p className="text-muted small">
+                        Ask me anything about your WASM module! I can help you write code, debug errors, and optimize your module.
+                      </p>
+                    ) : (
+                      chatMessages.map((msg, index) => (
+                        <div key={index} className={`mb-3 ${msg.role === 'user' ? 'text-end' : ''}`}>
+                          <div className={`d-inline-block p-2 rounded ${msg.role === 'user' ? 'bg-primary text-white' : msg.isError ? 'bg-danger text-white' : 'bg-light'}`}>
+                            {formatChatMessage(msg.content)}
+                          </div>
+                          <div className="small text-muted mt-1">
+                            {msg.role === 'user' ? 'You' : selectedAgent?.name} • {msg.timestamp.toLocaleTimeString()}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    {isChatLoading && (
+                      <div className="text-center">
+                        <Spinner animation="border" size="sm" />
+                        <span className="ms-2 text-muted">Thinking...</span>
+                      </div>
+                    )}
+                  </div>
+                  <InputGroup>
+                    <Form.Control
+                      as="textarea"
+                      rows={2}
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleChatSubmit();
+                        }
+                      }}
+                      placeholder="Ask about your WASM module..."
+                      disabled={isChatLoading}
+                    />
+                    <Button variant="primary" onClick={handleChatSubmit} disabled={isChatLoading || !chatInput.trim()}>
+                      Send
+                    </Button>
+                  </InputGroup>
+                </Card.Body>
+              </Card>
+            </Col>
+          )}
+
+          {!isExpandedWidth && (
+            <Col md={showChat ? 3 : 3}>
+              <Card className="mb-4">
+                <Card.Header>
+                  <Card.Title className="mb-0">WASM Modules</Card.Title>
+                </Card.Header>
+                <Card.Body>
+                  <div className="d-grid gap-2">
+                    {modules.map((module) => (
+                      <Button
+                        key={module.id}
+                        variant={selectedModule?.id === module.id ? "primary" : "outline-primary"}
+                        size="sm"
+                        className="text-start"
+                        onClick={() => handleSelectModule(module)}
+                      >
+                        {module.name}
+                      </Button>
+                    ))}
+                  </div>
+                  {modules.length === 0 && (
+                    <p className="text-muted text-center mt-3">No modules found</p>
+                  )}
                 </Card.Body>
               </Card>
 
-              {compilationResult?.error && (
-                <Card className="mt-3 border-danger">
-                  <Card.Header className="bg-danger text-white">
-                    <Card.Title className="mb-0">Compilation Error</Card.Title>
-                  </Card.Header>
-                  <Card.Body>
-                    <pre className="mb-0 text-danger">{compilationResult.error}</pre>
-                  </Card.Body>
-                </Card>
-              )}
-            </Tab>
-
-            <Tab eventKey="config" title="Configuration">
               <Card>
                 <Card.Header>
-                  <Card.Title className="mb-0">Module Configuration</Card.Title>
+                  <Card.Title className="mb-0">Quick Info</Card.Title>
                 </Card.Header>
                 <Card.Body>
-                  <p className="text-muted">
-                    Configure static settings for your WASM module. This configuration will be merged with
-                    input data when the module executes in a workflow.
-                  </p>
+                  <div className="mb-3">
+                    <strong>Language:</strong>
+                    <Badge bg="info" className="ms-2">{language.toUpperCase()}</Badge>
+                  </div>
+                  <div className="mb-3">
+                    <strong>Status:</strong>
+                    <div className="mt-2">
+                      {getCompilationBadge()}
+                    </div>
+                  </div>
+                  {compilationResult?.compiledAt && (
+                    <div className="text-muted small">
+                      <strong>Last Compiled:</strong><br/>
+                      {new Date(compilationResult.compiledAt).toLocaleString()}
+                    </div>
+                  )}
+                </Card.Body>
+              </Card>
+            </Col>
+          )}
 
-                  {selectedModule ? (
-                    <Form.Group>
-                      <Form.Label>Configuration (JSON)</Form.Label>
-                      <Form.Control
-                        as="textarea"
-                        rows={10}
-                        value={selectedModule.config || ''}
-                        onChange={(e) => setSelectedModule({...selectedModule, config: e.target.value})}
-                        placeholder={`{
+          <Col md={isExpandedWidth ? 12 : showChat ? 6 : 9} className={isExpandedWidth ? 'expanded-editor-col' : ''}>
+            <div className={isExpandedWidth ? 'expanded-toggle-container' : 'd-none'}>
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                className="position-fixed"
+                style={{ top: '80px', right: '20px', zIndex: 1000 }}
+                onClick={() => setIsExpandedWidth(false)}
+              >
+                Show Sidebar
+              </Button>
+            </div>
+
+            <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
+              <Tab eventKey="editor" title="Code Editor">
+                <Card className={isExpandedHeight ? 'expanded-height-card' : ''}>
+                  <Card.Header>
+                    <div className="d-flex justify-content-between align-items-center">
+                      <Card.Title className="mb-0">
+                        {selectedModule ? (
+                          sourceCode.startsWith('// No source code available') ? (
+                            `Viewing: ${selectedModule.name} (No Source)`
+                          ) : (
+                            `Editing: ${selectedModule.name}`
+                          )
+                        ) : (
+                          'Create New Module'
+                        )}
+                      </Card.Title>
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        onClick={loadExampleCode}
+                      >
+                        Load Example
+                      </Button>
+                    </div>
+                  </Card.Header>
+                  <Card.Body className={isExpandedHeight ? 'expanded-height-body' : ''} style={!isExpandedHeight ? { height: '500px' } : {}}>
+                    <Editor
+                      height="100%"
+                      language={language}
+                      theme="vs-dark"
+                      value={sourceCode}
+                      onChange={(value) => setSourceCode(value)}
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                      }}
+                    />
+                  </Card.Body>
+                </Card>
+
+                {compilationResult?.error && (
+                  <Card className="mt-3 border-danger">
+                    <Card.Header className="bg-danger text-white">
+                      <Card.Title className="mb-0">Compilation Error</Card.Title>
+                    </Card.Header>
+                    <Card.Body>
+                      <pre className="mb-0 text-danger">{compilationResult.error}</pre>
+                    </Card.Body>
+                  </Card>
+                )}
+              </Tab>
+
+              <Tab eventKey="config" title="Configuration">
+                <Card>
+                  <Card.Header>
+                    <Card.Title className="mb-0">Module Configuration</Card.Title>
+                  </Card.Header>
+                  <Card.Body>
+                    <p className="text-muted">
+                      Configure static settings for your WASM module. This configuration will be merged with
+                      input data when the module executes in a workflow.
+                    </p>
+
+                    {selectedModule ? (
+                      <Form.Group>
+                        <Form.Label>Configuration (JSON)</Form.Label>
+                        <Form.Control
+                          as="textarea"
+                          rows={10}
+                          value={selectedModule.config || ''}
+                          onChange={(e) => setSelectedModule({...selectedModule, config: e.target.value})}
+                          placeholder={`{
   "api_key": "your-api-key",
   "endpoint": "https://api.example.com",
   "timeout": 30
 }`}
-                      />
-                      <Form.Text className="text-muted">
-                        JSON configuration that will be merged with input data when the module executes.
-                        This is useful for API keys, endpoints, and other static configuration values.
-                      </Form.Text>
-                    </Form.Group>
-                  ) : (
-                    <div className="text-center py-5">
-                      <p className="text-muted">Create or select a module to configure it</p>
-                    </div>
-                  )}
-                </Card.Body>
-              </Card>
-            </Tab>
-
-            <Tab eventKey="test" title="Test Module">
-              <Row>
-                <Col md={6}>
-                  <Card>
-                    <Card.Header>
-                      <Card.Title className="mb-0">Test Input</Card.Title>
-                    </Card.Header>
-                    <Card.Body>
-                      <Form.Group>
-                        <Form.Label>JSON Input</Form.Label>
-                        <Form.Control
-                          as="textarea"
-                          rows={10}
-                          value={testInput}
-                          onChange={(e) => setTestInput(e.target.value)}
-                          placeholder={`Enter JSON input simulating workflow input, e.g.:\n{\n  "prompt": "Text from previous workflow step"\n}\n\nOr with additional data:\n{\n  "prompt": "Process this text",\n  "data": {\n    "key": "value",\n    "count": 42\n  }\n}`}
                         />
+                        <Form.Text className="text-muted">
+                          JSON configuration that will be merged with input data when the module executes.
+                          This is useful for API keys, endpoints, and other static configuration values.
+                        </Form.Text>
                       </Form.Group>
-                      <Button
-                        variant="primary"
-                        onClick={handleTestModule}
-                        disabled={isTesting || !selectedModule}
-                        className="mt-3"
-                      >
-                        {isTesting ? (
-                          <>
-                            <Spinner animation="border" size="sm" className="me-2" />
-                            Testing...
-                          </>
+                    ) : (
+                      <div className="text-center py-5">
+                        <p className="text-muted">Create or select a module to configure it</p>
+                      </div>
+                    )}
+                  </Card.Body>
+                </Card>
+              </Tab>
+
+              <Tab eventKey="test" title="Test Module">
+                <Row>
+                  <Col md={6}>
+                    <Card>
+                      <Card.Header>
+                        <Card.Title className="mb-0">Test Input</Card.Title>
+                      </Card.Header>
+                      <Card.Body>
+                        <Form.Group>
+                          <Form.Label>JSON Input</Form.Label>
+                          <Form.Control
+                            as="textarea"
+                            rows={10}
+                            value={testInput}
+                            onChange={(e) => setTestInput(e.target.value)}
+                            placeholder={`Enter JSON input simulating workflow input, e.g.:\n{\n  "prompt": "Text from previous workflow step"\n}\n\nOr with additional data:\n{\n  "prompt": "Process this text",\n  "data": {\n    "key": "value",\n    "count": 42\n  }\n}`}
+                          />
+                        </Form.Group>
+                        <Button
+                          variant="primary"
+                          onClick={handleTestModule}
+                          disabled={isTesting || !selectedModule}
+                          className="mt-3"
+                        >
+                          {isTesting ? (
+                            <>
+                              <Spinner animation="border" size="sm" className="me-2" />
+                              Testing...
+                            </>
+                          ) : (
+                            'Run Test'
+                          )}
+                        </Button>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+
+                  <Col md={6}>
+                    <Card>
+                      <Card.Header>
+                        <Card.Title className="mb-0">Test Output</Card.Title>
+                      </Card.Header>
+                      <Card.Body>
+                        {testOutput ? (
+                          <pre className="mb-0" style={{ whiteSpace: 'pre-wrap' }}>
+                            {testOutput}
+                          </pre>
                         ) : (
-                          'Run Test'
+                          <p className="text-muted mb-0">
+                            {testError || 'Run a test to see output here'}
+                          </p>
                         )}
-                      </Button>
-                    </Card.Body>
-                  </Card>
-                </Col>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                </Row>
+              </Tab>
 
-                <Col md={6}>
-                  <Card>
-                    <Card.Header>
-                      <Card.Title className="mb-0">Test Output</Card.Title>
-                    </Card.Header>
-                    <Card.Body>
-                      {testOutput ? (
-                        <pre className="mb-0" style={{ whiteSpace: 'pre-wrap' }}>
-                          {testOutput}
-                        </pre>
-                      ) : (
-                        <p className="text-muted mb-0">
-                          {testError || 'Run a test to see output here'}
-                        </p>
-                      )}
-                    </Card.Body>
-                  </Card>
-                </Col>
-              </Row>
-            </Tab>
+              <Tab eventKey="docs" title="Documentation">
+                <Card>
+                  <Card.Header>
+                    <Card.Title className="mb-0">WASM Module Documentation</Card.Title>
+                  </Card.Header>
+                  <Card.Body>
+                    <h5>Input/Output Structure</h5>
+                    <p>
+                      WASM modules in Mule receive input via <code>stdin</code> as JSON and should output
+                      results via <code>stdout</code> as JSON. When used in workflows, the input is the output
+                      from the previous step.
+                    </p>
 
-            <Tab eventKey="docs" title="Documentation">
-              <Card>
-                <Card.Header>
-                  <Card.Title className="mb-0">WASM Module Documentation</Card.Title>
-                </Card.Header>
-                <Card.Body>
-                  <h5>Input/Output Structure</h5>
-                  <p>
-                    WASM modules in Mule receive input via <code>stdin</code> as JSON and should output
-                    results via <code>stdout</code> as JSON. When used in workflows, the input is the output
-                    from the previous step.
-                  </p>
-
-                  <h6 className="mt-3">Typical Input Format (from previous step):</h6>
-                  <pre>{`{
+                    <h6 className="mt-3">Typical Input Format (from previous step):</h6>
+                    <pre>{`{
   "prompt": "string - content from previous step (agent output or workflow input)"
 }`}</pre>
-                  <p className="text-muted small">
-                    Note: The input structure depends on what the previous step outputs.
-                    When testing in the editor, you can simulate this format.
-                  </p>
+                    <p className="text-muted small">
+                      Note: The input structure depends on what the previous step outputs.
+                      When testing in the editor, you can simulate this format.
+                    </p>
 
-                  <h6 className="mt-3">Output Format (for next step):</h6>
-                  <pre>{`{
+                    <h6 className="mt-3">Output Format (for next step):</h6>
+                    <pre>{`{
   "result": "string - processing result",
   "data": {} // processed data (optional)
   "success": true/false
 }`}</pre>
-                  <p className="text-muted small">
-                    The output should be a JSON object. The workflow engine will pass the "output" field
-                    to the next step as the "prompt" field.
-                  </p>
+                    <p className="text-muted small">
+                      The output should be a JSON object. The workflow engine will pass the "output" field
+                      to the next step as the "prompt" field.
+                    </p>
 
-                  <h5 className="mt-4">Go WASM Specifics</h5>
-                  <ul>
-                    <li>Package must be <code>main</code></li>
-                    <li>Must have a <code>main()</code> function</li>
-                    <li>Use <code>encoding/json</code> for JSON parsing</li>
-                    <li>Read from <code>os.Stdin</code>, write to <code>os.Stdout</code></li>
-                    <li>Errors should be written to <code>os.Stderr</code></li>
-                    <li>Be flexible with input structure - previous steps may output different formats</li>
-                  </ul>
+                    <h5 className="mt-4">Go WASM Specifics</h5>
+                    <ul>
+                      <li>Package must be <code>main</code></li>
+                      <li>Must have a <code>main()</code> function</li>
+                      <li>Use <code>encoding/json</code> for JSON parsing</li>
+                      <li>Read from <code>os.Stdin</code>, write to <code>os.Stdout</code></li>
+                      <li>Errors should be written to <code>os.Stderr</code></li>
+                      <li>Be flexible with input structure - previous steps may output different formats</li>
+                    </ul>
 
-                  <h5 className="mt-4">Configuration</h5>
-                  <p>
-                    You can define static configuration for your WASM modules in the Configuration tab.
-                    This configuration will be merged with the input data when the module executes.
-                    For example, if your configuration is:
-                  </p>
-                  <pre>{`{
+                    <h5 className="mt-4">Configuration</h5>
+                    <p>
+                      You can define static configuration for your WASM modules in the Configuration tab.
+                      This configuration will be merged with the input data when the module executes.
+                      For example, if your configuration is:
+                    </p>
+                    <pre>{`{
   "api_key": "secret123",
   "endpoint": "https://api.example.com"
 }`}</pre>
-                  <p>
-                    And your input data is:
-                  </p>
-                  <pre>{`{
+                    <p>
+                      And your input data is:
+                    </p>
+                    <pre>{`{
   "prompt": "Process this text"
 }`}</pre>
-                  <p>
-                    Your WASM module will receive:
-                  </p>
-                  <pre>{`{
+                    <p>
+                      Your WASM module will receive:
+                    </p>
+                    <pre>{`{
   "prompt": "Process this text",
   "api_key": "secret123",
   "endpoint": "https://api.example.com"
 }`}</pre>
 
-                  <div className="alert alert-info mt-4">
-                    <strong>Workflow Integration:</strong> In a workflow, the output from each step becomes
-                    the input to the next step. WASM modules should expect a <code>prompt</code> field containing
-                    text from the previous step, and should output JSON that the next step can consume.
-                  </div>
+                    <div className="alert alert-info mt-4">
+                      <strong>Workflow Integration:</strong> In a workflow, the output from each step becomes
+                      the input to the next step. WASM modules should expect a <code>prompt</code> field containing
+                      text from the previous step, and should output JSON that the next step can consume.
+                    </div>
 
-                  <div className="alert alert-warning mt-3">
-                    <strong>Testing Tip:</strong> Use the Test tab to verify your module handles the expected
-                    input format. Test with inputs like <code>{'{"prompt": "your test text"}'}</code> to simulate
-                    real workflow conditions.
-                  </div>
-                </Card.Body>
-              </Card>
-            </Tab>
-          </Tabs>
-        </Col>
-      </Row>
+                    <div className="alert alert-warning mt-3">
+                      <strong>Testing Tip:</strong> Use the Test tab to verify your module handles the expected
+                      input format. Test with inputs like <code>{'{"prompt": "your test text"}'}</code> to simulate
+                      real workflow conditions.
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Tab>
+            </Tabs>
+          </Col>
+        </Row>
+      </div>
 
       {/* Create Module Modal */}
       <Modal show={showCreateModal} onHide={() => setShowCreateModal(false)} size="lg">

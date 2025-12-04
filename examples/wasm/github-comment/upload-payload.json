@@ -1,0 +1,7 @@
+{
+  "name": "github-comment",
+  "description": "Post comments on GitHub issues",
+  "module_data": "",
+  "entrypoint": "main",
+  "language": "go"
+}

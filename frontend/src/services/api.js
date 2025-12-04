@@ -51,6 +51,7 @@ export const workflowsAPI = {
   createStep: (id, data) => api.post(`/api/v1/workflows/${id}/steps`, data),
   updateStep: (workflowId, stepId, data) => api.put(`/api/v1/workflows/${workflowId}/steps/${stepId}`, data),
   deleteStep: (workflowId, stepId) => api.delete(`/api/v1/workflows/${workflowId}/steps/${stepId}`),
+  reorderSteps: (id, stepIds) => api.post(`/api/v1/workflows/${id}/steps/reorder`, { step_ids: stepIds }),
 };
 
 // Job APIs

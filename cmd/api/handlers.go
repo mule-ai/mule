@@ -39,7 +39,6 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	store := primitive.NewPGStore(db.DB) // Access the underlying *sql.DB
 	jobStore := job.NewPGStore(db.DB)    // Access the underlying *sql.DB
 	validator := validation.NewValidator()
-	wasmModuleMgr := manager.NewWasmModuleManager(store)
 	workflowMgr := manager.NewWorkflowManager(db)
 
 	// Create agent runtime (without workflow engine initially)
@@ -47,6 +46,9 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 
 	// Create WASM executor (will be updated with workflow engine after engine creation)
 	wasmExecutor := engine.NewWASMExecutor(db.DB, store, runtime, nil)
+
+	// Create WASM module manager with WASM executor reference for cache invalidation
+	wasmModuleMgr := manager.NewWasmModuleManager(store, wasmExecutor)
 
 	// Create workflow engine
 	workflowEngine := engine.NewEngine(store, jobStore, runtime, wasmExecutor, engine.Config{
@@ -852,6 +854,46 @@ func (h *apiHandler) deleteWorkflowStepHandler(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Reorder workflow steps handler
+func (h *apiHandler) reorderWorkflowStepsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	workflowID := vars["id"]
+
+	// Verify the workflow exists
+	_, err := h.store.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("workflow not found: %w", err), http.StatusNotFound)
+		return
+	}
+
+	// Parse the request body to get the new order
+	var req struct {
+		StepIDs []string `json:"step_ids"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.HandleError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Use the workflow manager to reorder steps
+	if err := h.workflowMgr.ReorderWorkflowSteps(ctx, workflowID, req.StepIDs); err != nil {
+		api.HandleError(w, fmt.Errorf("failed to reorder workflow steps: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Return the updated steps
+	updatedSteps, err := h.store.ListWorkflowSteps(ctx, workflowID)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to get updated workflow steps: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(updatedSteps)
+}
+
 // Job management handlers
 func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.jobStore.ListJobs()
@@ -1082,19 +1124,19 @@ func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Parse config as JSON if provided
-	var configBytes []byte
+	var configMap map[string]interface{}
 	if config != "" {
 		// Validate that config is valid JSON
-		var configObj map[string]interface{}
-		if err := json.Unmarshal([]byte(config), &configObj); err != nil {
+		if err := json.Unmarshal([]byte(config), &configMap); err != nil {
 			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
 			return
 		}
-		configBytes = []byte(config)
+	} else {
+		configMap = make(map[string]interface{})
 	}
 
 	// Create WASM module
-	module, err := h.wasmModuleMgr.CreateWasmModule(ctx, name, description, moduleData, configBytes)
+	module, err := h.wasmModuleMgr.CreateWasmModule(ctx, name, description, moduleData, configMap)
 	if err != nil {
 		api.HandleError(w, fmt.Errorf("failed to create WASM module: %w", err), http.StatusInternalServerError)
 		return
@@ -1143,6 +1185,11 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	// Get file (optional)
 	var moduleData []byte = nil
 	file, _, err := r.FormFile("module_data")
+	if err != nil && err != http.ErrMissingFile {
+		api.HandleError(w, fmt.Errorf("failed to get module file: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	if err == nil && file != nil {
 		defer func() {
 			if closeErr := file.Close(); closeErr != nil {
@@ -1151,6 +1198,7 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 		}()
 
 		// Read file data
+		moduleData = make([]byte, 0)
 		buf := make([]byte, 1024)
 		for {
 			n, err := file.Read(buf)
@@ -1166,19 +1214,17 @@ func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Parse config as JSON if provided
-	var configBytes []byte = nil
+	var configMap map[string]interface{} = nil
 	if config != "" {
 		// Validate that config is valid JSON
-		var configObj map[string]interface{}
-		if err := json.Unmarshal([]byte(config), &configObj); err != nil {
+		if err := json.Unmarshal([]byte(config), &configMap); err != nil {
 			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
 			return
 		}
-		configBytes = []byte(config)
 	}
 
 	// Update WASM module
-	module, err := h.wasmModuleMgr.UpdateWasmModule(ctx, id, name, description, moduleData, configBytes)
+	module, err := h.wasmModuleMgr.UpdateWasmModule(ctx, id, name, description, moduleData, configMap)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			api.HandleError(w, fmt.Errorf("WASM module not found: %s", id), http.StatusNotFound)

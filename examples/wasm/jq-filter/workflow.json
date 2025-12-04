@@ -1,0 +1,18 @@
+{
+  "name": "JQ Filter Workflow",
+  "description": "Process JSON data through jq filters using WASM module",
+  "steps": [
+    {
+      "step_order": 1,
+      "step_type": "wasm_module",
+      "wasm_module_id": "<your-jq-filter-module-id>",
+      "description": "Apply jq filter to JSON data"
+    },
+    {
+      "step_order": 2,
+      "step_type": "agent",
+      "agent_id": "<your-agent-id>",
+      "description": "Analyze the filtered data with AI"
+    }
+  ]
+}

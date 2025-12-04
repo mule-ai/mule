@@ -338,3 +338,35 @@ p, span, div, label, li, td, th {
   padding: 8px 12px;
   color: var(--text-secondary) !important;
 }
+
+/* WASM Editor Expanded Views */
+.expanded-height-container {
+  height: calc(100vh - 150px);
+}
+
+.expanded-height-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.expanded-height-body {
+  flex: 1;
+  min-height: 500px;
+  height: calc(100vh - 250px);
+}
+
+.expanded-width-row {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.expanded-editor-col {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.expanded-toggle-container {
+  position: relative;
+  z-index: 1000;
+}

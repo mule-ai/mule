@@ -70,8 +70,15 @@ func processInput(input InputData) OutputData {
 	}
 
 	// Prepare the message payload in the required format
-	messagePayload := map[string]string{
+	messagePayload := map[string]interface{}{
 		"message": input.Prompt,
+	}
+
+	// Merge any additional data from input.Data into messagePayload
+	if input.Data != nil {
+		for key, value := range input.Data {
+			messagePayload[key] = value
+		}
 	}
 
 	// Convert payload to JSON

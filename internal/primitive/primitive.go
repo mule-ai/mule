@@ -86,23 +86,23 @@ type WorkflowStep struct {
 
 // WasmModule represents a WebAssembly module.
 type WasmModule struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	ModuleData  []byte    `json:"module_data"`
-	Config      []byte    `json:"config"` // JSON configuration schema/metadata
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	ModuleData  []byte                 `json:"module_data"`
+	Config      map[string]interface{} `json:"config"` // JSON configuration schema/metadata
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
 // WasmModuleListItem represents a lightweight version of a WebAssembly module for listing.
 type WasmModuleListItem struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Config      []byte    `json:"config"` // JSON configuration schema/metadata
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Config      map[string]interface{} `json:"config"` // JSON configuration schema/metadata
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
 // PrimitiveStore defines interface for primitive management.

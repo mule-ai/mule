@@ -65,4 +65,6 @@ frontend/build/
 frontend/node_modules/
 internal/frontend/build/
 
+# local scripts
 setup-dev.sh
+rebuild-local.sh

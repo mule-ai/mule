@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/mule-ai/mule/internal/database"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 )
@@ -341,4 +342,74 @@ func (wm *WorkflowManager) GetWorkflowStepConfig(ctx context.Context, id string)
 	}
 
 	return config, nil
+}
+
+// ReorderWorkflowSteps reorders the steps in a workflow according to the provided order
+func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID string, stepIDs []string) error {
+	// Start a transaction to ensure atomicity
+	tx, err := wm.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Verify all step IDs belong to the workflow
+	query := `SELECT id FROM workflow_steps WHERE workflow_id = $1 AND id = ANY($2)`
+	rows, err := tx.QueryContext(ctx, query, workflowID, pq.Array(stepIDs))
+	if err != nil {
+		return fmt.Errorf("failed to verify step IDs: %w", err)
+	}
+	
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
+
+	var verifiedIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("failed to scan step ID: %w", err)
+		}
+		verifiedIDs = append(verifiedIDs, id)
+	}
+
+	// Check if all provided IDs were found
+	if len(verifiedIDs) != len(stepIDs) {
+		return fmt.Errorf("some step IDs do not belong to the specified workflow")
+	}
+
+	// Use a two-phase approach to avoid unique constraint violations:
+	// 1. Set all step_orders to negative temporary values
+	// 2. Set the final step_orders to positive values
+
+	// Phase 1: Set temporary negative values
+	for i, stepID := range stepIDs {
+		tempOrder := -(i + 1) // Negative temporary values
+		updateQuery := `UPDATE workflow_steps SET step_order = $1 WHERE id = $2`
+		_, err := tx.ExecContext(ctx, updateQuery, tempOrder, stepID)
+		if err != nil {
+			return fmt.Errorf("failed to set temporary step order for step %s: %w", stepID, err)
+		}
+	}
+
+	// Phase 2: Set final positive values
+	for i, stepID := range stepIDs {
+		finalOrder := i + 1 // Positive final values
+		updateQuery := `UPDATE workflow_steps SET step_order = $1 WHERE id = $2`
+		_, err := tx.ExecContext(ctx, updateQuery, finalOrder, stepID)
+		if err != nil {
+			return fmt.Errorf("failed to set final step order for step %s: %w", stepID, err)
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }

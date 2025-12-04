@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -91,15 +92,15 @@ func (h *apiHandler) compileWasmModuleHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Parse config as JSON if provided
-	var configBytes []byte
+	var configMap map[string]interface{}
 	if req.Config != "" {
 		// Validate that config is valid JSON
-		var configObj map[string]interface{}
-		if err := json.Unmarshal([]byte(req.Config), &configObj); err != nil {
+		if err := json.Unmarshal([]byte(req.Config), &configMap); err != nil {
 			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
 			return
 		}
-		configBytes = []byte(req.Config)
+	} else {
+		configMap = make(map[string]interface{})
 	}
 
 	// Create compiler
@@ -118,7 +119,7 @@ func (h *apiHandler) compileWasmModuleHandler(w http.ResponseWriter, r *http.Req
 		req.Description,
 		req.Language,
 		req.SourceCode,
-		configBytes,
+		configMap,
 	)
 	if err != nil {
 		api.HandleError(w, fmt.Errorf("failed to compile WASM module: %w", err), http.StatusInternalServerError)
@@ -147,6 +148,19 @@ func (h *apiHandler) getWasmModuleSourceHandler(w http.ResponseWriter, r *http.R
 	sourceMgr := manager.NewWasmModuleSourceManager(h.db.DB)
 	source, err := sourceMgr.GetLatestSourceByModuleID(ctx, moduleID)
 	if err != nil {
+		// Check if it's a "not found" error for source code
+		if strings.Contains(err.Error(), "no source code found") {
+			// This is an expected case - module exists but has no source code
+			// Return 404 but don't log it as an error
+			w.WriteHeader(http.StatusNotFound)
+			response := api.ErrorResponse{
+				Error:   "no_source_code",
+				Message: "No source code available for this module",
+			}
+			_ = json.NewEncoder(w).Encode(response)
+			return
+		}
+		// For other errors, handle normally
 		api.HandleError(w, fmt.Errorf("failed to get source code: %w", err), http.StatusNotFound)
 		return
 	}
@@ -194,15 +208,13 @@ func (h *apiHandler) updateWasmModuleSourceHandler(w http.ResponseWriter, r *htt
 	}
 
 	// Parse config as JSON if provided
-	var configBytes []byte = nil
+	var configMap map[string]interface{} = nil
 	if req.Config != "" {
 		// Validate that config is valid JSON
-		var configObj map[string]interface{}
-		if err := json.Unmarshal([]byte(req.Config), &configObj); err != nil {
+		if err := json.Unmarshal([]byte(req.Config), &configMap); err != nil {
 			api.HandleError(w, fmt.Errorf("config must be valid JSON: %w", err), http.StatusBadRequest)
 			return
 		}
-		configBytes = []byte(req.Config)
 	}
 
 	// Get existing module
@@ -230,7 +242,7 @@ func (h *apiHandler) updateWasmModuleSourceHandler(w http.ResponseWriter, r *htt
 
 	// Update the WASM module with new compiled data if successful
 	if compileResult.Success {
-		_, err = h.wasmModuleMgr.UpdateWasmModule(ctx, moduleID, wasmModule.Name, wasmModule.Description, compileResult.ModuleData, configBytes)
+		_, err = h.wasmModuleMgr.UpdateWasmModule(ctx, moduleID, wasmModule.Name, wasmModule.Description, compileResult.ModuleData, configMap)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to update WASM module: %w", err), http.StatusInternalServerError)
 			return

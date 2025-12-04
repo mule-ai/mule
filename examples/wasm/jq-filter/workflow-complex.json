@@ -1,0 +1,18 @@
+{
+  "name": "Complex JQ Filter Workflow",
+  "description": "Filter and transform user data using complex jq expressions",
+  "steps": [
+    {
+      "step_order": 1,
+      "step_type": "wasm_module",
+      "wasm_module_id": "<your-jq-filter-module-id>",
+      "description": "Apply complex jq filter to extract users over 25"
+    },
+    {
+      "step_order": 2,
+      "step_type": "agent",
+      "agent_id": "<your-agent-id>",
+      "description": "Summarize the filtered user data"
+    }
+  ]
+}
