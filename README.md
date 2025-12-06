@@ -118,6 +118,7 @@ Mule consists of a few core primitives:
 * Light and dark UI modes
 * Docker support with multi-stage builds for minimal container size
 * Health checks and graceful shutdown
+* Built-in tools including filesystem, HTTP, database, memory, and bash command execution
 * WebSocket support for real-time updates
 
 ## API Endpoints

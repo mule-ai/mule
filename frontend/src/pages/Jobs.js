@@ -107,6 +107,12 @@ function Jobs() {
                   <strong>Workflow ID:</strong>{' '}
                   <span className="small text-muted">{job.workflow_id}</span>
                 </div>
+                {job.working_directory && (
+                  <div className="mb-2">
+                    <strong>Working Directory:</strong>{' '}
+                    <span className="small text-muted">{job.working_directory}</span>
+                  </div>
+                )}
                 <div className="mb-2">
                   <strong>Created:</strong>{' '}
                   <span className="small text-muted">{formatDate(job.created_at)}</span>
@@ -204,7 +210,15 @@ function Jobs() {
                   <strong>Workflow ID:</strong> {selectedJob.workflow_id}
                 </Col>
               </Row>
-              
+
+              {selectedJob.working_directory && (
+                <Row className="mb-3">
+                  <Col md={12}>
+                    <strong>Working Directory:</strong> {selectedJob.working_directory}
+                  </Col>
+                </Row>
+              )}
+
               <Row className="mb-3">
                 <Col md={6}>
                   <strong>Created:</strong> {formatDate(selectedJob.created_at)}

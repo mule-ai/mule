@@ -51,6 +51,7 @@ func NewRegistry() *Registry {
 	registry.Register(NewFilesystemTool("."))
 	registry.Register(NewHTTPTool())
 	registry.Register(NewDatabaseTool())
+	registry.Register(NewBashTool())
 
 	return registry
 }
@@ -71,6 +72,7 @@ func NewRegistryWithConfig(store ToolConfigStore) (*Registry, error) {
 	registry.Register(NewFilesystemTool("."))
 	registry.Register(NewHTTPTool())
 	registry.Register(NewDatabaseTool())
+	registry.Register(NewBashTool())
 
 	return registry, nil
 }
@@ -500,5 +502,6 @@ func BuiltInTools() []string {
 		"filesystem",
 		"http",
 		"database",
+		"bash",
 	}
 }

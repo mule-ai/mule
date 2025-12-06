@@ -135,7 +135,7 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 	// Determine if this is an agent or workflow execution
 	if strings.HasPrefix(req.Model, "agent/") {
 		// Execute agent
-		resp, err := h.runtime.ExecuteAgent(ctx, &req)
+		resp, err := h.runtime.ExecuteAgentWithWorkingDir(ctx, &req, req.WorkingDirectory)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute agent: %w", err), http.StatusInternalServerError)
 			return
@@ -145,7 +145,7 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 		_ = json.NewEncoder(w).Encode(resp)
 	} else if strings.HasPrefix(req.Model, "async/workflow/") {
 		// Async workflow execution - submit job and return immediately
-		newJob, err := h.runtime.ExecuteWorkflow(ctx, &req)
+		newJob, err := h.runtime.ExecuteWorkflowWithWorkingDir(ctx, &req, req.WorkingDirectory)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute workflow: %w", err), http.StatusInternalServerError)
 			return
@@ -163,7 +163,7 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 		_ = json.NewEncoder(w).Encode(resp)
 	} else if strings.HasPrefix(req.Model, "workflow/") {
 		// Sync workflow execution - wait for completion and return ChatCompletionResponse
-		newJob, err := h.runtime.ExecuteWorkflow(ctx, &req)
+		newJob, err := h.runtime.ExecuteWorkflowWithWorkingDir(ctx, &req, req.WorkingDirectory)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute workflow: %w", err), http.StatusInternalServerError)
 			return
@@ -907,8 +907,9 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		WorkflowID string                 `json:"workflow_id"`
-		InputData  map[string]interface{} `json:"input_data"`
+		WorkflowID       string                 `json:"workflow_id"`
+		InputData        map[string]interface{} `json:"input_data"`
+		WorkingDirectory string                 `json:"working_directory,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -927,11 +928,12 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 	if err == nil && workflow != nil {
 		// This is a valid workflow ID, create a queued job for workflow execution
 		newJob = &job.Job{
-			ID:         uuid.New().String(),
-			WorkflowID: req.WorkflowID,
-			Status:     job.StatusQueued,
-			InputData:  req.InputData,
-			CreatedAt:  time.Now(),
+			ID:               uuid.New().String(),
+			WorkflowID:       req.WorkflowID,
+			Status:           job.StatusQueued,
+			InputData:        req.InputData,
+			WorkingDirectory: req.WorkingDirectory,
+			CreatedAt:        time.Now(),
 		}
 
 		if err := h.jobStore.CreateJob(newJob); err != nil {
@@ -949,12 +951,13 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 		// This is a WASM module, execute it directly
 		wasmModuleID := req.WorkflowID // The frontend sends WASM module ID in workflow_id field
 		newJob = &job.Job{
-			ID:           uuid.New().String(),
-			WorkflowID:   "", // Empty for WASM executions
-			WasmModuleID: &wasmModuleID,
-			Status:       job.StatusRunning, // Start as running since we're executing immediately
-			InputData:    req.InputData,
-			CreatedAt:    time.Now(),
+			ID:               uuid.New().String(),
+			WorkflowID:       "", // Empty for WASM executions
+			WasmModuleID:     &wasmModuleID,
+			Status:           job.StatusRunning, // Start as running since we're executing immediately
+			InputData:        req.InputData,
+			WorkingDirectory: req.WorkingDirectory,
+			CreatedAt:        time.Now(),
 		}
 
 		// Create the job record first
@@ -976,8 +979,8 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Failed to update job status: %v", err)
 			}
 
-			// Execute the WASM module with the new context
-			result, err := h.workflowEngine.GetWASMExecutor().Execute(execCtx, *newJob.WasmModuleID, req.InputData)
+			// Execute the WASM module with the new context and working directory
+			result, err := h.workflowEngine.GetWASMExecutor().Execute(execCtx, *newJob.WasmModuleID, req.InputData, req.WorkingDirectory)
 
 			// Update job with results
 			now = time.Now()

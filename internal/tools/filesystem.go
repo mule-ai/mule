@@ -16,6 +16,8 @@ type FilesystemTool struct {
 	name string
 	desc string
 	root string // root directory to restrict access
+	// Dynamic working directory that can be set per execution
+	workingDir string
 }
 
 // NewFilesystemTool creates a new filesystem tool
@@ -28,6 +30,11 @@ func NewFilesystemTool(rootDir string) *FilesystemTool {
 		desc: "Read, write, and manage files in the filesystem",
 		root: rootDir,
 	}
+}
+
+// SetWorkingDirectory sets the working directory for this tool instance
+func (f *FilesystemTool) SetWorkingDirectory(workingDir string) {
+	f.workingDir = workingDir
 }
 
 // Name returns the tool name
@@ -94,8 +101,14 @@ func (f *FilesystemTool) Execute(ctx context.Context, params map[string]interfac
 
 // Read reads a file from the filesystem
 func (f *FilesystemTool) Read(path string) (interface{}, error) {
-	// Ensure path is within root directory
-	fullPath := filepath.Join(f.root, path)
+	// Determine the base directory - use working directory if set, otherwise root
+	baseDir := f.root
+	if f.workingDir != "" {
+		baseDir = f.workingDir
+	}
+
+	// Construct full path
+	fullPath := filepath.Join(baseDir, path)
 	if !f.isPathAllowed(fullPath) {
 		return nil, fmt.Errorf("access denied: path outside allowed root directory")
 	}
@@ -114,8 +127,14 @@ func (f *FilesystemTool) Read(path string) (interface{}, error) {
 
 // Write writes content to a file
 func (f *FilesystemTool) Write(path string, content string) (interface{}, error) {
-	// Ensure path is within root directory
-	fullPath := filepath.Join(f.root, path)
+	// Determine the base directory - use working directory if set, otherwise root
+	baseDir := f.root
+	if f.workingDir != "" {
+		baseDir = f.workingDir
+	}
+
+	// Construct full path
+	fullPath := filepath.Join(baseDir, path)
 	if !f.isPathAllowed(fullPath) {
 		return nil, fmt.Errorf("access denied: path outside allowed root directory")
 	}
@@ -139,8 +158,14 @@ func (f *FilesystemTool) Write(path string, content string) (interface{}, error)
 
 // Delete deletes a file
 func (f *FilesystemTool) Delete(path string) (interface{}, error) {
-	// Ensure path is within root directory
-	fullPath := filepath.Join(f.root, path)
+	// Determine the base directory - use working directory if set, otherwise root
+	baseDir := f.root
+	if f.workingDir != "" {
+		baseDir = f.workingDir
+	}
+
+	// Construct full path
+	fullPath := filepath.Join(baseDir, path)
 	if !f.isPathAllowed(fullPath) {
 		return nil, fmt.Errorf("access denied: path outside allowed root directory")
 	}
@@ -157,8 +182,14 @@ func (f *FilesystemTool) Delete(path string) (interface{}, error) {
 
 // List lists files in a directory
 func (f *FilesystemTool) List(path string) (interface{}, error) {
-	// Ensure path is within root directory
-	fullPath := filepath.Join(f.root, path)
+	// Determine the base directory - use working directory if set, otherwise root
+	baseDir := f.root
+	if f.workingDir != "" {
+		baseDir = f.workingDir
+	}
+
+	// Construct full path
+	fullPath := filepath.Join(baseDir, path)
 	if !f.isPathAllowed(fullPath) {
 		return nil, fmt.Errorf("access denied: path outside allowed root directory")
 	}
@@ -193,7 +224,14 @@ func (f *FilesystemTool) List(path string) (interface{}, error) {
 
 // Exists checks if a file exists
 func (f *FilesystemTool) Exists(path string) (interface{}, error) {
-	fullPath := filepath.Join(f.root, path)
+	// Determine the base directory - use working directory if set, otherwise root
+	baseDir := f.root
+	if f.workingDir != "" {
+		baseDir = f.workingDir
+	}
+
+	// Construct full path
+	fullPath := filepath.Join(baseDir, path)
 	if !f.isPathAllowed(fullPath) {
 		return nil, fmt.Errorf("access denied: path outside allowed root directory")
 	}
@@ -248,32 +286,32 @@ func (f *FilesystemTool) GetSchema() map[string]interface{} {
 
 // ToTool converts this to an ADK tool
 func (f *FilesystemTool) ToTool() tool.Tool {
-	return &filesystemToolAdapter{tool: f}
+	return &FilesystemToolAdapter{tool: f}
 }
 
-// filesystemToolAdapter adapts FilesystemTool to the ADK tool interface
-type filesystemToolAdapter struct {
+// FilesystemToolAdapter adapts FilesystemTool to the ADK tool interface
+type FilesystemToolAdapter struct {
 	tool *FilesystemTool
 }
 
-func (a *filesystemToolAdapter) Name() string {
+func (a *FilesystemToolAdapter) Name() string {
 	return a.tool.Name()
 }
 
-func (a *filesystemToolAdapter) Description() string {
+func (a *FilesystemToolAdapter) Description() string {
 	return a.tool.Description()
 }
 
-func (a *filesystemToolAdapter) IsLongRunning() bool {
+func (a *FilesystemToolAdapter) IsLongRunning() bool {
 	return a.tool.IsLongRunning()
 }
 
-func (a *filesystemToolAdapter) GetTool() interface{} {
+func (a *FilesystemToolAdapter) GetTool() interface{} {
 	return a.tool
 }
 
 // Declaration returns the function declaration for this tool
-func (a *filesystemToolAdapter) Declaration() *genai.FunctionDeclaration {
+func (a *FilesystemToolAdapter) Declaration() *genai.FunctionDeclaration {
 	schema := a.tool.GetSchema()
 	paramsJSON, _ := json.Marshal(schema)
 
@@ -285,7 +323,7 @@ func (a *filesystemToolAdapter) Declaration() *genai.FunctionDeclaration {
 }
 
 // Run executes the tool with the provided context and arguments
-func (a *filesystemToolAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
+func (a *FilesystemToolAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
 	// Convert args to map[string]interface{}
 	argsMap, ok := args.(map[string]any)
 	if !ok {

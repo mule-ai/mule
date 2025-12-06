@@ -17,6 +17,7 @@ Mule is an AI workflow platform that enables users to create, configure, and exe
 ### 2. Tools
 - Extensible tool system based on Google ADK patterns
 - Integration with jbutlerdev/genai tools including memory operations
+- Built-in tools for filesystem operations, HTTP requests, database queries, and bash command execution
 - Custom tool creation capabilities
 - Tool categorization and metadata management
 

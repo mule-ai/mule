@@ -94,9 +94,10 @@ func (r *Runtime) ReinitializeMemoryTool() error {
 
 // ChatCompletionRequest represents the OpenAI-compatible request
 type ChatCompletionRequest struct {
-	Model    string                  `json:"model"`
-	Messages []ChatCompletionMessage `json:"messages"`
-	Stream   bool                    `json:"stream,omitempty"`
+	Model            string                  `json:"model"`
+	Messages         []ChatCompletionMessage `json:"messages"`
+	Stream           bool                    `json:"stream,omitempty"`
+	WorkingDirectory string                  `json:"working_directory,omitempty"`
 }
 
 // ChatCompletionMessage represents a message in the chat
@@ -139,6 +140,12 @@ type AsyncJobResponse struct {
 
 // ExecuteAgent executes an agent with the given request
 func (r *Runtime) ExecuteAgent(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
+	// Call ExecuteAgentWithWorkingDir with empty working directory for backward compatibility
+	return r.ExecuteAgentWithWorkingDir(ctx, req, "")
+}
+
+// ExecuteAgentWithWorkingDir executes an agent with the given request and working directory
+func (r *Runtime) ExecuteAgentWithWorkingDir(ctx context.Context, req *ChatCompletionRequest, workingDir string) (*ChatCompletionResponse, error) {
 	// Parse model name to extract agent name
 	agentName := strings.TrimPrefix(req.Model, "agent/")
 
@@ -182,7 +189,7 @@ func (r *Runtime) ExecuteAgent(ctx context.Context, req *ChatCompletionRequest) 
 	if provider.APIBaseURL != "" && !strings.Contains(provider.APIBaseURL, "googleapis.com") {
 		// Use custom LLM provider for non-Google endpoints
 		fmt.Printf("DEBUG: Routing to executeWithCustomLLM\n")
-		return r.executeWithCustomLLM(ctx, targetAgent, provider, req.Messages)
+		return r.executeWithCustomLLMWithWorkingDir(ctx, targetAgent, provider, req.Messages, workingDir)
 	} else {
 		// Use Google ADK for Google endpoints
 		fmt.Printf("DEBUG: Routing to executeWithGoogleADK\n")
@@ -309,8 +316,9 @@ func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Age
 	return chatResp, nil
 }
 
-// executeWithCustomLLM executes the agent using a custom LLM provider
-func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Agent, providerInfo *primitive.Provider, messages []ChatCompletionMessage) (*ChatCompletionResponse, error) {
+
+// executeWithCustomLLMWithWorkingDir executes the agent using a custom LLM provider with working directory context
+func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent *primitive.Agent, providerInfo *primitive.Provider, messages []ChatCompletionMessage, workingDir string) (*ChatCompletionResponse, error) {
 	// Create custom LLM provider config
 	config := provider.ProviderConfig{
 		Name:    providerInfo.Name,
@@ -366,6 +374,11 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 
 		// Add each tool to the request
 		for _, t := range adkTools {
+			// If this is a filesystem tool and we have a working directory, set it
+			if fsTool, ok := t.(*tools.FilesystemToolAdapter); ok && workingDir != "" {
+				fsTool.GetTool().(*tools.FilesystemTool).SetWorkingDirectory(workingDir)
+			}
+
 			llmReq.Tools[t.Name()] = t
 
 			// Add function declaration to config
@@ -463,6 +476,11 @@ func (r *Runtime) executeWithCustomLLM(ctx context.Context, agent *primitive.Age
 
 				for _, t := range adkTools {
 					if t.Name() == funcCall.Name {
+						// If this is a filesystem tool and we have a working directory, set it
+						if fsTool, ok := t.(*tools.FilesystemToolAdapter); ok && workingDir != "" {
+							fsTool.GetTool().(*tools.FilesystemTool).SetWorkingDirectory(workingDir)
+						}
+
 						if funcTool, ok := t.(interface {
 							Run(ctx tool.Context, args any) (map[string]any, error)
 						}); ok {
@@ -601,6 +619,12 @@ func (r *Runtime) getAgentTools(ctx context.Context, agentID string) ([]tool.Too
 
 // ExecuteWorkflow submits a workflow for execution and returns the job
 func (r *Runtime) ExecuteWorkflow(ctx context.Context, req *ChatCompletionRequest) (*job.Job, error) {
+	// Call ExecuteWorkflowWithWorkingDir with empty working directory for backward compatibility
+	return r.ExecuteWorkflowWithWorkingDir(ctx, req, "")
+}
+
+// ExecuteWorkflowWithWorkingDir submits a workflow for execution with a specified working directory and returns the job
+func (r *Runtime) ExecuteWorkflowWithWorkingDir(ctx context.Context, req *ChatCompletionRequest, workingDir string) (*job.Job, error) {
 	// Parse model name to extract workflow name
 	// Handle both "workflow/" and "async/workflow/" prefixes
 	workflowName := req.Model
@@ -644,8 +668,22 @@ func (r *Runtime) ExecuteWorkflow(ctx context.Context, req *ChatCompletionReques
 		return nil, fmt.Errorf("workflow engine not available")
 	}
 
-	// Submit job to workflow engine
-	return r.workflowEngine.SubmitJob(ctx, targetWorkflow.ID, inputData)
+	// Submit job to workflow engine with working directory
+	job, err := r.workflowEngine.SubmitJob(ctx, targetWorkflow.ID, inputData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit job: %w", err)
+	}
+
+	// If a working directory was specified, update the job with it
+	if workingDir != "" {
+		job.WorkingDirectory = workingDir
+		if err := r.jobStore.UpdateJob(job); err != nil {
+			// Log the error but don't fail the job creation
+			log.Printf("Warning: failed to update job with working directory: %v", err)
+		}
+	}
+
+	return job, nil
 }
 
 // toolContextAdapter adapts context.Context to tool.Context

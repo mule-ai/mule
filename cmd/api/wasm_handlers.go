@@ -307,7 +307,7 @@ func (h *apiHandler) testWasmModuleHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Execute the WASM module
-	result, err := h.wasmExecutor.Execute(ctx, req.ModuleID, req.Input)
+	result, err := h.wasmExecutor.Execute(ctx, req.ModuleID, req.Input, "")
 	if err != nil {
 		api.HandleError(w, fmt.Errorf("WASM execution failed: %w", err), http.StatusInternalServerError)
 		return

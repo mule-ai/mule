@@ -16,24 +16,7 @@
         "state": "open",
         "status": "Todo",
         "title": "Add Josh Beckman blog to mule RSS"
-      },
-      {
-        "body": "Create AC operation log from HA data",
-        "due_date": "No Due Date",
-        "filter": "Personal",
-        "state": "open",
-        "status": "In Progress",
-        "title": "AC operation log"
-      },
-      {
-        "body": "https://gibbon-usa.com/products/balanceboard-slackboard-plus-waves",
-        "due_date": "No Due Date",
-        "filter": "Personal",
-        "state": "open",
-        "status": "N/A",
-        "title": "Balance Board"
       }
     ]
-  },
-  "workflow": "Default"
+  }
 }

@@ -56,15 +56,18 @@ To compile and use this module:
          }
        ]
      },
-     "workflow": "my-custom-workflow"
+     "workflow": "my-custom-workflow",
+     "working_directory": "/path/to/working/directory"
    }
    ```
 
-3. The module will process each item in the array and trigger a workflow for each one, returning aggregated results. If no `workflow` field is provided, it defaults to using the "Default" workflow.
+3. The module will process each item in the array and trigger a workflow for each one, returning aggregated results. If no `workflow` field is provided, it defaults to using the "Default" workflow. If a `working_directory` is provided, it will be passed to each launched workflow as the working directory for that workflow execution.
 
 ## How It Works
 
 The module accepts an optional `workflow` parameter in the input data that specifies which workflow to execute for each item. If not provided, it defaults to the "Default" workflow.
+
+The module also accepts an optional `working_directory` parameter that specifies the working directory for all launched workflows. If provided, this directory will be passed to each workflow execution through the params.
 
 Instead of extracting specific fields like "title" and "body", the module now passes the entire JSON representation of each array item to the workflow. This allows workflows to access all available data in the item, regardless of its structure.
 
@@ -85,15 +88,25 @@ for i, item := range resultArray {
         continue
     }
 
-    // Launch workflow in a goroutine, passing the entire JSON string
+    // Launch workflow in a goroutine, passing the entire JSON string and working directory
     wg.Add(1)
-    go launchWorkflow(i, "", string(itemJSON), &wg, results)
+    go launchWorkflow(i, "", string(itemJSON), workflowName, workingDir, &wg, results)
 }
 ```
 
-Each workflow is triggered using the `execute_target` host function:
+Each workflow is triggered using the `execute_target` host function. If a working directory is specified, it's passed as part of the params:
 
 ```go
+// Prepare parameters for the workflow
+params := map[string]interface{}{
+    "prompt": body,
+}
+
+// If a working directory is specified, add it to the params
+if workingDir != "" {
+    params["working_directory"] = workingDir
+}
+
 // Call the execute_target host function to trigger the workflow
 errorCode := execute_target(targetTypePtr, targetTypeSize, targetIDPtr, targetIDSize, paramsPtr, paramsSize)
 ```
@@ -150,7 +163,8 @@ cat > test-input.json << EOF
         "title": "Add Josh Beckman blog to mule RSS"
       }
     ]
-  }
+  },
+  "working_directory": "/tmp/mule-test"
 }
 EOF
 

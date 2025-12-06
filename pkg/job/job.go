@@ -43,15 +43,16 @@ func (s Status) CanTransitionTo(target Status) bool {
 
 // Job represents a workflow execution job
 type Job struct {
-	ID           string                 `json:"id" db:"id"`
-	WorkflowID   string                 `json:"workflow_id" db:"workflow_id"`
-	WasmModuleID *string                `json:"wasm_module_id,omitempty" db:"wasm_module_id"`
-	Status       Status                 `json:"status" db:"status"`
-	InputData    map[string]interface{} `json:"input_data" db:"input_data"`
-	OutputData   map[string]interface{} `json:"output_data" db:"output_data"`
-	CreatedAt    time.Time              `json:"created_at" db:"created_at"`
-	StartedAt    *time.Time             `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt  *time.Time             `json:"completed_at,omitempty" db:"completed_at"`
+	ID              string                 `json:"id" db:"id"`
+	WorkflowID      string                 `json:"workflow_id" db:"workflow_id"`
+	WasmModuleID    *string                `json:"wasm_module_id,omitempty" db:"wasm_module_id"`
+	Status          Status                 `json:"status" db:"status"`
+	InputData       map[string]interface{} `json:"input_data" db:"input_data"`
+	OutputData      map[string]interface{} `json:"output_data" db:"output_data"`
+	WorkingDirectory string                `json:"working_directory" db:"working_directory"`
+	CreatedAt       time.Time              `json:"created_at" db:"created_at"`
+	StartedAt       *time.Time             `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt     *time.Time             `json:"completed_at,omitempty" db:"completed_at"`
 }
 
 // JobStep represents the execution of a single step within a job

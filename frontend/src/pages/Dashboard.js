@@ -9,6 +9,8 @@ function Dashboard() {
   const [selectedWasmModule, setSelectedWasmModule] = useState('');
   const [message, setMessage] = useState('');
   const [wasmInput, setWasmInput] = useState('');
+  const [workingDirectory, setWorkingDirectory] = useState('');
+  const [wasmWorkingDirectory, setWasmWorkingDirectory] = useState('');
   const [executionHistory, setExecutionHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [wasmLoading, setWasmLoading] = useState(false);
@@ -59,11 +61,18 @@ function Dashboard() {
 
     try {
       // Call chat completions API with the selected model
-      const response = await chatAPI.complete({
+      const requestData = {
         model: selectedAgent,
         messages: [{ role: 'user', content: message }],
         stream: false,
-      });
+      };
+
+      // Add working directory if specified
+      if (workingDirectory.trim()) {
+        requestData.working_directory = workingDirectory.trim();
+      }
+
+      const response = await chatAPI.complete(requestData);
 
       // Update execution in history
       const completedExecution = {
@@ -78,6 +87,7 @@ function Dashboard() {
       // Reset form
       setSelectedAgent('');
       setMessage('');
+      setWorkingDirectory('');
     } catch (err) {
       const errorMessage = err.response?.data?.error || err.message || 'Unknown error occurred';
       setError(`Failed to execute agent: ${errorMessage}`);
@@ -125,10 +135,17 @@ function Dashboard() {
 
     try {
       // Create a job for the WASM module execution
-      const jobResponse = await jobsAPI.create({
+      const jobData = {
         workflow_id: selectedWasmModule,
         input_data: { prompt: wasmInput },
-      });
+      };
+
+      // Add working directory if specified
+      if (wasmWorkingDirectory.trim()) {
+        jobData.working_directory = wasmWorkingDirectory.trim();
+      }
+
+      const jobResponse = await jobsAPI.create(jobData);
 
       const jobId = jobResponse.data?.data?.id || jobResponse.data?.id;
 
@@ -148,6 +165,7 @@ function Dashboard() {
       // Reset form
       setSelectedWasmModule('');
       setWasmInput('');
+      setWasmWorkingDirectory('');
     } catch (err) {
       const errorMessage = err.response?.data?.error || err.message || 'Unknown error occurred';
       setError(`Failed to execute WASM module: ${errorMessage}`);
@@ -259,6 +277,16 @@ function Dashboard() {
                           </option>
                         ))}
                       </Form.Select>
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Working Directory (optional)</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={workingDirectory}
+                        onChange={(e) => setWorkingDirectory(e.target.value)}
+                        placeholder="Enter working directory path..."
+                      />
                     </Form.Group>
 
                     <Form.Group className="mb-3">
@@ -377,6 +405,16 @@ function Dashboard() {
                           </option>
                         ))}
                       </Form.Select>
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Working Directory (optional)</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={wasmWorkingDirectory}
+                        onChange={(e) => setWasmWorkingDirectory(e.target.value)}
+                        placeholder="Enter working directory path..."
+                      />
                     </Form.Group>
 
                     <Form.Group className="mb-3">
