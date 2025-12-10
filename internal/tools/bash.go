@@ -62,7 +62,7 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 
 	// Create the command
 	cmd := exec.CommandContext(timeoutCtx, "bash", "-c", command)
-	
+
 	// Set working directory if specified
 	if b.workingDir != "" {
 		cmd.Dir = b.workingDir
@@ -70,7 +70,7 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 
 	// Execute the command
 	output, err := cmd.CombinedOutput()
-	
+
 	// Check if the context was cancelled (timeout)
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		return nil, fmt.Errorf("command timed out after %v", b.timeout)

@@ -15,14 +15,26 @@ type Input struct {
 	Token   string `json:"token"`
 }
 
+// Label represents a GitHub label
+type Label struct {
+	ID          int    `json:"id"`
+	NodeID      string `json:"node_id"`
+	URL         string `json:"url"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+	Default     bool   `json:"default"`
+}
+
 // GitHubIssue represents a GitHub issue structure
 type GitHubIssue struct {
-	ID     int    `json:"id"`
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	State  string `json:"state"`
-	URL    string `json:"url"`
-	Body   string `json:"body"`
+	ID     int     `json:"id"`
+	Number int     `json:"number"`
+	Title  string  `json:"title"`
+	State  string  `json:"state"`
+	URL    string  `json:"url"`
+	Body   string  `json:"body"`
+	Labels []Label `json:"labels"`
 }
 
 // Output represents the output structure
@@ -38,10 +50,12 @@ type Output struct {
 func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uintptr
 
 // get_last_response_body gets the last response body
+//
 //go:wasmimport env get_last_response_body
 func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
 
 // get_last_response_status gets the last response status code
+//
 //go:wasmimport env get_last_response_status
 func get_last_response_status() uint32
 
@@ -159,10 +173,18 @@ func main() {
 		return
 	}
 
+	// Filter out issues with empty titles or bodies if needed
+	// (This is a simple example - in practice you might want more sophisticated filtering)
+	filteredIssues := make([]GitHubIssue, 0, len(issues))
+	for _, issue := range issues {
+		// Include all issues in the basic version
+		filteredIssues = append(filteredIssues, issue)
+	}
+
 	// Create output
 	output := Output{
-		Issues: issues,
-		Count:  len(issues),
+		Issues: filteredIssues,
+		Count:  len(filteredIssues),
 	}
 
 	// Serialize output to JSON
@@ -179,27 +201,27 @@ func parseGitHubURL(url string) (owner, repo string, err error) {
 	// Handle different GitHub URL formats
 	// https://github.com/owner/repo
 	// https://github.com/owner/repo/
-	
+
 	// Remove trailing slash if present
 	if len(url) > 0 && url[len(url)-1] == '/' {
 		url = url[:len(url)-1]
 	}
-	
+
 	// Check if it's a GitHub URL
 	const prefix = "https://github.com/"
 	if !startsWith(url, prefix) {
 		return "", "", fmt.Errorf("not a valid GitHub URL")
 	}
-	
+
 	// Extract owner/repo part
 	path := url[len(prefix):]
-	
+
 	// Split by slash
 	parts := split(path, "/")
 	if len(parts) < 2 {
 		return "", "", fmt.Errorf("invalid GitHub URL format")
 	}
-	
+
 	return parts[0], parts[1], nil
 }
 
@@ -225,10 +247,10 @@ func split(s, delim string) []string {
 		}
 		return result
 	}
-	
+
 	var result []string
 	start := 0
-	
+
 	for i := 0; i <= len(s)-len(delim); i++ {
 		match := true
 		for j := 0; j < len(delim); j++ {
@@ -237,14 +259,14 @@ func split(s, delim string) []string {
 				break
 			}
 		}
-		
+
 		if match {
 			result = append(result, s[start:i])
 			start = i + len(delim)
 			i = start - 1 // Adjust for loop increment
 		}
 	}
-	
+
 	// Add the remaining part
 	result = append(result, s[start:])
 	return result

@@ -14,11 +14,11 @@ func TestBashToolRegistration(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if !found {
 		t.Errorf("bash tool not found in built-in tools list")
 	}
-	
+
 	// Test that bash tool can be created and registered
 	registry := NewRegistry()
 	_, err := registry.Get("bash")

@@ -56,17 +56,17 @@ func (e *WASMExecutor) Modules() map[string][]byte {
 // NewWASMExecutor creates a new WASM executor
 func NewWASMExecutor(db *sql.DB, store primitive.PrimitiveStore, agentRuntime *agent.Runtime, workflowEngine *Engine) *WASMExecutor {
 	return &WASMExecutor{
-		db:                  db,
-		store:               store,
-		agentRuntime:        agentRuntime,
-		WorkflowEngine:      workflowEngine,
-		modules:             make(map[string][]byte),
-		urlAllowed:          []string{"https://", "http://"}, // Allow all URLs by default (can be configured)
-		lastResponse:        make(map[string]*http.Response),
-		lastResponseBody:    make(map[string][]byte),
-		lastOperationResult: make(map[string][]byte),
-		lastOperationStatus: make(map[string]int),
-		newWorkingDir:       make(map[string]string),
+		db:                   db,
+		store:                store,
+		agentRuntime:         agentRuntime,
+		WorkflowEngine:       workflowEngine,
+		modules:              make(map[string][]byte),
+		urlAllowed:           []string{"https://", "http://"}, // Allow all URLs by default (can be configured)
+		lastResponse:         make(map[string]*http.Response),
+		lastResponseBody:     make(map[string][]byte),
+		lastOperationResult:  make(map[string][]byte),
+		lastOperationStatus:  make(map[string]int),
+		newWorkingDir:        make(map[string]string),
 		currentNewWorkingDir: "",
 	}
 }
@@ -160,6 +160,14 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Generic HTTP function that supports different methods
 	hostModule.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
 			// Get memory from the module
 			mem := module.Memory()
 
@@ -252,6 +260,14 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Enhanced HTTP function that supports headers
 	hostModule.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
 			// Get memory from the module
 			mem := module.Memory()
 
@@ -369,6 +385,14 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// This function can handle both workflows and agents based on the target type
 	hostModule.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, targetTypePtr, targetTypeSize, targetIDPtr, targetIDSize, paramsPtr, paramsSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
 			// Get memory from the module
 			mem := module.Memory()
 
@@ -554,6 +578,14 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Function to create a git worktree
 	hostModule.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, namePtr, nameSize, basePathPtr, basePathSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
 			// Get memory from the module
 			mem := module.Memory()
 
@@ -616,7 +648,7 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 				// This allows the workflow engine to retrieve it after execution
 				key := fmt.Sprintf("%p", module)
 				e.lastOperationResult[key] = []byte(worktreePath)
-				e.lastOperationStatus[key] = 0 // Success
+				e.lastOperationStatus[key] = 0      // Success
 				e.newWorkingDir[key] = worktreePath // Store new working directory
 
 				// Also store in currentNewWorkingDir for this execution
@@ -642,7 +674,7 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			// This allows the workflow engine to retrieve it after execution
 			key := fmt.Sprintf("%p", module)
 			e.lastOperationResult[key] = []byte(worktreePath)
-			e.lastOperationStatus[key] = 0 // Success
+			e.lastOperationStatus[key] = 0      // Success
 			e.newWorkingDir[key] = worktreePath // Store new working directory
 
 			// Also store in currentNewWorkingDir for this execution
@@ -713,6 +745,14 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Function to trigger workflows or call agents
 	hostModule.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, operationTypePtr, operationTypeSize, idPtr, idSize, paramsPtr, paramsSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
 			// Get memory from the module
 			mem := module.Memory()
 
@@ -878,6 +918,14 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Function to set the working directory for subsequent steps
 	hostModule.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, pathPtr, pathSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
 			// Get memory from the module
 			mem := module.Memory()
 
@@ -923,7 +971,7 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			// This allows the workflow engine to retrieve it after execution
 			key := fmt.Sprintf("%p", module)
 			e.lastOperationResult[key] = []byte(fullPath)
-			e.lastOperationStatus[key] = 0 // Success
+			e.lastOperationStatus[key] = 0  // Success
 			e.newWorkingDir[key] = fullPath // Store new working directory
 
 			// Also store in currentNewWorkingDir for this execution
@@ -1024,20 +1072,40 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Call _start to run main() - capture output during this call
 	log.Printf("Calling _start to run main()...")
 	if startFunc := instance.ExportedFunction("_start"); startFunc != nil {
-		_, err = startFunc.Call(ctx)
-		// Check if we got a sys.ExitError (which is normal for Go-compiled WASM)
-		if exitErr, ok := err.(*sys.ExitError); ok {
-			// This is expected for Go-compiled WASM modules - they call proc_exit after main()
-			log.Printf("WASM module exited with code: %d (normal for Go WASM)", exitErr.ExitCode())
-		} else if err != nil {
+		// Create a channel to receive the result of the WASM execution
+		done := make(chan error, 1)
+
+		// Run the WASM execution in a goroutine so we can monitor for context cancellation
+		go func() {
+			_, err := startFunc.Call(ctx)
+			done <- err
+		}()
+
+		// Wait for either the WASM execution to complete or the context to be cancelled
+		select {
+		case err = <-done:
+			// Check if we got a sys.ExitError (which is normal for Go-compiled WASM)
+			if exitErr, ok := err.(*sys.ExitError); ok {
+				// This is expected for Go-compiled WASM modules - they call proc_exit after main()
+				log.Printf("WASM module exited with code: %d (normal for Go WASM)", exitErr.ExitCode())
+			} else if err != nil {
+				func() {
+					if closeErr := runtime.Close(ctx); closeErr != nil {
+						log.Printf("Failed to close runtime: %v", closeErr)
+					}
+				}()
+				return nil, fmt.Errorf("error calling _start: %w", err)
+			}
+			log.Printf("_start executed successfully")
+		case <-ctx.Done():
+			// Context was cancelled, clean up and return error
 			func() {
 				if closeErr := runtime.Close(ctx); closeErr != nil {
 					log.Printf("Failed to close runtime: %v", closeErr)
 				}
 			}()
-			return nil, fmt.Errorf("error calling _start: %w", err)
+			return nil, fmt.Errorf("WASM execution cancelled: %w", ctx.Err())
 		}
-		log.Printf("_start executed successfully")
 	} else {
 		func() {
 			if closeErr := runtime.Close(ctx); closeErr != nil {
@@ -1199,6 +1267,13 @@ func (e *WASMExecutor) triggerWorkflow(ctx context.Context, workflowID string, p
 		return nil, fmt.Errorf("workflow engine not available")
 	}
 
+	// Check for context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("workflow trigger cancelled: %w", ctx.Err())
+	default:
+	}
+
 	// Check if the workflow exists by ID first
 	_, err := e.store.GetWorkflow(ctx, workflowID)
 	if err != nil {
@@ -1285,6 +1360,13 @@ func (e *WASMExecutor) triggerWorkflow(ctx context.Context, workflowID string, p
 
 // callAgent calls an agent with the provided parameters
 func (e *WASMExecutor) callAgent(ctx context.Context, agentID string, params map[string]interface{}) ([]byte, error) {
+	// Check for context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("agent call cancelled: %w", ctx.Err())
+	default:
+	}
+
 	// Check if the agent exists
 	agentModel, err := e.store.GetAgent(ctx, agentID)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 
 // InputData represents the input structure for the WASM module
 type InputData struct {
-	URL     string                 `json:"input"`               // URL to make HTTP request to
+	URL     string                 `json:"input"`             // URL to make HTTP request to
 	Method  string                 `json:"method,omitempty"`  // HTTP method (default: GET)
 	Headers map[string]string      `json:"headers,omitempty"` // HTTP headers
 	Data    map[string]interface{} `json:"data,omitempty"`    // Request data
@@ -19,9 +19,9 @@ type InputData struct {
 
 // OutputData represents the output structure from the WASM module
 type OutputData struct {
-	Result  string                 `json:"result"`            // Result message
-	Data    map[string]interface{} `json:"data,omitempty"`    // Response data
-	Success bool                   `json:"success"`           // Success flag
+	Result  string                 `json:"result"`         // Result message
+	Data    map[string]interface{} `json:"data,omitempty"` // Response data
+	Success bool                   `json:"success"`        // Success flag
 }
 
 // http_request_with_headers is the enhanced host function for making HTTP requests with headers
@@ -31,10 +31,12 @@ type OutputData struct {
 func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uint32
 
 // get_last_response_body gets the last response body
+//
 //go:wasmimport env get_last_response_body
 func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
 
 // get_last_response_status gets the last response status code
+//
 //go:wasmimport env get_last_response_status
 func get_last_response_status() uint32
 

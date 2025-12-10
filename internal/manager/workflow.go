@@ -361,7 +361,7 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 	if err != nil {
 		return fmt.Errorf("failed to verify step IDs: %w", err)
 	}
-	
+
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
 			log.Printf("Error closing rows: %v", closeErr)

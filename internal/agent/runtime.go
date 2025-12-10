@@ -268,11 +268,26 @@ func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Age
 		fmt.Printf("Added %d tools to the request\n", len(adkTools))
 	}
 
+	// Check for context cancellation before making the API call
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
+	default:
+	}
+
 	resp, err := client.Models().GenerateContent(ctx, modelName, []*genai.Content{{Parts: []*genai.Part{{Text: prompt}}}}, genConfig)
 	if err != nil {
 		fmt.Printf("Failed to generate content: %v\n", err)
 		// Print the type of error for debugging
 		fmt.Printf("Error type: %T\n", err)
+
+		// Check if this is a context cancellation error
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
+		default:
+		}
+
 		return nil, fmt.Errorf("failed to generate content: %w", err)
 	}
 
@@ -315,7 +330,6 @@ func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Age
 
 	return chatResp, nil
 }
-
 
 // executeWithCustomLLMWithWorkingDir executes the agent using a custom LLM provider with working directory context
 func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent *primitive.Agent, providerInfo *primitive.Provider, messages []ChatCompletionMessage, workingDir string) (*ChatCompletionResponse, error) {
@@ -378,6 +392,12 @@ func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent 
 			if fsTool, ok := t.(*tools.FilesystemToolAdapter); ok && workingDir != "" {
 				fsTool.GetTool().(*tools.FilesystemTool).SetWorkingDirectory(workingDir)
 			}
+			// If this is a bash tool and we have a working directory, set it
+			if toolWithWorkingDir, ok := t.(interface{ GetTool() interface{} }); ok {
+				if bashTool, ok := toolWithWorkingDir.GetTool().(*tools.BashTool); ok && workingDir != "" {
+					bashTool.SetWorkingDirectory(workingDir)
+				}
+			}
 
 			llmReq.Tools[t.Name()] = t
 
@@ -414,6 +434,13 @@ func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent 
 	var resp *model.LLMResponse
 	seq := customProvider.GenerateContent(ctx, llmReq, false)
 	for resp, err = range seq {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
+		default:
+		}
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate content: %w", err)
 		}
@@ -433,6 +460,10 @@ func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent 
 		// Parse the value as integer
 		if parsedValue, parseErr := fmt.Sscanf(maxToolCallsSetting.Value, "%d", &maxIterations); parseErr == nil && parsedValue == 1 {
 			fmt.Printf("Using max_tool_calls setting: %d\n", maxIterations)
+			// If maxIterations is -1, treat it as unlimited
+			if maxIterations == -1 {
+				fmt.Println("Tool call limit set to -1, allowing unlimited tool calls")
+			}
 		} else {
 			fmt.Printf("Warning: Invalid max_tool_calls setting value '%s', using default: %d\n", maxToolCallsSetting.Value, maxIterations)
 		}
@@ -440,7 +471,15 @@ func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent 
 
 	iteration := 0
 
-	for iteration < maxIterations {
+	// If maxIterations is -1, treat as unlimited (no iteration limit)
+	for maxIterations == -1 || iteration < maxIterations {
+		// Check for context cancellation before each iteration
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
+		default:
+		}
+
 		iteration++
 
 		// Check if response contains function calls
@@ -467,6 +506,13 @@ func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent 
 		// Execute each function call and add as separate messages
 		for _, part := range resp.Content.Parts {
 			if part.FunctionCall != nil {
+				// Check for context cancellation before executing each tool
+				select {
+				case <-ctx.Done():
+					return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
+				default:
+				}
+
 				funcCall := part.FunctionCall
 				fmt.Printf("Executing tool: %s with args: %v\n", funcCall.Name, funcCall.Args)
 
@@ -479,6 +525,12 @@ func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent 
 						// If this is a filesystem tool and we have a working directory, set it
 						if fsTool, ok := t.(*tools.FilesystemToolAdapter); ok && workingDir != "" {
 							fsTool.GetTool().(*tools.FilesystemTool).SetWorkingDirectory(workingDir)
+						}
+						// If this is a bash tool and we have a working directory, set it
+						if toolWithWorkingDir, ok := t.(interface{ GetTool() interface{} }); ok {
+							if bashTool, ok := toolWithWorkingDir.GetTool().(*tools.BashTool); ok && workingDir != "" {
+								bashTool.SetWorkingDirectory(workingDir)
+							}
 						}
 
 						if funcTool, ok := t.(interface {
@@ -516,6 +568,13 @@ func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent 
 		// Generate next response with tool results
 		seq = customProvider.GenerateContent(ctx, llmReq, false)
 		for resp, err = range seq {
+			// Check for context cancellation
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
+			default:
+			}
+
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate content after tool execution: %w", err)
 			}

@@ -18,8 +18,9 @@ function ToolExecutionConfig() {
     setError(null);
     try {
       const response = await api.get('/api/v1/settings/max_tool_calls');
-      const value = parseInt(response.data.value) || 10;
-      setMaxToolCalls(value);
+      const value = parseInt(response.data.value);
+      // Handle NaN values by defaulting to 10, but allow -1 for unlimited
+      setMaxToolCalls(isNaN(value) ? 10 : value);
     } catch (err) {
       // If setting doesn't exist, use default
       if (err.response && err.response.status === 404) {
@@ -33,7 +34,11 @@ function ToolExecutionConfig() {
   };
 
   const handleChange = (e) => {
-    setMaxToolCalls(parseInt(e.target.value) || 10);
+    const value = parseInt(e.target.value);
+    // Allow -1 for unlimited, otherwise use the parsed value
+    // If NaN, default to 10, but don't automatically change 0 to 10 here
+    // Validation will handle invalid values on submit
+    setMaxToolCalls(isNaN(value) ? 10 : value);
   };
 
   const handleSubmit = async (e) => {
@@ -41,6 +46,13 @@ function ToolExecutionConfig() {
     setSaving(true);
     setError(null);
     setSuccess(null);
+
+    // Validate input
+    if (isNaN(maxToolCalls) || (maxToolCalls !== -1 && (maxToolCalls < 1 || maxToolCalls > 100))) {
+      setError('Tool call limit must be -1 for unlimited, or between 1 and 100');
+      setSaving(false);
+      return;
+    }
 
     try {
       const settingData = {
@@ -84,12 +96,12 @@ function ToolExecutionConfig() {
               name="max_tool_calls"
               value={maxToolCalls}
               onChange={handleChange}
-              min="1"
+              min="-1"
               max="100"
               required
             />
             <Form.Text className="text-muted">
-              Maximum number of tool calls allowed in a single agent execution (1-100)
+              Maximum number of tool calls allowed in a single agent execution (-1 for unlimited, 1-100 for limited)
             </Form.Text>
           </Form.Group>
 

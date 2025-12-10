@@ -53,7 +53,7 @@ func main() {
 	// Change working directory by calling the host function
 	// In a real implementation, this would be done through the host function
 	// For now, we'll just demonstrate the concept
-	
+
 	// Create a file in the current directory
 	testFile := filepath.Join(currentDir, "test_file.txt")
 	if err := os.WriteFile(testFile, []byte("This file was created in the original working directory"), 0644); err != nil {

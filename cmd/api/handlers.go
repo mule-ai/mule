@@ -901,8 +901,37 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 		api.HandleError(w, fmt.Errorf("failed to list jobs: %w", err), http.StatusInternalServerError)
 		return
 	}
+
+	// Enrich jobs with workflow and WASM module names
+	ctx := r.Context()
+	enrichedJobs := make([]*job.EnhancedJob, len(jobs))
+
+	for i, j := range jobs {
+		enrichedJob := &job.EnhancedJob{
+			Job: j,
+		}
+
+		// If this is a workflow job, get the workflow name
+		if j.WorkflowID != "" {
+			workflow, err := h.store.GetWorkflow(ctx, j.WorkflowID)
+			if err == nil {
+				enrichedJob.WorkflowName = workflow.Name
+			}
+		}
+
+		// If this is a WASM module job, get the WASM module name
+		if j.WasmModuleID != nil {
+			wasmModule, err := h.store.GetWasmModule(ctx, *j.WasmModuleID)
+			if err == nil {
+				enrichedJob.WasmModuleName = wasmModule.Name
+			}
+		}
+
+		enrichedJobs[i] = enrichedJob
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(jobs)
+	_ = json.NewEncoder(w).Encode(enrichedJobs)
 }
 
 func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
@@ -1015,7 +1044,7 @@ func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	job, err := h.jobStore.GetJob(id)
+	j, err := h.jobStore.GetJob(id)
 	if err != nil {
 		if err.Error() == "job not found" {
 			api.HandleError(w, fmt.Errorf("job not found: %s", id), http.StatusNotFound)
@@ -1024,8 +1053,31 @@ func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	// Enrich job with workflow and WASM module names
+	ctx := r.Context()
+	enrichedJob := &job.EnhancedJob{
+		Job: j,
+	}
+
+	// If this is a workflow job, get the workflow name
+	if j.WorkflowID != "" {
+		workflow, err := h.store.GetWorkflow(ctx, j.WorkflowID)
+		if err == nil {
+			enrichedJob.WorkflowName = workflow.Name
+		}
+	}
+
+	// If this is a WASM module job, get the WASM module name
+	if j.WasmModuleID != nil {
+		wasmModule, err := h.store.GetWasmModule(ctx, *j.WasmModuleID)
+		if err == nil {
+			enrichedJob.WasmModuleName = wasmModule.Name
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(job)
+	_ = json.NewEncoder(w).Encode(enrichedJob)
 }
 
 func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request) {
@@ -1037,8 +1089,41 @@ func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request)
 		api.HandleError(w, fmt.Errorf("failed to list job steps: %w", err), http.StatusInternalServerError)
 		return
 	}
+
+	// Enrich job steps with agent or WASM module names
+	ctx := r.Context()
+	enrichedSteps := make([]*job.EnhancedJobStep, len(steps))
+
+	for i, step := range steps {
+		enrichedStep := &job.EnhancedJobStep{
+			JobStep: step,
+		}
+
+		// Get the workflow step to determine if it's an agent or WASM step
+		workflowStep, err := h.workflowMgr.GetWorkflowStep(ctx, step.WorkflowStepID)
+		if err == nil {
+			// If this is an agent step, get the agent name
+			if workflowStep.AgentID != nil {
+				agent, err := h.store.GetAgent(ctx, *workflowStep.AgentID)
+				if err == nil {
+					enrichedStep.AgentName = agent.Name
+				}
+			}
+
+			// If this is a WASM module step, get the WASM module name
+			if workflowStep.WasmModuleID != nil {
+				wasmModule, err := h.store.GetWasmModule(ctx, *workflowStep.WasmModuleID)
+				if err == nil {
+					enrichedStep.WasmModuleName = wasmModule.Name
+				}
+			}
+		}
+
+		enrichedSteps[i] = enrichedStep
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(steps)
+	_ = json.NewEncoder(w).Encode(enrichedSteps)
 }
 
 func (h *apiHandler) cancelJobHandler(w http.ResponseWriter, r *http.Request) {

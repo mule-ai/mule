@@ -180,6 +180,7 @@ function Tools() {
                 <option value="database">Database</option>
                 <option value="memory">Memory</option>
                 <option value="filesystem">Filesystem</option>
+                <option value="bash">Bash</option>
               </Form.Select>
             </Form.Group>
             <Form.Group className="mb-3">
@@ -259,6 +260,7 @@ function Tools() {
                   <option value="database">Database</option>
                   <option value="memory">Memory</option>
                   <option value="filesystem">Filesystem</option>
+                  <option value="bash">Bash</option>
                 </Form.Select>
               </Form.Group>
               <Form.Group className="mb-3">

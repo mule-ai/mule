@@ -271,6 +271,25 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 		}
 
 		// Process the step with current working directory from job
+		// Check for context cancellation before processing the step
+		select {
+		case <-jobCtx.Done():
+			// Context was cancelled (timeout or manual cancellation)
+			jobStep.Status = "failed"
+			jobStep.ErrorMessage = "job was cancelled"
+			if updateErr := e.jobStore.UpdateJobStep(jobStep); updateErr != nil {
+				log.Printf("Warning: failed to update failed job step: %v", updateErr)
+			}
+			if jobCtx.Err() == context.DeadlineExceeded {
+				_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds))
+				return fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds)
+			} else {
+				_ = e.jobStore.CancelJob(jobID)
+				return fmt.Errorf("job was cancelled")
+			}
+		default:
+		}
+
 		stepResult, err := e.processStepWithWorkingDir(jobCtx, step, stepOutput, updatedJob.WorkingDirectory)
 		if err != nil {
 			jobStep.Status = "failed"
@@ -330,6 +349,13 @@ func (e *Engine) processStepWithWorkingDir(ctx context.Context, step *primitive.
 
 // processAgentStepWithWorkingDir processes an agent step with working directory context
 func (e *Engine) processAgentStepWithWorkingDir(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
+	// Check for context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("agent step cancelled: %w", ctx.Err())
+	default:
+	}
+
 	// Get agent ID from step
 	if step.AgentID == nil {
 		return nil, fmt.Errorf("agent_id not found in step")
@@ -375,6 +401,13 @@ func (e *Engine) processAgentStepWithWorkingDir(ctx context.Context, step *primi
 
 // processWASMStepWithWorkingDir processes a WASM step with working directory context
 func (e *Engine) processWASMStepWithWorkingDir(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
+	// Check for context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("WASM step cancelled: %w", ctx.Err())
+	default:
+	}
+
 	if e.wasmExecutor == nil {
 		return nil, fmt.Errorf("WASM executor not available")
 	}

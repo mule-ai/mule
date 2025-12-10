@@ -36,7 +36,7 @@ func main() {
 	// Test POST request
 	fmt.Println("Testing POST request...")
 	postData := `{"key": "value", "test": "data"}`
-	resp, err = client.Post("https://httpbin.org/post", "application/json", 
+	resp, err = client.Post("https://httpbin.org/post", "application/json",
 		http.NoBody) // Using NoBody for simplicity in this example
 	if err != nil {
 		fmt.Printf("Error making POST request: %v\n", err)
