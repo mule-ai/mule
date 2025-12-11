@@ -1,0 +1,51 @@
+{
+  "name": "issues-to-markdown",
+  "description": "Converts GitHub issues to formatted markdown",
+  "module": "BASE64_ENCODED_WASM_MODULE_HERE",
+  "entrypoint": "main",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "result": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "due_date": {
+              "type": "string"
+            },
+            "filter": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": ["body", "due_date", "filter", "state", "status", "title", "url"]
+        }
+      }
+    },
+    "required": ["result"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "markdown": {
+        "type": "string"
+      }
+    },
+    "required": ["markdown"]
+  }
+}

@@ -12,9 +12,10 @@ This directory contains various examples of WASM modules that can be used with M
 6. [http-request](http-request/) - Makes HTTP requests
 7. [http-request-with-headers](http-request-with-headers/) - Makes HTTP requests with custom headers
 8. [github-issues](github-issues/) - Interacts with GitHub Issues API
-9. [execute-target](execute-target/) - Executes targets in workflows
-10. [run-default-workflow](run-default-workflow/) - Runs a default workflow
-11. [array-workflow-launcher](array-workflow-launcher/) - Processes JSON arrays and launches multiple workflows in parallel
+9. [issues-to-markdown](issues-to-markdown/) - Converts GitHub issues to formatted markdown
+10. [execute-target](execute-target/) - Executes targets in workflows
+11. [run-default-workflow](run-default-workflow/) - Runs a default workflow
+12. [array-workflow-launcher](array-workflow-launcher/) - Processes JSON arrays and launches multiple workflows in parallel
 
 ## Getting Started
 

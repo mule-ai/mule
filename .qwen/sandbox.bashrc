@@ -20,11 +20,11 @@ apt update && apt install -y git wget build-essential libolm-dev docker-ce-cli
 export DOCKER_HOST="tcp://10.10.199.96:2375"
 
 # Install golang
-GO_FILE=go1.25.4.linux-amd64.tar.gz
+GO_FILE=go1.25.5.linux-amd64.tar.gz
 
-wget https://go.dev/dl/${GO_FILE}
+wget https://supabaseapi.butler.ooo/storage/v1/object/public/butler/static/${GO_FILE}
 
-tar -C /usr/local -xzf go1.25.4.linux-amd64.tar.gz
+tar -C /usr/local -xzf ${GO_FILE}
 
 export PATH=$PATH:/usr/local/go/bin
 
