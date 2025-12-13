@@ -103,10 +103,28 @@ function Jobs() {
                 <Badge bg={getStatusVariant(job.status)}>{job.status}</Badge>
               </Card.Header>
               <Card.Body>
-                <div className="mb-2">
-                  <strong>Workflow ID:</strong>{' '}
-                  <span className="small text-muted">{job.workflow_id}</span>
-                </div>
+                {job.workflow_name ? (
+                  <div className="mb-2">
+                    <strong>Workflow:</strong>{' '}
+                    <span className="small text-muted">{job.workflow_name}</span>
+                  </div>
+                ) : job.wasm_module_name ? (
+                  <div className="mb-2">
+                    <strong>WASM Module:</strong>{' '}
+                    <span className="small text-muted">{job.wasm_module_name}</span>
+                  </div>
+                ) : (
+                  <div className="mb-2">
+                    <strong>Workflow ID:</strong>{' '}
+                    <span className="small text-muted">{job.workflow_id}</span>
+                  </div>
+                )}
+                {job.working_directory && (
+                  <div className="mb-2">
+                    <strong>Working Directory:</strong>{' '}
+                    <span className="small text-muted">{job.working_directory}</span>
+                  </div>
+                )}
                 <div className="mb-2">
                   <strong>Created:</strong>{' '}
                   <span className="small text-muted">{formatDate(job.created_at)}</span>
@@ -119,7 +137,7 @@ function Jobs() {
                   <strong>Completed:</strong>{' '}
                   <span className="small text-muted">{formatDate(job.completed_at)}</span>
                 </div>
-                
+
                 {job.input_data && (
                   <div className="mb-3">
                     <strong>Input:</strong>
@@ -188,7 +206,15 @@ function Jobs() {
         size="lg"
       >
         <Modal.Header closeButton>
-          <Modal.Title>Job Details - {selectedJob?.id?.substring(0, 8)}...</Modal.Title>
+          <Modal.Title>
+            Job Details - {selectedJob?.id?.substring(0, 8)}...
+            {selectedJob?.workflow_name && (
+              <div className="small text-muted">Workflow: {selectedJob.workflow_name}</div>
+            )}
+            {selectedJob?.wasm_module_name && (
+              <div className="small text-muted">WASM Module: {selectedJob.wasm_module_name}</div>
+            )}
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {selectedJob && (
@@ -201,10 +227,30 @@ function Jobs() {
                   </Badge>
                 </Col>
                 <Col md={6}>
-                  <strong>Workflow ID:</strong> {selectedJob.workflow_id}
+                  {selectedJob.workflow_name ? (
+                    <div>
+                      <strong>Workflow:</strong> {selectedJob.workflow_name}
+                    </div>
+                  ) : selectedJob.wasm_module_name ? (
+                    <div>
+                      <strong>WASM Module:</strong> {selectedJob.wasm_module_name}
+                    </div>
+                  ) : (
+                    <div>
+                      <strong>Workflow ID:</strong> {selectedJob.workflow_id}
+                    </div>
+                  )}
                 </Col>
               </Row>
-              
+
+              {selectedJob.working_directory && (
+                <Row className="mb-3">
+                  <Col md={12}>
+                    <strong>Working Directory:</strong> {selectedJob.working_directory}
+                  </Col>
+                </Row>
+              )}
+
               <Row className="mb-3">
                 <Col md={6}>
                   <strong>Created:</strong> {formatDate(selectedJob.created_at)}
@@ -261,16 +307,23 @@ function Jobs() {
                     <ListGroup.Item key={step.id}>
                       <div className="d-flex justify-content-between align-items-center">
                         <div>
-                          <strong>Step {index + 1}:</strong> {step.workflow_step_id}
+                          <strong>Step {index + 1}:</strong>{' '}
+                          {step.agent_name ? (
+                            <span>Agent: {step.agent_name}</span>
+                          ) : step.wasm_module_name ? (
+                            <span>WASM Module: {step.wasm_module_name}</span>
+                          ) : (
+                            <span>{step.workflow_step_id}</span>
+                          )}
                         </div>
                         <Badge bg={getStatusVariant(step.status)}>
                           {step.status}
                         </Badge>
                       </div>
-                      
+
                       <div className="mt-2">
                         <small className="text-muted">
-                          Started: {formatDate(step.started_at)} | 
+                          Started: {formatDate(step.started_at)} |
                           Completed: {formatDate(step.completed_at)}
                         </small>
                       </div>

@@ -1,0 +1,11 @@
+{
+  "name": "convert-issues-to-markdown",
+  "description": "Convert GitHub issues to formatted markdown",
+  "steps": [
+    {
+      "name": "convert-to-markdown",
+      "wasm_module_id": "ISSUES_TO_MARKDOWN_MODULE_ID",
+      "config": {}
+    }
+  ]
+}

@@ -135,7 +135,7 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 	// Determine if this is an agent or workflow execution
 	if strings.HasPrefix(req.Model, "agent/") {
 		// Execute agent
-		resp, err := h.runtime.ExecuteAgent(ctx, &req)
+		resp, err := h.runtime.ExecuteAgentWithWorkingDir(ctx, &req, req.WorkingDirectory)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute agent: %w", err), http.StatusInternalServerError)
 			return
@@ -145,7 +145,7 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 		_ = json.NewEncoder(w).Encode(resp)
 	} else if strings.HasPrefix(req.Model, "async/workflow/") {
 		// Async workflow execution - submit job and return immediately
-		newJob, err := h.runtime.ExecuteWorkflow(ctx, &req)
+		newJob, err := h.runtime.ExecuteWorkflowWithWorkingDir(ctx, &req, req.WorkingDirectory)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute workflow: %w", err), http.StatusInternalServerError)
 			return
@@ -163,7 +163,7 @@ func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Reque
 		_ = json.NewEncoder(w).Encode(resp)
 	} else if strings.HasPrefix(req.Model, "workflow/") {
 		// Sync workflow execution - wait for completion and return ChatCompletionResponse
-		newJob, err := h.runtime.ExecuteWorkflow(ctx, &req)
+		newJob, err := h.runtime.ExecuteWorkflowWithWorkingDir(ctx, &req, req.WorkingDirectory)
 		if err != nil {
 			api.HandleError(w, fmt.Errorf("failed to execute workflow: %w", err), http.StatusInternalServerError)
 			return
@@ -901,14 +901,44 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 		api.HandleError(w, fmt.Errorf("failed to list jobs: %w", err), http.StatusInternalServerError)
 		return
 	}
+
+	// Enrich jobs with workflow and WASM module names
+	ctx := r.Context()
+	enrichedJobs := make([]*job.EnhancedJob, len(jobs))
+
+	for i, j := range jobs {
+		enrichedJob := &job.EnhancedJob{
+			Job: j,
+		}
+
+		// If this is a workflow job, get the workflow name
+		if j.WorkflowID != "" {
+			workflow, err := h.store.GetWorkflow(ctx, j.WorkflowID)
+			if err == nil {
+				enrichedJob.WorkflowName = workflow.Name
+			}
+		}
+
+		// If this is a WASM module job, get the WASM module name
+		if j.WasmModuleID != nil {
+			wasmModule, err := h.store.GetWasmModule(ctx, *j.WasmModuleID)
+			if err == nil {
+				enrichedJob.WasmModuleName = wasmModule.Name
+			}
+		}
+
+		enrichedJobs[i] = enrichedJob
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(jobs)
+	_ = json.NewEncoder(w).Encode(enrichedJobs)
 }
 
 func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		WorkflowID string                 `json:"workflow_id"`
-		InputData  map[string]interface{} `json:"input_data"`
+		WorkflowID       string                 `json:"workflow_id"`
+		InputData        map[string]interface{} `json:"input_data"`
+		WorkingDirectory string                 `json:"working_directory,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -927,11 +957,12 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 	if err == nil && workflow != nil {
 		// This is a valid workflow ID, create a queued job for workflow execution
 		newJob = &job.Job{
-			ID:         uuid.New().String(),
-			WorkflowID: req.WorkflowID,
-			Status:     job.StatusQueued,
-			InputData:  req.InputData,
-			CreatedAt:  time.Now(),
+			ID:               uuid.New().String(),
+			WorkflowID:       req.WorkflowID,
+			Status:           job.StatusQueued,
+			InputData:        req.InputData,
+			WorkingDirectory: req.WorkingDirectory,
+			CreatedAt:        time.Now(),
 		}
 
 		if err := h.jobStore.CreateJob(newJob); err != nil {
@@ -949,12 +980,13 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 		// This is a WASM module, execute it directly
 		wasmModuleID := req.WorkflowID // The frontend sends WASM module ID in workflow_id field
 		newJob = &job.Job{
-			ID:           uuid.New().String(),
-			WorkflowID:   "", // Empty for WASM executions
-			WasmModuleID: &wasmModuleID,
-			Status:       job.StatusRunning, // Start as running since we're executing immediately
-			InputData:    req.InputData,
-			CreatedAt:    time.Now(),
+			ID:               uuid.New().String(),
+			WorkflowID:       "", // Empty for WASM executions
+			WasmModuleID:     &wasmModuleID,
+			Status:           job.StatusRunning, // Start as running since we're executing immediately
+			InputData:        req.InputData,
+			WorkingDirectory: req.WorkingDirectory,
+			CreatedAt:        time.Now(),
 		}
 
 		// Create the job record first
@@ -976,8 +1008,8 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Failed to update job status: %v", err)
 			}
 
-			// Execute the WASM module with the new context
-			result, err := h.workflowEngine.GetWASMExecutor().Execute(execCtx, *newJob.WasmModuleID, req.InputData)
+			// Execute the WASM module with the new context and working directory
+			result, err := h.workflowEngine.GetWASMExecutor().Execute(execCtx, *newJob.WasmModuleID, req.InputData, req.WorkingDirectory)
 
 			// Update job with results
 			now = time.Now()
@@ -1012,7 +1044,7 @@ func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	job, err := h.jobStore.GetJob(id)
+	j, err := h.jobStore.GetJob(id)
 	if err != nil {
 		if err.Error() == "job not found" {
 			api.HandleError(w, fmt.Errorf("job not found: %s", id), http.StatusNotFound)
@@ -1021,8 +1053,31 @@ func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	// Enrich job with workflow and WASM module names
+	ctx := r.Context()
+	enrichedJob := &job.EnhancedJob{
+		Job: j,
+	}
+
+	// If this is a workflow job, get the workflow name
+	if j.WorkflowID != "" {
+		workflow, err := h.store.GetWorkflow(ctx, j.WorkflowID)
+		if err == nil {
+			enrichedJob.WorkflowName = workflow.Name
+		}
+	}
+
+	// If this is a WASM module job, get the WASM module name
+	if j.WasmModuleID != nil {
+		wasmModule, err := h.store.GetWasmModule(ctx, *j.WasmModuleID)
+		if err == nil {
+			enrichedJob.WasmModuleName = wasmModule.Name
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(job)
+	_ = json.NewEncoder(w).Encode(enrichedJob)
 }
 
 func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request) {
@@ -1034,8 +1089,41 @@ func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request)
 		api.HandleError(w, fmt.Errorf("failed to list job steps: %w", err), http.StatusInternalServerError)
 		return
 	}
+
+	// Enrich job steps with agent or WASM module names
+	ctx := r.Context()
+	enrichedSteps := make([]*job.EnhancedJobStep, len(steps))
+
+	for i, step := range steps {
+		enrichedStep := &job.EnhancedJobStep{
+			JobStep: step,
+		}
+
+		// Get the workflow step to determine if it's an agent or WASM step
+		workflowStep, err := h.workflowMgr.GetWorkflowStep(ctx, step.WorkflowStepID)
+		if err == nil {
+			// If this is an agent step, get the agent name
+			if workflowStep.AgentID != nil {
+				agent, err := h.store.GetAgent(ctx, *workflowStep.AgentID)
+				if err == nil {
+					enrichedStep.AgentName = agent.Name
+				}
+			}
+
+			// If this is a WASM module step, get the WASM module name
+			if workflowStep.WasmModuleID != nil {
+				wasmModule, err := h.store.GetWasmModule(ctx, *workflowStep.WasmModuleID)
+				if err == nil {
+					enrichedStep.WasmModuleName = wasmModule.Name
+				}
+			}
+		}
+
+		enrichedSteps[i] = enrichedStep
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(steps)
+	_ = json.NewEncoder(w).Encode(enrichedSteps)
 }
 
 func (h *apiHandler) cancelJobHandler(w http.ResponseWriter, r *http.Request) {

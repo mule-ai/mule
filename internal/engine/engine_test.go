@@ -218,6 +218,15 @@ func (m *MockPrimitiveStore) CreateWorkflowStep(ctx context.Context, s *primitiv
 	return nil
 }
 
+func (m *MockPrimitiveStore) GetWorkflowStep(ctx context.Context, id string) (*primitive.WorkflowStep, error) {
+	for _, step := range m.WorkflowSteps {
+		if step.ID == id {
+			return step, nil
+		}
+	}
+	return nil, primitive.ErrNotFound
+}
+
 func (m *MockPrimitiveStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*primitive.WorkflowStep, error) {
 	var steps []*primitive.WorkflowStep
 	for _, step := range m.WorkflowSteps {

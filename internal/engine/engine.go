@@ -91,17 +91,24 @@ func (e *Engine) Stop() {
 
 // SubmitJob submits a new job for execution
 func (e *Engine) SubmitJob(ctx context.Context, workflowID string, inputData map[string]interface{}) (*job.Job, error) {
+	// Call SubmitJobWithWorkingDir with empty working directory for backward compatibility
+	return e.SubmitJobWithWorkingDir(ctx, workflowID, inputData, "")
+}
+
+// SubmitJobWithWorkingDir submits a new job for execution with a specified working directory
+func (e *Engine) SubmitJobWithWorkingDir(ctx context.Context, workflowID string, inputData map[string]interface{}, workingDir string) (*job.Job, error) {
 	// Generate job ID
 	jobID := uuid.New().String()
 
 	// Create job
 	newJob := &job.Job{
-		ID:         jobID,
-		WorkflowID: workflowID,
-		Status:     job.StatusQueued,
-		InputData:  inputData,
-		OutputData: make(map[string]interface{}),
-		CreatedAt:  time.Now(),
+		ID:               jobID,
+		WorkflowID:       workflowID,
+		Status:           job.StatusQueued,
+		InputData:        inputData,
+		OutputData:       make(map[string]interface{}),
+		WorkingDirectory: workingDir,
+		CreatedAt:        time.Now(),
 	}
 
 	// Save job to database
@@ -109,7 +116,7 @@ func (e *Engine) SubmitJob(ctx context.Context, workflowID string, inputData map
 		return nil, fmt.Errorf("failed to create job: %w", err)
 	}
 
-	log.Printf("Submitted job %s for workflow %s", jobID, workflowID)
+	log.Printf("Submitted job %s for workflow %s with working directory: %s", jobID, workflowID, workingDir)
 	return newJob, nil
 }
 
@@ -217,6 +224,7 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 
 	// Process each step
 	stepOutput := currentJob.InputData
+
 	for _, step := range steps {
 		// Check if job has been cancelled or timed out
 		select {
@@ -262,8 +270,27 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 			log.Printf("Warning: failed to update job step status to running: %v", err)
 		}
 
-		// Process the step
-		stepResult, err := e.processStep(jobCtx, step, stepOutput)
+		// Process the step with current working directory from job
+		// Check for context cancellation before processing the step
+		select {
+		case <-jobCtx.Done():
+			// Context was cancelled (timeout or manual cancellation)
+			jobStep.Status = "failed"
+			jobStep.ErrorMessage = "job was cancelled"
+			if updateErr := e.jobStore.UpdateJobStep(jobStep); updateErr != nil {
+				log.Printf("Warning: failed to update failed job step: %v", updateErr)
+			}
+			if jobCtx.Err() == context.DeadlineExceeded {
+				_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds))
+				return fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds)
+			} else {
+				_ = e.jobStore.CancelJob(jobID)
+				return fmt.Errorf("job was cancelled")
+			}
+		default:
+		}
+
+		stepResult, err := e.processStepWithWorkingDir(jobCtx, step, stepOutput, updatedJob.WorkingDirectory)
 		if err != nil {
 			jobStep.Status = "failed"
 			jobStep.ErrorMessage = err.Error()
@@ -272,6 +299,21 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 			}
 			_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("step %d failed: %w", step.StepOrder, err))
 			return fmt.Errorf("step %d failed: %w", step.StepOrder, err)
+		}
+
+		// Check if the step result contains a new working directory
+		if newWorkingDir, ok := stepResult["working_directory"]; ok {
+			if newWDStr, ok := newWorkingDir.(string); ok && newWDStr != "" {
+				// Update the job's working directory for subsequent steps
+				updatedJob.WorkingDirectory = newWDStr
+				if updateErr := e.jobStore.UpdateJob(updatedJob); updateErr != nil {
+					log.Printf("Warning: failed to update job working directory: %v", updateErr)
+				}
+				log.Printf("Updated working directory to: %s", newWDStr)
+
+				// Remove the working_directory from stepResult to avoid passing it to next step
+				delete(stepResult, "working_directory")
+			}
 		}
 
 		// Mark step as completed
@@ -293,20 +335,27 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-// processStep processes a single workflow step
-func (e *Engine) processStep(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}) (map[string]interface{}, error) {
+// processStepWithWorkingDir processes a single workflow step with working directory context
+func (e *Engine) processStepWithWorkingDir(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
 	switch step.StepType {
 	case "agent":
-		return e.processAgentStep(ctx, step, inputData)
+		return e.processAgentStepWithWorkingDir(ctx, step, inputData, workingDir)
 	case "wasm_module":
-		return e.processWASMStep(ctx, step, inputData)
+		return e.processWASMStepWithWorkingDir(ctx, step, inputData, workingDir)
 	default:
 		return nil, fmt.Errorf("unknown step type: %s", step.StepType)
 	}
 }
 
-// processAgentStep processes an agent step
-func (e *Engine) processAgentStep(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}) (map[string]interface{}, error) {
+// processAgentStepWithWorkingDir processes an agent step with working directory context
+func (e *Engine) processAgentStepWithWorkingDir(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
+	// Check for context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("agent step cancelled: %w", ctx.Err())
+	default:
+	}
+
 	// Get agent ID from step
 	if step.AgentID == nil {
 		return nil, fmt.Errorf("agent_id not found in step")
@@ -338,8 +387,8 @@ func (e *Engine) processAgentStep(ctx context.Context, step *primitive.WorkflowS
 		Stream: false,
 	}
 
-	// Execute agent
-	resp, err := e.agentRuntime.ExecuteAgent(ctx, req)
+	// Execute agent with working directory context
+	resp, err := e.agentRuntime.ExecuteAgentWithWorkingDir(ctx, req, workingDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute agent: %w", err)
 	}
@@ -350,8 +399,15 @@ func (e *Engine) processAgentStep(ctx context.Context, step *primitive.WorkflowS
 	}, nil
 }
 
-// processWASMStep processes a WASM step
-func (e *Engine) processWASMStep(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}) (map[string]interface{}, error) {
+// processWASMStepWithWorkingDir processes a WASM step with working directory context
+func (e *Engine) processWASMStepWithWorkingDir(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
+	// Check for context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("WASM step cancelled: %w", ctx.Err())
+	default:
+	}
+
 	if e.wasmExecutor == nil {
 		return nil, fmt.Errorf("WASM executor not available")
 	}
@@ -361,12 +417,35 @@ func (e *Engine) processWASMStep(ctx context.Context, step *primitive.WorkflowSt
 		return nil, fmt.Errorf("wasm_module_id not found in step")
 	}
 
-	log.Printf("WASM step processing with inputData: %+v", inputData)
+	log.Printf("WASM step processing with inputData: %+v, workingDir: %s", inputData, workingDir)
 
-	// Execute WASM module
-	result, err := e.wasmExecutor.Execute(ctx, *step.WasmModuleID, inputData)
+	// Execute WASM module with working directory
+	result, err := e.wasmExecutor.Execute(ctx, *step.WasmModuleID, inputData, workingDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute WASM module: %w", err)
+	}
+
+	// Check if the WASM module set a new working directory
+	// The WASM executor will include this in the result if set_working_directory was called
+	if newWorkingDir, ok := result["new_working_directory"]; ok {
+		// Include the new working directory in the result so the workflow engine can update it
+		finalResult := make(map[string]interface{})
+
+		// Extract just the output value from the result
+		if output, ok := result["output"]; ok {
+			finalResult["prompt"] = output
+		} else {
+			// If no output field, include the whole result (backward compatibility)
+			for k, v := range result {
+				if k != "new_working_directory" {
+					finalResult[k] = v
+				}
+			}
+		}
+
+		// Add the new working directory to the result
+		finalResult["working_directory"] = newWorkingDir
+		return finalResult, nil
 	}
 
 	// Extract just the output value from the result

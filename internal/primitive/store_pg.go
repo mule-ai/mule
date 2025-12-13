@@ -389,6 +389,24 @@ func (s *PGStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*
 	return steps, rows.Err()
 }
 
+// GetWorkflowStep retrieves a workflow step by ID
+func (s *PGStore) GetWorkflowStep(ctx context.Context, id string) (*WorkflowStep, error) {
+	step := &WorkflowStep{}
+	var configJSON []byte
+	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE id = $1`
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&step.ID, &step.WorkflowID, &step.StepOrder, &step.StepType, &step.AgentID, &step.WasmModuleID, &configJSON, &step.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err = json.Unmarshal(configJSON, &step.Config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal workflow step config: %w", err)
+	}
+	return step, nil
+}
+
 // GetAgentTools retrieves tools associated with an agent
 func (s *PGStore) GetAgentTools(ctx context.Context, agentID string) ([]*Tool, error) {
 	query := `

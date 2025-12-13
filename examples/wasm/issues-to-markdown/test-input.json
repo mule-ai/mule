@@ -1,0 +1,67 @@
+{
+  "result": [
+    {
+      "body": "Do it\n\nLucie:\n- Lego set\n- Folding puzzle mat\n- radio puzzle \n- goose knife\n\nMom: \n- something\n\nDad:\n- something else \n\nJulie: \n- Chicken knife",
+      "due_date": "2025-12-10",
+      "filter": "Personal",
+      "state": "open",
+      "status": "Todo",
+      "title": "Christmas Shopping",
+      "url": "https://api.github.com/repos/jbutlerdev/notes/issues/36"
+    },
+    {
+      "body": "- [ ] will insurance cover\n- [ ] if we chose to do this, what's the timeline \n- [ ] how do we get him to drink water\n- [ ] weight loss",
+      "due_date": "2025-12-12",
+      "filter": "Personal",
+      "state": "open",
+      "status": "Todo",
+      "title": "Ask Questions ENT",
+      "url": "https://api.github.com/repos/jbutlerdev/notes/issues/38"
+    },
+    {
+      "body": "We could use a better dashboard. Something that includes the following \n\n- [ ] Family Calendar \n- [ ] Meal Plan\n- [ ] Grocery List",
+      "due_date": "No Due Date",
+      "filter": "Personal",
+      "state": "open",
+      "status": "Todo",
+      "title": "Better Dashboard ",
+      "url": "https://api.github.com/repos/jbutlerdev/notes/issues/37"
+    },
+    {
+      "body": "- [x] Memory Tools\n- [ ] Meal planning workflow\n- [ ] Add daily tasks to morning message\n- [ ] Reminders about overdue tasks\n- [ ] Notification when task becomes due\n- [ ] GitHub workflow\n- [ ] Workflow visualizer",
+      "due_date": "No Due Date",
+      "filter": "Personal",
+      "state": "open",
+      "status": "In Progress",
+      "title": "Improve Mule Assistant",
+      "url": "https://api.github.com/repos/jbutlerdev/notes/issues/32"
+    },
+    {
+      "body": "https://www.joshbeckman.org/subscribe/",
+      "due_date": "No Due Date",
+      "filter": "Personal",
+      "state": "open",
+      "status": "Todo",
+      "title": "Add Josh Beckman blog to mule RSS",
+      "url": "https://api.github.com/repos/jbutlerdev/notes/issues/28"
+    },
+    {
+      "body": "Create AC operation log from HA data",
+      "due_date": "No Due Date",
+      "filter": "Personal",
+      "state": "open",
+      "status": "In Progress",
+      "title": "AC operation log",
+      "url": "https://api.github.com/repos/jbutlerdev/notes/issues/26"
+    },
+    {
+      "body": "https://gibbon-usa.com/products/balanceboard-slackboard-plus-waves",
+      "due_date": "No Due Date",
+      "filter": "Personal",
+      "state": "open",
+      "status": "Todo",
+      "title": "Balance Board",
+      "url": "https://api.github.com/repos/jbutlerdev/notes/issues/10"
+    }
+  ]
+}

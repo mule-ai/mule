@@ -275,6 +275,10 @@ func (m *MockAgentStore) CreateWorkflowStep(ctx context.Context, s *primitive.Wo
 	return nil
 }
 
+func (m *MockAgentStore) GetWorkflowStep(ctx context.Context, id string) (*primitive.WorkflowStep, error) {
+	return nil, primitive.ErrNotFound
+}
+
 func (m *MockAgentStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*primitive.WorkflowStep, error) {
 	return nil, nil
 }

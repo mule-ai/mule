@@ -1,0 +1,5 @@
+{
+  "workflow_names": ["morning-greeting", "list-tasks"],
+  "prompt": "Good morning! Please run both workflows and aggregate their outputs.",
+  "working_directory": "/tmp/mule-test"
+}

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -75,13 +77,18 @@ type Result struct {
 }
 
 // launchWorkflow launches a single workflow with the given parameters
-func launchWorkflow(index int, title, body, workflowName string, wg *sync.WaitGroup, results chan<- Result) {
+func launchWorkflow(index int, title, body, workflowName, workingDir string, wg *sync.WaitGroup, results chan<- Result) {
 	defer wg.Done()
 
 	// Prepare parameters for the workflow
 	// Pass the entire JSON string as the prompt
 	params := map[string]interface{}{
 		"prompt": body, // body now contains the entire JSON string
+	}
+
+	// If a working directory is specified, add it to the params
+	if workingDir != "" {
+		params["working_directory"] = workingDir
 	}
 
 	// Convert params to JSON
@@ -179,6 +186,12 @@ func main() {
 		workflowName = workflow
 	}
 
+	// Extract working directory from config (optional)
+	workingDir := ""
+	if wd, ok := inputData["working_directory"].(string); ok {
+		workingDir = wd
+	}
+
 	// Convert to map and get the result array
 	promptMap, ok := promptData.(map[string]interface{})
 	if !ok {
@@ -208,9 +221,9 @@ func main() {
 			continue
 		}
 
-		// Launch workflow in a goroutine, passing the entire JSON string
+		// Launch workflow in a goroutine, passing the entire JSON string and working directory
 		wg.Add(1)
-		go launchWorkflow(i, "", string(itemJSON), workflowName, &wg, results)
+		go launchWorkflow(i, "", string(itemJSON), workflowName, workingDir, &wg, results)
 	}
 
 	// Close results channel when all goroutines are done

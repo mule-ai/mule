@@ -39,10 +39,10 @@ func (s *PGStore) CreateJob(job *Job) error {
 		workflowID = nil
 	}
 
-	query := `INSERT INTO jobs (id, workflow_id, wasm_module_id, status, input_data, output_data, created_at)
-			  VALUES ($1, $2, $3, $4, $5, $6, NOW())`
+	query := `INSERT INTO jobs (id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, created_at)
+			  VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`
 
-	_, err = s.db.Exec(query, job.ID, workflowID, job.WasmModuleID, job.Status, inputDataJSON, outputDataJSON)
+	_, err = s.db.Exec(query, job.ID, workflowID, job.WasmModuleID, job.Status, inputDataJSON, outputDataJSON, job.WorkingDirectory)
 	return err
 }
 
@@ -51,12 +51,13 @@ func (s *PGStore) GetJob(id string) (*Job, error) {
 	job := &Job{}
 	var inputDataJSON, outputDataJSON []byte
 	var workflowID sql.NullString
+	var workingDirectory sql.NullString
 
-	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, created_at, started_at, completed_at
+	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, created_at, started_at, completed_at
 			  FROM jobs WHERE id = $1`
 
 	err := s.db.QueryRow(query, id).Scan(
-		&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON,
+		&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON, &workingDirectory,
 		&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
 
 	// Convert NULL workflow_id to empty string
@@ -64,6 +65,13 @@ func (s *PGStore) GetJob(id string) (*Job, error) {
 		job.WorkflowID = workflowID.String
 	} else {
 		job.WorkflowID = ""
+	}
+
+	// Convert NULL working_directory to empty string
+	if workingDirectory.Valid {
+		job.WorkingDirectory = workingDirectory.String
+	} else {
+		job.WorkingDirectory = ""
 	}
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -86,7 +94,7 @@ func (s *PGStore) GetJob(id string) (*Job, error) {
 
 // ListJobs retrieves all jobs
 func (s *PGStore) ListJobs() ([]*Job, error) {
-	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, created_at, started_at, completed_at
+	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, created_at, started_at, completed_at
 			  FROM jobs ORDER BY created_at DESC`
 
 	rows, err := s.db.Query(query)
@@ -104,8 +112,9 @@ func (s *PGStore) ListJobs() ([]*Job, error) {
 		job := &Job{}
 		var inputDataJSON, outputDataJSON []byte
 		var workflowID sql.NullString
+		var workingDirectory sql.NullString
 
-		err := rows.Scan(&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON,
+		err := rows.Scan(&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON, &workingDirectory,
 			&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
 
 		// Convert NULL workflow_id to empty string
@@ -114,6 +123,14 @@ func (s *PGStore) ListJobs() ([]*Job, error) {
 		} else {
 			job.WorkflowID = ""
 		}
+
+		// Convert NULL working_directory to empty string
+		if workingDirectory.Valid {
+			job.WorkingDirectory = workingDirectory.String
+		} else {
+			job.WorkingDirectory = ""
+		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -151,10 +168,10 @@ func (s *PGStore) UpdateJob(job *Job) error {
 	}
 
 	query := `UPDATE jobs SET workflow_id = $1, wasm_module_id = $2, status = $3, input_data = $4, output_data = $5,
-			  started_at = $6, completed_at = $7 WHERE id = $8`
+			  working_directory = $6, started_at = $7, completed_at = $8 WHERE id = $9`
 
 	result, err := s.db.Exec(query, workflowID, job.WasmModuleID, job.Status, inputDataJSON, outputDataJSON,
-		job.StartedAt, job.CompletedAt, job.ID)
+		job.WorkingDirectory, job.StartedAt, job.CompletedAt, job.ID)
 	if err != nil {
 		return err
 	}
@@ -336,15 +353,16 @@ func (s *PGStore) DeleteJobStep(id string) error {
 
 // GetNextQueuedJob retrieves the next queued job for processing
 func (s *PGStore) GetNextQueuedJob() (*Job, error) {
-	query := `SELECT id, workflow_id, status, input_data, output_data, created_at, started_at, completed_at
+	query := `SELECT id, workflow_id, status, input_data, output_data, working_directory, created_at, started_at, completed_at
 			  FROM jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1`
 
 	job := &Job{}
 	var inputDataJSON, outputDataJSON []byte
 	var workflowID sql.NullString
+	var workingDirectory sql.NullString
 
 	err := s.db.QueryRow(query).Scan(
-		&job.ID, &workflowID, &job.Status, &inputDataJSON, &outputDataJSON,
+		&job.ID, &workflowID, &job.Status, &inputDataJSON, &outputDataJSON, &workingDirectory,
 		&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
 
 	// Convert NULL workflow_id to empty string
@@ -352,6 +370,13 @@ func (s *PGStore) GetNextQueuedJob() (*Job, error) {
 		job.WorkflowID = workflowID.String
 	} else {
 		job.WorkflowID = ""
+	}
+
+	// Convert NULL working_directory to empty string
+	if workingDirectory.Valid {
+		job.WorkingDirectory = workingDirectory.String
+	} else {
+		job.WorkingDirectory = ""
 	}
 
 	if errors.Is(err, sql.ErrNoRows) {

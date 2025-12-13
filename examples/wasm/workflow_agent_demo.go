@@ -94,7 +94,7 @@ func triggerWorkflow(workflowID string, params map[string]interface{}) (string, 
 	status := trigger_workflow_or_agent(
 		uint32(uintptr(unsafe.Pointer(&[]byte(operationType)[0]))), uint32(len(operationType)),
 		uint32(uintptr(unsafe.Pointer(&[]byte(workflowID)[0]))), uint32(len(workflowID)),
-		uint32(uintptr(unsafe.Pointer(¶msJSON[0]))), uint32(len(paramsJSON)))
+		uint32(uintptr(unsafe.Pointer(&paramsJSON[0]))), uint32(len(paramsJSON)))
 
 	if status != 0 {
 		return "", fmt.Errorf("host function failed with status: %d", status)

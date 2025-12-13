@@ -132,6 +132,7 @@ type PrimitiveStore interface {
 	DeleteWorkflow(ctx context.Context, id string) error
 
 	CreateWorkflowStep(ctx context.Context, s *WorkflowStep) error
+	GetWorkflowStep(ctx context.Context, id string) (*WorkflowStep, error)
 	ListWorkflowSteps(ctx context.Context, workflowID string) ([]*WorkflowStep, error)
 
 	// WASM module methods

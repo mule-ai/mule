@@ -11,37 +11,49 @@ import (
 
 // Input represents the expected input structure for GitHub issues
 type Input struct {
-	RepoURL string `json:"repo_url"`
-	Token   string `json:"token"`
+	RepoURL string       `json:"repo_url"`
+	Token   string       `json:"token"`
 	Filters FilterConfig `json:"filters,omitempty"`
 }
 
 // FilterConfig represents the filter configuration for GitHub issues
 type FilterConfig struct {
-	State         string `json:"state,omitempty"`         // open, closed, all
-	Assignee      string `json:"assignee,omitempty"`      // username, "none", "*", or "@me" for token owner
-	Labels        string `json:"labels,omitempty"`        // comma-separated label names
-	Sort          string `json:"sort,omitempty"`          // created, updated, comments
-	Direction     string `json:"direction,omitempty"`     // asc, desc
-	PerPage       int    `json:"per_page,omitempty"`      // results per page (max 100)
-	Page          int    `json:"page,omitempty"`          // page number
+	State         string `json:"state,omitempty"`          // open, closed, all
+	Assignee      string `json:"assignee,omitempty"`       // username, "none", "*", or "@me" for token owner
+	Labels        string `json:"labels,omitempty"`         // comma-separated label names
+	Sort          string `json:"sort,omitempty"`           // created, updated, comments
+	Direction     string `json:"direction,omitempty"`      // asc, desc
+	PerPage       int    `json:"per_page,omitempty"`       // results per page (max 100)
+	Page          int    `json:"page,omitempty"`           // page number
 	FetchComments bool   `json:"fetch_comments,omitempty"` // whether to fetch comments for issues
 }
 
 // GitHubIssue represents an extended GitHub issue structure with project information
 type GitHubIssue struct {
-	ID             int            `json:"id"`
-	Number         int            `json:"number"`
-	Title          string         `json:"title"`
-	State          string         `json:"state"`
-	URL            string         `json:"url"`
-	Body           string         `json:"body"`
-	CommentsCount  int            `json:"comments"`
-	Assignee       *GitHubUser    `json:"assignee,omitempty"`
-	Assignees      []GitHubUser   `json:"assignees,omitempty"`
-	Comments       []GitHubComment `json:"comments_data,omitempty"`
-	Project        *GitHubProject `json:"project,omitempty"`
-	Fields         []GitHubField  `json:"fields,omitempty"`
+	ID            int             `json:"id"`
+	Number        int             `json:"number"`
+	Title         string          `json:"title"`
+	State         string          `json:"state"`
+	URL           string          `json:"url"`
+	Body          string          `json:"body"`
+	CommentsCount int             `json:"comments"`
+	Labels        []Label         `json:"labels"`
+	Assignee      *GitHubUser     `json:"assignee,omitempty"`
+	Assignees     []GitHubUser    `json:"assignees,omitempty"`
+	Comments      []GitHubComment `json:"comments_data,omitempty"`
+	Project       *GitHubProject  `json:"project,omitempty"`
+	Fields        []GitHubField   `json:"fields,omitempty"`
+}
+
+// Label represents a GitHub label
+type Label struct {
+	ID          int    `json:"id"`
+	NodeID      string `json:"node_id"`
+	URL         string `json:"url"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+	Default     bool   `json:"default"`
 }
 
 // GitHubUser represents a GitHub user
@@ -89,10 +101,12 @@ type Output struct {
 func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uintptr
 
 // get_last_response_body gets the last response body
+//
 //go:wasmimport env get_last_response_body
 func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
 
 // get_last_response_status gets the last response status code
+//
 //go:wasmimport env get_last_response_status
 func get_last_response_status() uint32
 
@@ -387,7 +401,7 @@ query($owner: String!, $name: String!) {
 		"query":     query,
 		"variables": variables,
 	}
-	
+
 	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal GraphQL request: %w", err)
@@ -459,10 +473,10 @@ query($owner: String!, $name: String!) {
 
 	// Parse response body as JSON
 	responseBody := string(buffer[:bodySizeRet])
-	
+
 	// Debug: Print raw response for troubleshooting
 	fmt.Fprintf(os.Stderr, "GraphQL Response Length: %d\n", len(responseBody))
-	
+
 	// Parse GraphQL response
 	var graphqlResponse map[string]interface{}
 	if err := json.Unmarshal([]byte(responseBody), &graphqlResponse); err != nil {
@@ -574,10 +588,10 @@ query($owner: String!, $name: String!) {
 							projectId := getStringValue(project, "id")
 							projectTitle := getStringValue(project, "title")
 							projectUrl := getStringValue(project, "url")
-							
+
 							// Debug: Print project info
 							fmt.Fprintf(os.Stderr, "Project Info - ID: %s, Title: %s, URL: %s\n", projectId, projectTitle, projectUrl)
-							
+
 							if projectId != "" {
 								enrichedIssues[i].Project = &GitHubProject{
 									ID:    projectId,
@@ -594,12 +608,12 @@ query($owner: String!, $name: String!) {
 								for _, fieldNode := range fieldNodes {
 									if fieldData, ok := fieldNode.(map[string]interface{}); ok {
 										field := GitHubField{}
-										
+
 										// Extract field name
 										if fieldInfo, ok := fieldData["field"].(map[string]interface{}); ok {
 											field.Name = getStringValue(fieldInfo, "name")
 										}
-										
+
 										// Extract value based on type
 										if text, exists := fieldData["text"]; exists {
 											field.Type = "TEXT"
@@ -615,7 +629,7 @@ query($owner: String!, $name: String!) {
 											field.Type = "TEXT"
 											field.Value = name
 										}
-										
+
 										if field.Name != "" {
 											fields = append(fields, field)
 											// Debug: Print field info
@@ -889,7 +903,17 @@ func fetchCommentsForIssues(issues []GitHubIssue, owner, repo, token string) ([]
 			fmt.Fprintf(os.Stderr, "Failed to fetch comments for issue #%d: %v\n", issues[i].Number, err)
 			continue
 		}
-		issues[i].Comments = comments
+
+		// Filter out deleted/empty comments
+		filteredComments := make([]GitHubComment, 0, len(comments))
+		for _, comment := range comments {
+			// Skip comments with empty bodies (could represent deleted comments)
+			if comment.Body != "" {
+				filteredComments = append(filteredComments, comment)
+			}
+		}
+
+		issues[i].Comments = filteredComments
 	}
 	return issues, nil
 }

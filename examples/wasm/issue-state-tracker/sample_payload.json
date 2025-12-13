@@ -1,0 +1,7 @@
+{
+  "prompt": "{\"issue\": \"https://api.github.com/repos/your-org/your-repo/issues/123\", \"label\": \"in-progress\", \"comment\": \"Starting work on this issue\"}",
+  "config": {
+    "states": ["backlog", "todo", "in-progress", "review", "done"]
+  },
+  "token": "your-github-token"
+}

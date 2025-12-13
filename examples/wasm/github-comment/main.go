@@ -99,18 +99,55 @@ func isValidGitHubAPIURL(url string) bool {
 
 func main() {
 	// Read input from stdin
-	var input Input
+	// We need to handle the case where prompt might be a JSON object instead of a string
+	rawInput := json.RawMessage{}
 	decoder := json.NewDecoder(os.Stdin)
-	if err := decoder.Decode(&input); err != nil {
+	if err := decoder.Decode(&rawInput); err != nil {
 		outputError(fmt.Errorf("failed to decode input: %w", err))
 		return
 	}
 
-	// Parse the actual input from the prompt field
-	var commentInput CommentInput
-	if err := json.Unmarshal([]byte(input.Prompt), &commentInput); err != nil {
-		outputError(fmt.Errorf("failed to decode prompt content: %w", err))
+	// Extract the prompt field
+	var inputMap map[string]interface{}
+	if err := json.Unmarshal(rawInput, &inputMap); err != nil {
+		outputError(fmt.Errorf("failed to decode input map: %w", err))
 		return
+	}
+
+	// Get the prompt field
+	var commentInput CommentInput
+	if promptVal, ok := inputMap["prompt"]; ok {
+		// Handle both cases: prompt as JSON string and prompt as JSON object
+		switch v := promptVal.(type) {
+		case string:
+			// Original case: prompt is a JSON string
+			if err := json.Unmarshal([]byte(v), &commentInput); err != nil {
+				outputError(fmt.Errorf("failed to decode prompt string: %w", err))
+				return
+			}
+		case map[string]interface{}:
+			// New case: prompt is already a JSON object
+			if issue, ok := v["issue"].(string); ok {
+				commentInput.Issue = issue
+			}
+			if comment, ok := v["comment"].(string); ok {
+				commentInput.Comment = comment
+			}
+		default:
+			outputError(fmt.Errorf("unexpected prompt type: %T", v))
+			return
+		}
+	} else {
+		outputError(fmt.Errorf("missing prompt field in input"))
+		return
+	}
+
+	// Extract token if present
+	var token string
+	if tokenVal, ok := inputMap["token"]; ok {
+		if tokenStr, ok := tokenVal.(string); ok {
+			token = tokenStr
+		}
 	}
 
 	// Validate input
@@ -142,7 +179,7 @@ func main() {
 	}
 
 	// Validate token
-	if input.Token == "" {
+	if token == "" {
 		outputError(fmt.Errorf("GitHub token is required"))
 		return
 	}
@@ -161,7 +198,7 @@ func main() {
 
 	// Prepare headers
 	headers := map[string]string{
-		"Authorization": fmt.Sprintf("Bearer %s", input.Token),
+		"Authorization": fmt.Sprintf("Bearer %s", token),
 		"Accept":        "application/vnd.github.v3+json",
 		"Content-Type":  "application/json",
 		"User-Agent":    "Mule-AI-WASM-Module",

@@ -26,6 +26,8 @@ function WorkflowBuilder() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showStepModal, setShowStepModal] = useState(false);
   const [showEditStepModal, setShowEditStepModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingWorkflow, setDeletingWorkflow] = useState(null);
   const [editingStep, setEditingStep] = useState(null);
   const [newWorkflow, setNewWorkflow] = useState({ name: '', description: '' });
   const [newStep, setNewStep] = useState({ type: 'agent', agent_id: '', wasm_module_id: '', config: {} });
@@ -235,6 +237,35 @@ function WorkflowBuilder() {
     loadWorkflowSteps(workflow.id);
   };
 
+  const handleDeleteWorkflow = (workflow) => {
+    setDeletingWorkflow(workflow);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteWorkflow = async () => {
+    if (!deletingWorkflow) return;
+
+    setLoading(true);
+    try {
+      await workflowsAPI.delete(deletingWorkflow.id);
+      setShowDeleteConfirm(false);
+      setDeletingWorkflow(null);
+
+      // If the deleted workflow was selected, clear the selection
+      if (selectedWorkflow && selectedWorkflow.id === deletingWorkflow.id) {
+        setSelectedWorkflow(null);
+        setWorkflowSteps([]);
+      }
+
+      // Refresh the workflows list
+      loadWorkflows();
+    } catch (error) {
+      console.error('Failed to delete workflow:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
@@ -261,9 +292,22 @@ function WorkflowBuilder() {
                     action
                     active={selectedWorkflow?.id === workflow.id}
                     onClick={() => selectWorkflow(workflow)}
+                    className="d-flex justify-content-between align-items-center"
                   >
-                    <h6>{workflow.name}</h6>
-                    <small className="text-muted">{workflow.description}</small>
+                    <div>
+                      <h6>{workflow.name}</h6>
+                      <small className="text-muted">{workflow.description}</small>
+                    </div>
+                    <Button
+                      variant="outline-danger"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteWorkflow(workflow);
+                      }}
+                    >
+                      Delete
+                    </Button>
                   </ListGroup.Item>
                 ))}
               </ListGroup>
@@ -511,6 +555,24 @@ function WorkflowBuilder() {
           </Button>
           <Button variant="primary" onClick={handleUpdateStep} disabled={loading}>
             {loading ? 'Updating...' : 'Update Step'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal show={showDeleteConfirm} onHide={() => setShowDeleteConfirm(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Confirm Delete</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          Are you sure you want to delete the workflow "{deletingWorkflow?.name}"? This action cannot be undone.
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowDeleteConfirm(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={confirmDeleteWorkflow} disabled={loading}>
+            {loading ? 'Deleting...' : 'Delete'}
           </Button>
         </Modal.Footer>
       </Modal>
