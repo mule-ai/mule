@@ -740,7 +740,184 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			// Return the size of the header value
 			return uint32(len(headerValue))
 		}).
-		Export("get_last_response_header")
+		Export("get_last_response_header").
+		// Function to get job output by job ID
+		NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, jobIDPtr, jobIDSize, bufferPtr, bufferSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read job ID from WASM memory
+			jobID, err := readStringFromMemory(ctx, mem, jobIDPtr, jobIDSize)
+			if err != nil {
+				log.Printf("Failed to read job ID from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Get job from database
+			job, err := e.WorkflowEngine.jobStore.GetJob(jobID)
+			if err != nil {
+				log.Printf("Failed to get job %s: %v", jobID, err)
+				// Return error code (0xFFFFFFF1)
+				return 0xFFFFFFF1
+			}
+
+			// Create a response that includes both status and output data
+			response := map[string]interface{}{
+				"status": string(job.Status),
+				"output": job.OutputData,
+			}
+
+			// Marshal response to JSON
+			responseData, err := json.Marshal(response)
+			if err != nil {
+				log.Printf("Failed to marshal job response data for job %s: %v", jobID, err)
+				// Return error code (0xFFFFFFF2)
+				return 0xFFFFFFF2
+			}
+
+			// If buffer size is 0, return the required size without writing data
+			if bufferSize == 0 {
+				return uint32(len(responseData))
+			}
+
+			// Check if buffer is large enough
+			if bufferSize < uint32(len(responseData)) {
+				log.Printf("Buffer too small for job response data: %d < %d", bufferSize, len(responseData))
+				// Return error code (0xFFFFFFF3)
+				return 0xFFFFFFF3
+			}
+
+			// Write job response data to WASM memory
+			ok := mem.Write(bufferPtr, responseData)
+			if !ok {
+				log.Printf("Failed to write job response data to WASM memory")
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// Return the size of the job response data
+			return uint32(len(responseData))
+		}).
+		Export("get_job_output").
+		// Function to wait for job completion and get the result
+		NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, jobIDPtr, jobIDSize, bufferPtr, bufferSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read job ID from WASM memory
+			jobID, err := readStringFromMemory(ctx, mem, jobIDPtr, jobIDSize)
+			if err != nil {
+				log.Printf("Failed to read job ID from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Wait for job completion with a 5-minute timeout
+			timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
+
+			// Poll every 500ms for job completion
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+
+			var jobItem *job.Job
+			completed := false
+
+			for !completed {
+				select {
+				case <-timeoutCtx.Done():
+					log.Printf("Timeout waiting for job %s to complete", jobID)
+					// Return error code (0xFFFFFFF5) for timeout
+					return 0xFFFFFFF5
+				case <-ticker.C:
+					// Get job from database
+					jobItem, err = e.WorkflowEngine.jobStore.GetJob(jobID)
+					if err != nil {
+						log.Printf("Failed to get job %s: %v", jobID, err)
+						// Continue polling despite errors
+						continue
+					}
+
+					// Check job status
+					switch jobItem.Status {
+					case job.StatusCompleted:
+						completed = true
+					case job.StatusFailed:
+						log.Printf("Job %s failed", jobID)
+						// Return error code (0xFFFFFFF6) for job failure
+						return 0xFFFFFFF6
+					case job.StatusCancelled:
+						log.Printf("Job %s was cancelled", jobID)
+						// Return error code (0xFFFFFFF7) for job cancellation
+						return 0xFFFFFFF7
+					case job.StatusRunning, job.StatusQueued:
+						// Continue waiting
+						continue
+					default:
+						log.Printf("Unknown job status for job %s: %s", jobID, jobItem.Status)
+						// Continue waiting
+						continue
+					}
+				}
+			}
+
+			// Job completed successfully, create response with output data
+			response := map[string]interface{}{
+				"status": string(jobItem.Status),
+				"output": jobItem.OutputData,
+			}
+
+			// Marshal response to JSON
+			responseData, err := json.Marshal(response)
+			if err != nil {
+				log.Printf("Failed to marshal job response data for job %s: %v", jobID, err)
+				// Return error code (0xFFFFFFF2)
+				return 0xFFFFFFF2
+			}
+
+			// If buffer size is 0, return the required size without writing data
+			if bufferSize == 0 {
+				return uint32(len(responseData))
+			}
+
+			// Check if buffer is large enough
+			if bufferSize < uint32(len(responseData)) {
+				log.Printf("Buffer too small for job response data: %d < %d", bufferSize, len(responseData))
+				// Return error code (0xFFFFFFF3)
+				return 0xFFFFFFF3
+			}
+
+			// Write job response data to WASM memory
+			ok := mem.Write(bufferPtr, responseData)
+			if !ok {
+				log.Printf("Failed to write job response data to WASM memory")
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// Return the size of the job response data
+			return uint32(len(responseData))
+		}).
+		Export("wait_for_job_and_get_output")
 
 	// Function to trigger workflows or call agents
 	hostModule.NewFunctionBuilder().

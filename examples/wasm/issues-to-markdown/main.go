@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -27,25 +26,18 @@ type Input struct {
 
 // Output represents the output structure
 type Output struct {
-	Markdown string `json:"markdown"`
+	Message string `json:"message,omitempty"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
 }
 
 func main() {
 	// Read input from stdin
-	inputData, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Parse input JSON
 	var input Input
-	if len(inputData) > 0 {
-		if err := json.Unmarshal(inputData, &input); err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing input JSON: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Input data: %s\n", string(inputData))
-			os.Exit(1)
-		}
+	decoder := json.NewDecoder(os.Stdin)
+	if err := decoder.Decode(&input); err != nil {
+		outputError(fmt.Errorf("failed to decode input: %w", err))
+		return
 	}
 
 	// Convert issues to markdown
@@ -53,33 +45,45 @@ func main() {
 
 	// Create output
 	output := Output{
-		Markdown: markdown,
+		Message: markdown,
+		Success: true,
 	}
 
-	// Serialize output to JSON
-	outputData, err := json.Marshal(output)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error serializing output: %v\n", err)
-		os.Exit(1)
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(output); err != nil {
+		outputError(fmt.Errorf("failed to encode output: %w", err))
+		return
+	}
+}
+
+// outputError outputs an error message in the expected format
+func outputError(err error) {
+	output := Output{
+		Success: false,
+		Error:   err.Error(),
 	}
 
-	// Write output to stdout
-	fmt.Print(string(outputData))
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(output)
+
+	os.Exit(1)
 }
 
 // convertIssuesToMarkdown converts a slice of GitHub issues to markdown format
 func convertIssuesToMarkdown(issues []GitHubIssue) string {
 	var builder strings.Builder
-	
+
 	for i, issue := range issues {
 		// Add title as heading
 		builder.WriteString(fmt.Sprintf("# %s\n\n", issue.Title))
-		
-		// Add metadata
-		builder.WriteString(fmt.Sprintf("* Link: %s\n", issue.URL))
+
+		// Add metadata with transformed URL
+		builder.WriteString(fmt.Sprintf("* Link: %s\n", transformURL(issue.URL)))
 		builder.WriteString(fmt.Sprintf("* State: %s\n", formatState(issue.State, issue.Status)))
 		builder.WriteString(fmt.Sprintf("* Due Date: %s\n", formatDueDate(issue.DueDate)))
-		
+
 		// Add description/body
 		builder.WriteString("* Description: ")
 		if issue.Body != "" {
@@ -101,14 +105,20 @@ func convertIssuesToMarkdown(issues []GitHubIssue) string {
 		} else {
 			builder.WriteString("\n")
 		}
-		
+
 		// Add separator except for the last issue
 		if i < len(issues)-1 {
 			builder.WriteString("\n-----\n\n")
 		}
 	}
-	
+
 	return builder.String()
+}
+
+// transformURL converts GitHub API URLs to regular GitHub URLs
+func transformURL(apiURL string) string {
+	// Replace "https://api.github.com/repos/" with "https://github.com/"
+	return strings.Replace(apiURL, "https://api.github.com/repos/", "https://github.com/", 1)
 }
 
 // formatState formats the state based on both state and status fields

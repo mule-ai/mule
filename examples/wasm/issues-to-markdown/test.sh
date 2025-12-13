@@ -17,7 +17,7 @@ make build
 # Test the module
 echo "Testing WASM module..."
 echo "==================== OUTPUT ===================="
-wasmtime issues-to-markdown.wasm < test-input.json | jq -r '.markdown'
+wasmtime issues-to-markdown.wasm < test-input.json | jq -r '.message // .'
 echo "================================================"
 
 echo "Test completed successfully!"
