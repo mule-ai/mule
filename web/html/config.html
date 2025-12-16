@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mule Event Service - Configuration</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #6366f1;
+            --secondary-color: #8b5cf6;
+            --dark-bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+        }
+        
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .navbar {
+            background-color: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            background-color: #4f46e5;
+            border-color: #4f46e5;
+        }
+        
+        .btn-secondary {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        
+        .btn-secondary:hover {
+            background-color: #7c3aed;
+            border-color: #7c3aed;
+        }
+        
+        .form-control, .form-select {
+            background-color: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            color: var(--text-primary);
+        }
+        
+        .form-control:focus, .form-select:focus {
+            background-color: rgba(30, 41, 59, 0.7);
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.25rem rgba(99, 102, 241, 0.25);
+            color: var(--text-primary);
+        }
+        
+        .form-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .section-divider {
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+            margin: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                    <path d="M3 3v18h18"></path>
+                    <path d="M18 17V9"></path>
+                    <path d="M13 17V5"></path>
+                    <path d="M8 17v-3"></path>
+                </svg>
+                Mule Events
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/config">Configuration</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <h1>Configuration</h1>
+                <p class="text-muted">Set up your Supabase instance and Mule API connection</p>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Supabase Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="supabase-config-form">
+                            <div class="mb-3">
+                                <label for="supabaseUrl" class="form-label">Supabase URL</label>
+                                <input type="url" class="form-control" id="supabaseUrl" placeholder="https://your-project.supabase.co" required>
+                                <div class="form-text">Your Supabase project URL</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="supabaseKey" class="form-label">Service Key</label>
+                                <input type="password" class="form-control" id="supabaseKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." required>
+                                <div class="form-text">Your Supabase service role key</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="webhookSecret" class="form-label">Webhook Secret</label>
+                                <input type="password" class="form-control" id="webhookSecret" placeholder="••••••••••••••••">
+                                <div class="form-text">Secret for validating incoming webhooks (optional)</div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" hx-post="/api/config/supabase" hx-target="#config-result">
+                                Save Configuration
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Mule API Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="mule-config-form">
+                            <div class="mb-3">
+                                <label for="muleApiUrl" class="form-label">API Endpoint</label>
+                                <input type="url" class="form-control" id="muleApiUrl" placeholder="http://localhost:3000/v1/chat/completions" value="/v1/chat/completions">
+                                <div class="form-text">Mule API endpoint for processing events</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="muleApiToken" class="form-label">API Token</label>
+                                <input type="password" class="form-control" id="muleApiToken" placeholder="sk-••••••••••••••••••••••••••••••••">
+                                <div class="form-text">Bearer token for authenticating with Mule API (optional)</div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" hx-post="/api/config/mule" hx-target="#config-result">
+                                Save Configuration
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Terraform Setup</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Deploy the required infrastructure to your Supabase instance:</p>
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-start">
+                            <button class="btn btn-primary me-md-2" type="button" hx-post="/api/terraform/apply" hx-target="#terraform-result">
+                                Apply Configuration
+                            </button>
+                            <button class="btn btn-outline-danger" type="button" hx-post="/api/terraform/destroy" hx-target="#terraform-result">
+                                Destroy Resources
+                            </button>
+                        </div>
+                        <div id="terraform-result" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-success">●</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-0">Service Status</h6>
+                                <small class="text-muted">Running</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-success">●</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-0">Supabase Connection</h6>
+                                <small class="text-muted">Connected</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-warning">●</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-0">Terraform Deployed</h6>
+                                <small class="text-muted">Not deployed</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-success">●</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-0">Mule API Access</h6>
+                                <small class="text-muted">Configured</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Quick Help</h5>
+                    </div>
+                    <div class="card-body">
+                        <h6>Setting up Supabase</h6>
+                        <ol class="small text-muted">
+                            <li>Create a new project at <a href="https://app.supabase.com/" class="text-primary">supabase.com</a></li>
+                            <li>Copy your project URL and service key</li>
+                            <li>Paste them in the form on the left</li>
+                        </ol>
+                        
+                        <h6 class="mt-3">Terraform Deployment</h6>
+                        <p class="small text-muted">
+                            Click "Apply Configuration" to deploy the required database schema and functions to your Supabase instance.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="config-result" class="mt-4"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
