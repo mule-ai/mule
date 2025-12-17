@@ -204,6 +204,32 @@ p, span, div, label, li, td, th {
   color: var(--text-primary) !important;
 }
 
+/* Fix filter component styling in dark mode */
+.input-group-text {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Ensure form selects work in dark mode */
+.form-select {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.form-select:focus {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--link-color) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.form-select option {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
 /* Modal theming */
 .modal-content {
   background-color: var(--bg-card) !important;

@@ -225,7 +225,8 @@ func (s *JobStreamer) monitorJobs() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			jobs, err := s.jobStore.ListJobs()
+			// Get all jobs for monitoring (no pagination/filtering needed)
+			jobs, _, err := s.jobStore.ListJobs(job.ListJobsOptions{})
 			if err != nil {
 				log.Printf("Error listing jobs for monitoring: %v", err)
 				continue

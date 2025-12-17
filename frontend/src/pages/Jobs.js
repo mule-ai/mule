@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Badge, Button, Modal, ListGroup, Form } from 'react-bootstrap';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, Row, Col, Badge, Button, Modal, ListGroup, Form, Pagination, InputGroup, FormControl } from 'react-bootstrap';
 import { jobsAPI } from '../services/api';
 
 function Jobs() {
@@ -8,21 +8,40 @@ function Jobs() {
   const [jobSteps, setJobSteps] = useState([]);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
+  // Pagination and filtering state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [workflowNameFilter, setWorkflowNameFilter] = useState('');
+
+  const loadJobs = useCallback(async () => {
+    try {
+      const params = {
+        page: currentPage,
+        page_size: pageSize,
+        status: statusFilter || undefined,
+        search: searchQuery || undefined,
+        workflow_name: workflowNameFilter || undefined
+      };
+
+      const response = await jobsAPI.list(params);
+      setJobs(response.data.jobs || []);
+      setTotalPages(response.data.total_pages || 0);
+      setTotalCount(response.data.total_count || 0);
+    } catch (error) {
+      console.error('Failed to load jobs:', error);
+    }
+  }, [currentPage, pageSize, statusFilter, searchQuery, workflowNameFilter]);
+
   useEffect(() => {
     loadJobs();
     // Poll for updates every 5 seconds
     const interval = setInterval(loadJobs, 5000);
     return () => clearInterval(interval);
-  }, []);
-
-  const loadJobs = async () => {
-    try {
-      const response = await jobsAPI.list();
-      setJobs(response.data || []);
-    } catch (error) {
-      console.error('Failed to load jobs:', error);
-    }
-  };
+  }, [currentPage, pageSize, statusFilter, searchQuery, workflowNameFilter, loadJobs]);
 
   const loadJobSteps = async (jobId) => {
     try {
@@ -85,6 +104,123 @@ function Jobs() {
     }
   };
 
+  // Pagination handlers
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (size) => {
+    setPageSize(size);
+    setCurrentPage(1); // Reset to first page when changing page size
+  };
+
+  const handleStatusFilterChange = (status) => {
+    setStatusFilter(status);
+    setCurrentPage(1); // Reset to first page when changing filter
+  };
+
+  const handleSearchChange = (query) => {
+    setSearchQuery(query);
+    setCurrentPage(1); // Reset to first page when changing search
+  };
+
+  const handleWorkflowNameFilterChange = (name) => {
+    setWorkflowNameFilter(name);
+    setCurrentPage(1); // Reset to first page when changing filter
+  };
+
+  // Render pagination controls
+  const renderPagination = () => {
+    const items = [];
+    const maxVisiblePages = 5;
+
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    // Previous button
+    items.push(
+      <Pagination.Prev
+        key="prev"
+        onClick={() => handlePageChange(currentPage - 1)}
+        disabled={currentPage === 1}
+      />
+    );
+
+    // First page
+    if (startPage > 1) {
+      items.push(
+        <Pagination.Item key={1} onClick={() => handlePageChange(1)}>
+          1
+        </Pagination.Item>
+      );
+      if (startPage > 2) {
+        items.push(<Pagination.Ellipsis key="start-ellipsis" />);
+      }
+    }
+
+    // Page numbers
+    for (let i = startPage; i <= endPage; i++) {
+      items.push(
+        <Pagination.Item
+          key={i}
+          active={i === currentPage}
+          onClick={() => handlePageChange(i)}
+        >
+          {i}
+        </Pagination.Item>
+      );
+    }
+
+    // Last page
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        items.push(<Pagination.Ellipsis key="end-ellipsis" />);
+      }
+      items.push(
+        <Pagination.Item key={totalPages} onClick={() => handlePageChange(totalPages)}>
+          {totalPages}
+        </Pagination.Item>
+      );
+    }
+
+    // Next button
+    items.push(
+      <Pagination.Next
+        key="next"
+        onClick={() => handlePageChange(currentPage + 1)}
+        disabled={currentPage === totalPages}
+      />
+    );
+
+    return (
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div>
+          Showing {Math.min((currentPage - 1) * pageSize + 1, totalCount)} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} jobs
+        </div>
+        <Pagination className="mb-0">
+          {items}
+        </Pagination>
+        <div>
+          <Form.Select
+            size="sm"
+            value={pageSize}
+            onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+            style={{ width: 'auto', display: 'inline-block' }}
+          >
+            <option value={10}>10 per page</option>
+            <option value={20}>20 per page</option>
+            <option value={50}>50 per page</option>
+            <option value={100}>100 per page</option>
+          </Form.Select>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
@@ -93,6 +229,52 @@ function Jobs() {
           Refresh
         </Button>
       </div>
+
+      {/* Filters */}
+      <Card className="mb-4">
+        <Card.Body>
+          <Row>
+            <Col md={4} className="mb-3 mb-md-0">
+              <InputGroup>
+                <InputGroup.Text>Search</InputGroup.Text>
+                <FormControl
+                  type="text"
+                  placeholder="Search by workflow ID or working directory..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                />
+              </InputGroup>
+            </Col>
+            <Col md={4} className="mb-3 mb-md-0">
+              <InputGroup>
+                <InputGroup.Text>Workflow</InputGroup.Text>
+                <FormControl
+                  type="text"
+                  placeholder="Filter by workflow name..."
+                  value={workflowNameFilter}
+                  onChange={(e) => handleWorkflowNameFilterChange(e.target.value)}
+                />
+              </InputGroup>
+            </Col>
+            <Col md={4}>
+              <InputGroup>
+                <InputGroup.Text>Status</InputGroup.Text>
+                <Form.Select
+                  value={statusFilter}
+                  onChange={(e) => handleStatusFilterChange(e.target.value)}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="queued">Queued</option>
+                  <option value="running">Running</option>
+                  <option value="completed">Completed</option>
+                  <option value="failed">Failed</option>
+                  <option value="cancelled">Cancelled</option>
+                </Form.Select>
+              </InputGroup>
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
 
       <Row>
         {jobs.map((job) => (
@@ -194,10 +376,13 @@ function Jobs() {
         <Card>
           <Card.Body className="text-center text-muted">
             <h4>No jobs found</h4>
-            <p>Jobs will appear here when workflows are executed</p>
+            <p>Try adjusting your filters or jobs will appear here when workflows are executed</p>
           </Card.Body>
         </Card>
       )}
+
+      {/* Pagination */}
+      {totalPages > 1 && renderPagination()}
 
       {/* Job Details Modal */}
       <Modal

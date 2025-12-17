@@ -6,11 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 )
-
-// Variable to allow mocking time.Now() in tests
-var timeNow = time.Now
 
 // Input represents the input structure received from Mule runtime
 // The prompt field contains a JSON string with issue data
@@ -23,14 +19,10 @@ type IssueData struct {
 	Title string `json:"title"`
 }
 
-// PromptData represents the structure of the prompt data
-type PromptData struct {
-	Title string `json:"title"`
-}
-
 // Output represents the output structure with the generated worktree name
 type Output struct {
 	WorktreeName string `json:"worktree_name"`
+	Issue        string `json:"issue"`
 }
 
 func main() {
@@ -45,13 +37,8 @@ func main() {
 	// Parse the prompt field to extract issue data
 	var issueData IssueData
 	if err := json.Unmarshal([]byte(input.Prompt), &issueData); err != nil {
-		// Try alternative structure
-		var promptData PromptData
-		if err2 := json.Unmarshal([]byte(input.Prompt), &promptData); err2 != nil {
-			outputError(fmt.Errorf("failed to decode prompt content: %w", err))
-			return
-		}
-		issueData.Title = promptData.Title
+		outputError(fmt.Errorf("failed to decode prompt content: %w", err))
+		return
 	}
 
 	// Validate input
@@ -66,6 +53,7 @@ func main() {
 	// Create output
 	output := Output{
 		WorktreeName: worktreeName,
+		Issue:        input.Prompt,
 	}
 
 	// Serialize output to JSON

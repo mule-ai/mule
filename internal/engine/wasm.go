@@ -27,6 +27,54 @@ import (
 	"github.com/mule-ai/mule/pkg/job"
 )
 
+// isValidBranchName validates that the branch name is safe to use
+func isValidBranchName(name string) bool {
+	// Check for empty name
+	if name == "" {
+		return false
+	}
+
+	// Check for invalid characters
+	invalidChars := []string{"~", "^", ":", "?", "*", "[", "\\\\", ".."}
+	for _, char := range invalidChars {
+		if strings.Contains(name, char) {
+			return false
+		}
+	}
+
+	// Check for reserved names
+	reservedNames := []string{".", "..", "@", "HEAD", "ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD"}
+	for _, reserved := range reservedNames {
+		if strings.HasPrefix(name, reserved) || strings.HasSuffix(name, reserved) {
+			return false
+		}
+	}
+
+	// Check for double dots
+	if strings.Contains(name, "..") {
+		return false
+	}
+
+	// Check for ending slash
+	if strings.HasSuffix(name, "/") {
+		return false
+	}
+
+	// Check for consecutive dots
+	if strings.Contains(name, "..") {
+		return false
+	}
+
+	// Check for control characters
+	for _, r := range name {
+		if r < 32 || r == 127 {
+			return false
+		}
+	}
+
+	return true
+}
+
 // WASMExecutor handles WebAssembly module execution
 type WASMExecutor struct {
 	db             *sql.DB
@@ -69,6 +117,220 @@ func NewWASMExecutor(db *sql.DB, store primitive.PrimitiveStore, agentRuntime *a
 		newWorkingDir:        make(map[string]string),
 		currentNewWorkingDir: "",
 	}
+}
+
+// get_current_branch_impl is the actual implementation of the get_current_branch host function
+// It's separated to allow for better error handling and to ensure we always return our custom error codes
+func (e *WASMExecutor) get_current_branch_impl(ctx context.Context, module api.Module, basePathPtr, basePathSize, bufferPtr, bufferSize uint32) uint32 {
+	// Get memory from the module
+	mem := module.Memory()
+
+	// Read base path from WASM memory (optional, can be empty)
+	var basePath string
+	if basePathSize > 0 {
+		var err error
+		basePath, err = readStringFromMemory(ctx, mem, basePathPtr, basePathSize)
+		if err != nil {
+			log.Printf("Failed to read base path from WASM memory: %v", err)
+			// Return error code (0xFFFFFFE1) - Failed to read base path
+			return 0xFFFFFFE1
+		}
+	}
+
+	// If no base path provided, use current working directory
+	if basePath == "" {
+		basePath = e.workingDir
+		if basePath == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				log.Printf("Failed to get current working directory: %v", err)
+				// Return error code (0xFFFFFFE2) - Failed to get current working directory
+				return 0xFFFFFFE2
+			}
+			basePath = cwd
+		}
+	}
+
+	// Log the working directory being used
+	log.Printf("Getting current branch for repository at: %s", basePath)
+
+	// Validate that base path is a git repository
+	gitPath := filepath.Join(basePath, ".git")
+	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+		log.Printf("Base path is not a git repository: %s", basePath)
+		// Return error code (0xFFFFFFE3) - Path is not a git repository
+		return 0xFFFFFFE3
+	}
+
+	// Validate that base path is accessible
+	if _, err := os.Stat(basePath); err != nil {
+		log.Printf("Base path is not accessible: %s, error: %v", basePath, err)
+		// Return error code (0xFFFFFFE7) - Path is not accessible
+		return 0xFFFFFFE7
+	}
+
+	// Log additional information about the repository
+	log.Printf("Repository validation passed for: %s", basePath)
+
+	// Check if we can read the .git directory
+	if gitInfo, err := os.Stat(gitPath); err != nil {
+		log.Printf("Cannot stat .git directory: %v", err)
+		// Return error code (0xFFFFFFE7) - Path is not accessible
+		return 0xFFFFFFE7
+	} else {
+		log.Printf(".git directory info: mode=%v, modTime=%v", gitInfo.Mode(), gitInfo.ModTime())
+	}
+
+	// Try to run a simple git command to check if git is working
+	versionCmd := exec.CommandContext(ctx, "git", "version")
+	if versionOutput, err := versionCmd.Output(); err != nil {
+		log.Printf("Failed to run git version command: %v", err)
+	} else {
+		log.Printf("Git version: %s", strings.TrimSpace(string(versionOutput)))
+	}
+
+	// Get current branch name using git command with enhanced error handling
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = basePath
+
+	// Log the command being executed
+	log.Printf("Executing git command: %s in directory: %s",
+		strings.Join(cmd.Args, " "), cmd.Dir)
+
+	// Log environment information
+	log.Printf("Environment variables: HOME=%s, USER=%s",
+		os.Getenv("HOME"), os.Getenv("USER"))
+
+	output, err := cmd.Output()
+	if err != nil {
+		// Try to get more detailed error information
+		var stderr []byte
+		var exitCode = -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			stderr = exitErr.Stderr
+			exitCode = exitErr.ExitCode()
+		}
+
+		log.Printf("Failed to get current branch name with 'git rev-parse --abbrev-ref HEAD': %v, exit code: %d, stderr: %s, working dir: %s",
+			err, exitCode, string(stderr), basePath)
+
+		// Try fallback method to get branch information
+		fallbackCmd := exec.CommandContext(ctx, "git", "symbolic-ref", "--short", "HEAD")
+		fallbackCmd.Dir = basePath
+
+		log.Printf("Trying fallback command: %s in directory: %s",
+			strings.Join(fallbackCmd.Args, " "), fallbackCmd.Dir)
+
+		// Log environment for fallback command
+		log.Printf("Fallback command environment: HOME=%s, USER=%s",
+			os.Getenv("HOME"), os.Getenv("USER"))
+
+		fallbackOutput, fallbackErr := fallbackCmd.Output()
+		if fallbackErr != nil {
+			var fallbackStderr []byte
+			var fallbackExitCode = -1
+			if exitErr, ok := fallbackErr.(*exec.ExitError); ok {
+				fallbackStderr = exitErr.Stderr
+				fallbackExitCode = exitErr.ExitCode()
+			}
+
+			log.Printf("Fallback command also failed: %v, exit code: %d, stderr: %s", fallbackErr, fallbackExitCode, string(fallbackStderr))
+
+			// Check if we're in a detached HEAD state
+			detachedCheckCmd := exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD")
+			detachedCheckCmd.Dir = basePath
+
+			log.Printf("Checking for detached HEAD with command: %s in directory: %s",
+				strings.Join(detachedCheckCmd.Args, " "), detachedCheckCmd.Dir)
+
+			if detachedOutput, detachedErr := detachedCheckCmd.Output(); detachedErr == nil {
+				commitHash := strings.TrimSpace(string(detachedOutput))
+				log.Printf("Repository appears to be in detached HEAD state at commit: %s", commitHash)
+
+				// For detached HEAD, we'll return a special indicator
+				detachedIndicator := fmt.Sprintf("DETACHED_HEAD_%s", commitHash)
+				branchNameLen := uint32(len(detachedIndicator))
+
+				// Handle the two-call pattern expected by WASM module:
+				// 1. First call with buffer size 0: return required size for success, 0 for error
+				// 2. Second call with actual buffer: return 0 for success, error code for error
+				if bufferSize == 0 {
+					return branchNameLen // Return required size for success
+				}
+
+				// This is the second call with actual buffer
+				// Check if buffer is large enough
+				if bufferSize < branchNameLen {
+					log.Printf("Buffer too small for detached HEAD indicator: %d < %d", bufferSize, branchNameLen)
+					// Return error code (0xFFFFFFE5) - Buffer too small
+					return 0xFFFFFFE5
+				}
+
+				// Write detached HEAD indicator to WASM memory
+				if branchNameLen > 0 {
+					ok := mem.Write(bufferPtr, []byte(detachedIndicator))
+					if !ok {
+						log.Printf("Failed to write detached HEAD indicator to WASM memory")
+						// Return error code (0xFFFFFFE6) - Failed to write to WASM memory
+						return 0xFFFFFFE6
+					}
+				}
+
+				// Return 0 for success (this is what the WASM module expects)
+				return 0
+			}
+
+			// Log detailed error information before returning error code
+			log.Printf("All branch detection methods failed for repository at: %s", basePath)
+			// Return our custom error code if all methods fail
+			// Return error code (0xFFFFFFE4)
+			return 0xFFFFFFE4
+		}
+
+		// Use fallback output if fallback command succeeded
+		output = fallbackOutput
+	}
+
+	// Trim whitespace from output
+	branchName := strings.TrimSpace(string(output))
+	branchNameLen := uint32(len(branchName))
+
+	// Validate branch name
+	if branchName == "" {
+		log.Printf("Empty branch name detected in repository: %s", basePath)
+		// Return error code (0xFFFFFFE8) - Empty branch name
+		return 0xFFFFFFE8
+	}
+
+	log.Printf("Current branch detected: %s", branchName)
+
+	// Handle the two-call pattern expected by WASM module:
+	// 1. First call with buffer size 0: return required size for success, 0 for error
+	// 2. Second call with actual buffer: return 0 for success, error code for error
+	if bufferSize == 0 {
+		return branchNameLen // Return required size for success
+	}
+
+	// This is the second call with actual buffer
+	// Check if buffer is large enough
+	if bufferSize < branchNameLen {
+		log.Printf("Buffer too small for branch name: %d < %d", bufferSize, branchNameLen)
+		// Return error code (0xFFFFFFE5) - Buffer too small
+		return 0xFFFFFFE5
+	}
+
+	// Write branch name to WASM memory
+	if branchNameLen > 0 {
+		ok := mem.Write(bufferPtr, []byte(branchName))
+		if !ok {
+			log.Printf("Failed to write branch name to WASM memory")
+			// Return error code (0xFFFFFFE6) - Failed to write to WASM memory
+			return 0xFFFFFFE6
+		}
+	}
+
+	// Return 0 for success (this is what the WASM module expects)
+	return 0
 }
 
 // SetURLAllowList sets the list of allowed URL prefixes for HTTP requests
@@ -574,6 +836,180 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			return uint32(resp.StatusCode)
 		}).
 		Export("get_last_response_status")
+
+	// Function to create a git branch
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, branchNamePtr, branchNameSize, basePathPtr, basePathSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read branch name from WASM memory
+			branchName, err := readStringFromMemory(ctx, mem, branchNamePtr, branchNameSize)
+			if err != nil {
+				log.Printf("Failed to read branch name from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Read base path from WASM memory (optional, can be empty)
+			var basePath string
+			if basePathSize > 0 {
+				basePath, err = readStringFromMemory(ctx, mem, basePathPtr, basePathSize)
+				if err != nil {
+					log.Printf("Failed to read base path from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+			}
+
+			// If no base path provided, use current working directory
+			if basePath == "" {
+				basePath = e.workingDir
+				if basePath == "" {
+					cwd, err := os.Getwd()
+					if err != nil {
+						log.Printf("Failed to get current working directory: %v", err)
+						// Return error code (0xFFFFFFF2)
+						return 0xFFFFFFF2
+					}
+					basePath = cwd
+				}
+			}
+
+			// Validate that base path is a git repository
+			gitPath := filepath.Join(basePath, ".git")
+			if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+				log.Printf("Base path is not a git repository: %s", basePath)
+				// Return error code (0xFFFFFFF3)
+				return 0xFFFFFFF3
+			}
+
+			// Create branch using git command
+			// We'll use the git branch command to create a new branch
+			cmd := exec.CommandContext(ctx, "git", "checkout", "-b", branchName)
+			cmd.Dir = basePath
+
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Printf("Failed to create git branch: %v, output: %s", err, string(output))
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			log.Printf("Created git branch '%s' in repository: %s", branchName, basePath)
+			// Return 0 for success
+			return 0
+		}).
+		Export("create_git_branch")
+
+	// Function to push a git branch to remote
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, branchNamePtr, branchNameSize, remoteNamePtr, remoteNameSize, tokenPtr, tokenSize, basePathPtr, basePathSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read branch name from WASM memory
+			branchName, err := readStringFromMemory(ctx, mem, branchNamePtr, branchNameSize)
+			if err != nil {
+				log.Printf("Failed to read branch name from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Read remote name from WASM memory
+			remoteName, err := readStringFromMemory(ctx, mem, remoteNamePtr, remoteNameSize)
+			if err != nil {
+				log.Printf("Failed to read remote name from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF7)
+				return 0xFFFFFFF7
+			}
+
+			// Read token from WASM memory (optional, can be empty)
+			var token string
+			if tokenSize > 0 {
+				token, err = readStringFromMemory(ctx, mem, tokenPtr, tokenSize)
+				if err != nil {
+					log.Printf("Failed to read token from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF8)
+					return 0xFFFFFFF8
+				}
+			}
+
+			// Read base path from WASM memory (optional, can be empty)
+			var basePath string
+			if basePathSize > 0 {
+				basePath, err = readStringFromMemory(ctx, mem, basePathPtr, basePathSize)
+				if err != nil {
+					log.Printf("Failed to read base path from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+			}
+
+			// If no base path provided, use current working directory
+			if basePath == "" {
+				basePath = e.workingDir
+				if basePath == "" {
+					cwd, err := os.Getwd()
+					if err != nil {
+						log.Printf("Failed to get current working directory: %v", err)
+						// Return error code (0xFFFFFFF2)
+						return 0xFFFFFFF2
+					}
+					basePath = cwd
+				}
+			}
+
+			// Validate that base path is a git repository
+			gitPath := filepath.Join(basePath, ".git")
+			if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+				log.Printf("Base path is not a git repository: %s", basePath)
+				// Return error code (0xFFFFFFF3)
+				return 0xFFFFFFF3
+			}
+
+			// Set up environment variables for authentication if token is provided
+			env := os.Environ()
+			if token != "" {
+				// Add token to environment for git operations
+				env = append(env, fmt.Sprintf("GIT_ASKPASS=echo %s", token))
+				env = append(env, "GIT_TERMINAL_PROMPT=0")
+			}
+
+			// Push branch to remote using git command
+			// We'll use the git push command to push the branch
+			cmd := exec.CommandContext(ctx, "git", "push", "-u", remoteName, branchName)
+			cmd.Dir = basePath
+			cmd.Env = env
+
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Printf("Failed to push git branch: %v, output: %s", err, string(output))
+				// Return error code (0xFFFFFFF9)
+				return 0xFFFFFFF9
+			}
+
+			log.Printf("Pushed git branch '%s' to remote '%s' in repository: %s", branchName, remoteName, basePath)
+			// Return 0 for success
+			return 0
+		}).
+		Export("push_git_branch")
 
 	// Function to create a git worktree
 	hostModule.NewFunctionBuilder().
@@ -1092,6 +1528,235 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		}).
 		Export("get_working_directory")
 
+	// Function to get the current git branch name
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, basePathPtr, basePathSize, bufferPtr, bufferSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
+			// Call the actual implementation and ensure we always return our custom error codes
+			result := e.get_current_branch_impl(ctx, module, basePathPtr, basePathSize, bufferPtr, bufferSize)
+
+			// Check if result is one of our custom error codes or a valid size
+			// Our custom error codes are in the range 0xFFFFFFE1 to 0xFFFFFFFA
+			// Valid sizes are >= 0 and < 0xFFFFFFE1
+			if result >= 0xFFFFFFE1 && result <= 0xFFFFFFFA {
+				// This is one of our custom error codes, which is fine
+				return result
+			}
+			if result < 0xFFFFFFE1 {
+				// This is a valid size, which is fine
+				return result
+			}
+			// If we get here, we have an unexpected return value
+			// Log it and return our generic error code
+			log.Printf("WARNING: get_current_branch function returning unexpected value: 0x%x. Converting to our error code.", result)
+			return 0xFFFFFFE4
+		}).
+		Export("get_current_branch")
+
+	// Function to push the current branch (using worktree name as branch name)
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, tokenPtr, tokenSize, basePathPtr, basePathSize, userNamePtr, userNameSize, userEmailPtr, userEmailSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read token from WASM memory (optional, can be empty)
+			var token string
+			if tokenSize > 0 {
+				var err error
+				token, err = readStringFromMemory(ctx, mem, tokenPtr, tokenSize)
+				if err != nil {
+					log.Printf("Failed to read token from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF0)
+					return 0xFFFFFFF0
+				}
+			}
+
+			// Read base path from WASM memory (optional, can be empty)
+			var basePath string
+			if basePathSize > 0 {
+				var err error
+				basePath, err = readStringFromMemory(ctx, mem, basePathPtr, basePathSize)
+				if err != nil {
+					log.Printf("Failed to read base path from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+			}
+
+			// Read user name from WASM memory (optional, can be empty)
+			var userName string
+			if userNameSize > 0 {
+				var err error
+				userName, err = readStringFromMemory(ctx, mem, userNamePtr, userNameSize)
+				if err != nil {
+					log.Printf("Failed to read user name from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+			}
+
+			// Read user email from WASM memory (optional, can be empty)
+			var userEmail string
+			if userEmailSize > 0 {
+				var err error
+				userEmail, err = readStringFromMemory(ctx, mem, userEmailPtr, userEmailSize)
+				if err != nil {
+					log.Printf("Failed to read user email from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+			}
+
+			// If no base path provided, use current working directory
+			if basePath == "" {
+				basePath = e.workingDir
+				if basePath == "" {
+					cwd, err := os.Getwd()
+					if err != nil {
+						log.Printf("Failed to get current working directory: %v", err)
+						// Return error code (0xFFFFFFF2)
+						return 0xFFFFFFF2
+					}
+					basePath = cwd
+				}
+			}
+
+			// Validate that base path is a git repository
+			gitPath := filepath.Join(basePath, ".git")
+			if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+				log.Printf("Base path is not a git repository: %s", basePath)
+				// Return error code (0xFFFFFFF3)
+				return 0xFFFFFFF3
+			}
+
+			// Get the current working directory name (worktree name) to use as branch name
+			branchName := filepath.Base(basePath)
+
+			// Validate branch name
+			if !isValidBranchName(branchName) {
+				log.Printf("Invalid branch name derived from worktree: %s", branchName)
+				// Return error code (0xFFFFFFF4)
+				return 0xFFFFFFF4
+			}
+
+			// Set git user config if provided
+			if userName != "" || userEmail != "" {
+				if userName != "" {
+					cmd := exec.CommandContext(ctx, "git", "config", "user.name", userName)
+					cmd.Dir = basePath
+
+					output, err := cmd.CombinedOutput()
+					if err != nil {
+						log.Printf("Failed to set git user name: %v, output: %s", err, string(output))
+						// Return error code (0xFFFFFFF9)
+						return 0xFFFFFFF9
+					}
+				}
+
+				if userEmail != "" {
+					cmd := exec.CommandContext(ctx, "git", "config", "user.email", userEmail)
+					cmd.Dir = basePath
+
+					output, err := cmd.CombinedOutput()
+					if err != nil {
+						log.Printf("Failed to set git user email: %v, output: %s", err, string(output))
+						// Return error code (0xFFFFFFF9)
+						return 0xFFFFFFF9
+					}
+				}
+			}
+
+			// Stage all changes
+			cmd := exec.CommandContext(ctx, "git", "add", ".")
+			cmd.Dir = basePath
+
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Printf("Failed to stage changes: %v, output: %s", err, string(output))
+				// Return error code (0xFFFFFFF7)
+				return 0xFFFFFFF7
+			}
+
+			// Commit changes with a default message
+			cmd = exec.CommandContext(ctx, "git", "commit", "-m", fmt.Sprintf("Commit changes in worktree %s", branchName))
+			cmd.Dir = basePath
+
+			output, err = cmd.CombinedOutput()
+			if err != nil {
+				// Check if it's because there's nothing to commit
+				if strings.Contains(string(output), "nothing to commit") {
+					log.Printf("No changes to commit in worktree: %s", branchName)
+					// This isn't necessarily an error, we can continue
+				} else {
+					log.Printf("Failed to commit changes: %v, output: %s", err, string(output))
+					// Return error code (0xFFFFFFF8)
+					return 0xFFFFFFF8
+				}
+			}
+
+			// Create branch or switch to existing branch
+			// First, try to checkout the branch (in case it already exists)
+			cmd = exec.CommandContext(ctx, "git", "checkout", branchName)
+			cmd.Dir = basePath
+
+			_, err = cmd.CombinedOutput()
+			if err != nil {
+				// If checkout fails, try to create the branch
+				cmd = exec.CommandContext(ctx, "git", "checkout", "-b", branchName)
+				cmd.Dir = basePath
+
+				output, err = cmd.CombinedOutput()
+				if err != nil {
+					log.Printf("Failed to checkout or create git branch '%s': %v, output: %s", branchName, err, string(output))
+					// Return error code (0xFFFFFFF5)
+					return 0xFFFFFFF5
+				}
+				log.Printf("Created new branch '%s'", branchName)
+			} else {
+				log.Printf("Switched to existing branch '%s'", branchName)
+			}
+
+			// Set up environment variables for authentication if token is provided
+			env := os.Environ()
+			if token != "" {
+				// Add token to environment for git operations
+				env = append(env, fmt.Sprintf("GIT_ASKPASS=echo %s", token))
+				env = append(env, "GIT_TERMINAL_PROMPT=0")
+			}
+
+			// Push branch to remote using git command
+			cmd = exec.CommandContext(ctx, "git", "push", "-u", "origin", branchName)
+			cmd.Dir = basePath
+			cmd.Env = env
+
+			output, err = cmd.CombinedOutput()
+			if err != nil {
+				log.Printf("Failed to push git branch '%s': %v, output: %s", branchName, err, string(output))
+				// Return error code (0xFFFFFFF6)
+				return 0xFFFFFFF6
+			}
+
+			log.Printf("Staged, committed, and pushed git branch '%s' from worktree in repository: %s", branchName, basePath)
+			// Return 0 for success
+			return 0
+		}).
+		Export("push_current_branch")
+
 	// Function to set the working directory for subsequent steps
 	hostModule.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, pathPtr, pathSize uint32) uint32 {
@@ -1318,6 +1983,7 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Otherwise, return the raw stdout
 	var resultValue map[string]interface{}
 	var output interface{}
+	success := true // Default to true unless explicitly set to false
 
 	if stdoutStr != "" {
 		if err := json.Unmarshal([]byte(stdoutStr), &resultValue); err == nil {
@@ -1328,6 +1994,13 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			} else {
 				// No message field, return the whole parsed object
 				output = resultValue
+			}
+
+			// Check for success field in the result
+			if successField, ok := resultValue["success"]; ok {
+				if successBool, ok := successField.(bool); ok {
+					success = successBool
+				}
 			}
 		} else {
 			// Not valid JSON, return as string
@@ -1346,7 +2019,7 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 		"stdout":  stdoutStr,
 		"stderr":  stderrStr,
 		"message": "WASM module executed successfully",
-		"success": true,
+		"success": success,
 	}
 
 	// Check if a new working directory was set by the WASM module

@@ -425,6 +425,16 @@ func (e *Engine) processWASMStepWithWorkingDir(ctx context.Context, step *primit
 		return nil, fmt.Errorf("failed to execute WASM module: %w", err)
 	}
 
+	// Check if the WASM module execution was successful
+	if successField, ok := result["success"]; ok {
+		if successBool, ok := successField.(bool); ok && !successBool {
+			// WASM module explicitly indicated failure
+			stderr, _ := result["stderr"].(string)
+			stdout, _ := result["stdout"].(string)
+			return nil, fmt.Errorf("WASM module execution failed: stdout='%s', stderr='%s'", stdout, stderr)
+		}
+	}
+
 	// Check if the WASM module set a new working directory
 	// The WASM executor will include this in the result if set_working_directory was called
 	if newWorkingDir, ok := result["new_working_directory"]; ok {
