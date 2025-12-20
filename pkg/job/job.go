@@ -69,11 +69,20 @@ type JobStep struct {
 	ErrorMessage   string                 `json:"error_message,omitempty" db:"error_message"`
 }
 
+// ListJobsOptions contains options for listing jobs
+type ListJobsOptions struct {
+	Page         int
+	PageSize     int
+	Status       *Status
+	Search       string
+	WorkflowName string
+}
+
 // JobStore defines interface for job persistence
 type JobStore interface {
 	CreateJob(job *Job) error
 	GetJob(id string) (*Job, error)
-	ListJobs() ([]*Job, error)
+	ListJobs(opts ListJobsOptions) ([]*Job, int, error)
 	UpdateJob(job *Job) error
 	DeleteJob(id string) error
 

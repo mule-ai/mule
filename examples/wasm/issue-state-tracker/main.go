@@ -22,6 +22,8 @@ type StateInput struct {
 	Issue   string `json:"issue"`   // GitHub issue API URL
 	Label   string `json:"label"`   // The new label to apply
 	Comment string `json:"comment"` // Comment to add (optional)
+	PRTitle string `json:"title"`   // Pull Request Title (optional)
+	PRBody  string `json:"body"`    // Pull Request Body (optional)
 }
 
 // Label represents a GitHub label structure
@@ -40,6 +42,8 @@ type Output struct {
 	Issue   string `json:"issue"`
 	Label   string `json:"label"`
 	Comment string `json:"comment"`
+	PRTitle string `json:"title"`
+	PRBody  string `json:"body"`
 	Error   string `json:"error,omitempty"`
 }
 
@@ -221,6 +225,8 @@ func main() {
 		Issue:   stateInput.Issue,
 		Label:   stateInput.Label,
 		Comment: stateInput.Comment,
+		PRTitle: stateInput.PRTitle,
+		PRBody:  stateInput.PRBody,
 	}
 
 	encoder := json.NewEncoder(os.Stdout)

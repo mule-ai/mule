@@ -56,7 +56,20 @@ export const workflowsAPI = {
 
 // Job APIs
 export const jobsAPI = {
-  list: () => api.get('/api/v1/jobs'),
+  list: (params = {}) => {
+    const queryParams = new URLSearchParams();
+
+    if (params.page) queryParams.append('page', params.page);
+    if (params.pageSize) queryParams.append('page_size', params.pageSize);
+    if (params.status) queryParams.append('status', params.status);
+    if (params.search) queryParams.append('search', params.search);
+    if (params.workflow_name) queryParams.append('workflow_name', params.workflow_name);
+
+    const queryString = queryParams.toString();
+    const url = queryString ? `/api/v1/jobs?${queryString}` : '/api/v1/jobs';
+
+    return api.get(url);
+  },
   get: (id) => api.get(`/api/v1/jobs/${id}`),
   getSteps: (id) => api.get(`/api/v1/jobs/${id}/steps`),
   create: (data) => api.post('/api/v1/jobs', data),

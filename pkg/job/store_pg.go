@@ -92,14 +92,88 @@ func (s *PGStore) GetJob(id string) (*Job, error) {
 	return job, nil
 }
 
-// ListJobs retrieves all jobs
-func (s *PGStore) ListJobs() ([]*Job, error) {
-	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, created_at, started_at, completed_at
-			  FROM jobs ORDER BY created_at DESC`
+// ListJobs retrieves jobs with pagination and filtering support
+func (s *PGStore) ListJobs(opts ListJobsOptions) ([]*Job, int, error) {
+	// Set default values if not provided
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	if opts.PageSize <= 0 {
+		opts.PageSize = 20
+	}
 
-	rows, err := s.db.Query(query)
+	// Base query
+	baseQuery := `SELECT j.id, j.workflow_id, j.wasm_module_id, j.status, j.input_data, j.output_data, j.working_directory, j.created_at, j.started_at, j.completed_at
+				  FROM jobs j`
+	countQuery := `SELECT COUNT(*) FROM jobs j`
+
+	// Build WHERE clause
+	whereClause := ""
+	args := []interface{}{}
+	argIndex := 1
+
+	// Status filter
+	if opts.Status != nil {
+		if whereClause == "" {
+			whereClause = " WHERE"
+		} else {
+			whereClause += " AND"
+		}
+		whereClause += fmt.Sprintf(" j.status = $%d", argIndex)
+		args = append(args, string(*opts.Status))
+		argIndex++
+	}
+
+	// Search filter (searches in workflow_id and working_directory)
+	if opts.Search != "" {
+		if whereClause == "" {
+			whereClause = " WHERE"
+		} else {
+			whereClause += " AND"
+		}
+		whereClause += fmt.Sprintf(" (j.workflow_id::text ILIKE $%d OR j.working_directory ILIKE $%d)", argIndex, argIndex)
+		searchTerm := "%" + opts.Search + "%"
+		args = append(args, searchTerm)
+		argIndex++
+	}
+
+	// Workflow name filter
+	if opts.WorkflowName != "" {
+		if whereClause == "" {
+			whereClause = " WHERE"
+		} else {
+			whereClause += " AND"
+		}
+		// Join with workflows table to filter by workflow name
+		baseQuery += " INNER JOIN workflows w ON j.workflow_id = w.id"
+		countQuery += " INNER JOIN workflows w ON j.workflow_id = w.id"
+		whereClause += fmt.Sprintf(" w.name ILIKE $%d", argIndex)
+		searchTerm := "%" + opts.WorkflowName + "%"
+		args = append(args, searchTerm)
+		argIndex++
+	}
+
+	// Complete queries
+	query := baseQuery + whereClause + " ORDER BY j.created_at DESC LIMIT $%d OFFSET $%d"
+	query = fmt.Sprintf(query, argIndex, argIndex+1)
+	args = append(args, opts.PageSize, (opts.Page-1)*opts.PageSize)
+
+	countQuery += whereClause
+	if whereClause != "" {
+		countQuery += ";"
+	}
+
+	// Get total count
+	var totalCount int
+	err := s.db.QueryRow(countQuery, args[:argIndex-1]...).Scan(&totalCount)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	// Get jobs
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
@@ -132,21 +206,21 @@ func (s *PGStore) ListJobs() ([]*Job, error) {
 		}
 
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		if err = json.Unmarshal(inputDataJSON, &job.InputData); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal input data: %w", err)
+			return nil, 0, fmt.Errorf("failed to unmarshal input data: %w", err)
 		}
 
 		if err = json.Unmarshal(outputDataJSON, &job.OutputData); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal output data: %w", err)
+			return nil, 0, fmt.Errorf("failed to unmarshal output data: %w", err)
 		}
 
 		jobs = append(jobs, job)
 	}
 
-	return jobs, rows.Err()
+	return jobs, totalCount, rows.Err()
 }
 
 // UpdateJob updates an existing job

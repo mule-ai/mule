@@ -896,7 +896,46 @@ func (h *apiHandler) reorderWorkflowStepsHandler(w http.ResponseWriter, r *http.
 
 // Job management handlers
 func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
-	jobs, err := h.jobStore.ListJobs()
+	// Parse query parameters
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("page_size")
+	statusStr := r.URL.Query().Get("status")
+	searchStr := r.URL.Query().Get("search")
+	workflowNameStr := r.URL.Query().Get("workflow_name")
+
+	// Parse page
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	// Parse page size
+	pageSize := 20
+	if pageSizeStr != "" {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 100 {
+			pageSize = ps
+		}
+	}
+
+	// Parse status
+	var status *job.Status
+	if statusStr != "" {
+		s := job.Status(statusStr)
+		status = &s
+	}
+
+	// Create options
+	opts := job.ListJobsOptions{
+		Page:         page,
+		PageSize:     pageSize,
+		Status:       status,
+		Search:       searchStr,
+		WorkflowName: workflowNameStr,
+	}
+
+	jobs, totalCount, err := h.jobStore.ListJobs(opts)
 	if err != nil {
 		api.HandleError(w, fmt.Errorf("failed to list jobs: %w", err), http.StatusInternalServerError)
 		return
@@ -930,8 +969,23 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 		enrichedJobs[i] = enrichedJob
 	}
 
+	// Create response with pagination info
+	response := struct {
+		Jobs       []*job.EnhancedJob `json:"jobs"`
+		Page       int                `json:"page"`
+		PageSize   int                `json:"page_size"`
+		TotalCount int                `json:"total_count"`
+		TotalPages int                `json:"total_pages"`
+	}{
+		Jobs:       enrichedJobs,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalCount: totalCount,
+		TotalPages: (totalCount + pageSize - 1) / pageSize,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(enrichedJobs)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {

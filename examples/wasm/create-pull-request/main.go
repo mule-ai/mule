@@ -1,4 +1,4 @@
-//go:build ignore
+//go:build wasm || ignore
 
 package main
 
@@ -6,36 +6,45 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"unsafe"
 )
 
+// TODO:
+// Pull the owner and repo from the issue URL that can be passed
+// in from the github-comment wasm
+
 // Input represents the input structure received from Mule runtime
 type Input struct {
-	Prompt string `json:"prompt"` // JSON string containing the actual input (issue and comment)
-	Token  string `json:"token"`  // GitHub token for authentication
+	Token  string           `json:"token"`          // GitHub token for authentication
+	Owner  string           `json:"owner"`          // Repository owner
+	Repo   string           `json:"repo"`           // Repository name
+	Title  string           `json:"title"`          // Pull request title
+	Head   string           `json:"head,omitempty"` // Head branch name (optional, will be detected if not provided)
+	Base   string           `json:"base"`           // Base branch name
+	Prompt PullRequestInput `json:"prompt"`
+	Body   string           `json:"body,omitempty"`  // Pull request description (optional)
+	Draft  bool             `json:"draft,omitempty"` // Whether to create as draft (optional)
 }
 
-// CommentInput represents the actual input structure for posting a comment
-type CommentInput struct {
-	Issue   string `json:"issue"`   // GitHub issue API URL
-	Comment string `json:"comment"` // Comment content to post
-	PRTitle string `json:"title"`   // Pull Request Title (optional)
-	PRBody  string `json:"body"`    // Pull Request Body (optional)
+type PullRequestInput struct {
+	PRTitle string `json:"title"` // Pull Request Title
+	PRBody  string `json:"body"`  // Pull Request Body
 }
 
-// CommentPayload represents the payload for creating a comment
-type CommentPayload struct {
-	Body string `json:"body"` // Comment body
+// PullRequestPayload represents the payload for creating a pull request
+type PullRequestPayload struct {
+	Title string `json:"title"`
+	Head  string `json:"head"`
+	Base  string `json:"base"`
+	Body  string `json:"body,omitempty"`
+	Draft bool   `json:"draft,omitempty"`
 }
 
 // Output represents the output structure
 type Output struct {
 	Success bool   `json:"success"`
+	Message string `json:"message"`
 	URL     string `json:"url,omitempty"`
-	PRTitle string `json:"title"`
-	PRBody  string `json:"body"`
 	Error   string `json:"error,omitempty"`
 }
 
@@ -55,6 +64,11 @@ func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
 //go:wasmimport env get_last_response_status
 func get_last_response_status() uint32
 
+// get_current_branch gets the current git branch name
+//
+//go:wasmimport env get_current_branch
+func get_current_branch(basePathPtr, basePathSize, bufferPtr, bufferSize uint32) uint32
+
 // stringToPtr converts a string to a pointer and size for WASM host functions
 func stringToPtr(s string) (uintptr, uintptr) {
 	bytes := []byte(s)
@@ -70,145 +84,114 @@ func mapToJSONPtr(m interface{}) (uintptr, uintptr, error) {
 	return uintptr(unsafe.Pointer(&bytes[0])), uintptr(len(bytes)), nil
 }
 
-// isValidGitHubAPIURL validates that the URL follows GitHub API format
-func isValidGitHubAPIURL(url string) bool {
-	// Check if it starts with the GitHub API base URL
-	const githubAPIBase = "https://api.github.com/repos/"
-	if !strings.HasPrefix(url, githubAPIBase) {
-		return false
+// getCurrentBranchName gets the current git branch name from the working directory
+func getCurrentBranchName() (string, error) {
+	// First, try to get the required buffer size
+	requiredSize := get_current_branch(0, 0, 0, 0)
+	if requiredSize == 0 {
+		return "", fmt.Errorf("failed to get branch name size")
 	}
 
-	// Check if it has the expected path structure
-	// Expected: https://api.github.com/repos/{owner}/{repo}/issues/{number}
-	path := url[len(githubAPIBase):]
-	parts := strings.Split(path, "/")
+	// Allocate buffer
+	buffer := make([]byte, requiredSize)
+	bufferPtr := uint32(uintptr(unsafe.Pointer(&buffer[0])))
+	bufferSize := uint32(len(buffer))
 
-	// Should have at least owner/repo/issues/number (4 parts)
-	if len(parts) < 4 {
-		return false
+	// Get the branch name
+	errorCode := get_current_branch(0, 0, bufferPtr, bufferSize)
+	if errorCode != 0 {
+		return "", fmt.Errorf("failed to get current branch name: error code 0x%x", errorCode)
 	}
 
-	// Check if the third-to-last part is "issues"
-	if parts[len(parts)-2] != "issues" {
-		return false
-	}
-
-	// Check if the last part (issue number) is numeric
-	issueNumber := parts[len(parts)-1]
-	if _, err := strconv.Atoi(issueNumber); err != nil {
-		return false
-	}
-
-	return true
+	return string(buffer[:requiredSize]), nil
 }
 
 func main() {
 	// Read input from stdin
-	// We need to handle the case where prompt might be a JSON object instead of a string
-	rawInput := json.RawMessage{}
+	var input Input
 	decoder := json.NewDecoder(os.Stdin)
-	if err := decoder.Decode(&rawInput); err != nil {
+	if err := decoder.Decode(&input); err != nil {
 		outputError(fmt.Errorf("failed to decode input: %w", err))
 		return
 	}
 
-	// Extract the prompt field
-	var inputMap map[string]interface{}
-	if err := json.Unmarshal(rawInput, &inputMap); err != nil {
-		outputError(fmt.Errorf("failed to decode input map: %w", err))
-		return
-	}
-
-	// Get the prompt field
-	var commentInput CommentInput
-	if promptVal, ok := inputMap["prompt"]; ok {
-		// Handle both cases: prompt as JSON string and prompt as JSON object
-		switch v := promptVal.(type) {
-		case string:
-			// Original case: prompt is a JSON string
-			if err := json.Unmarshal([]byte(v), &commentInput); err != nil {
-				outputError(fmt.Errorf("failed to decode prompt string: %w", err))
-				return
-			}
-		case map[string]interface{}:
-			// New case: prompt is already a JSON object
-			if issue, ok := v["issue"].(string); ok {
-				commentInput.Issue = issue
-			}
-			if comment, ok := v["comment"].(string); ok {
-				commentInput.Comment = comment
-			}
-			if comment, ok := v["title"].(string); ok {
-				commentInput.PRTitle = comment
-			}
-			if comment, ok := v["body"].(string); ok {
-				commentInput.PRBody = comment
-			}
-		default:
-			outputError(fmt.Errorf("unexpected prompt type: %T", v))
-			return
-		}
-	} else {
-		outputError(fmt.Errorf("missing prompt field in input"))
-		return
-	}
-
-	// Extract token if present
-	var token string
-	if tokenVal, ok := inputMap["token"]; ok {
-		if tokenStr, ok := tokenVal.(string); ok {
-			token = tokenStr
-		}
-	}
-
-	// Validate input
-	if commentInput.Issue == "" {
-		outputError(fmt.Errorf("issue URL is required"))
-		return
-	}
-
-	// Basic validation of GitHub API URL format
-	if !isValidGitHubAPIURL(commentInput.Issue) {
-		outputError(fmt.Errorf("invalid GitHub API URL format. Expected format: https://api.github.com/repos/{owner}/{repo}/issues/{number}"))
-		return
-	}
-
-	// Special case: if comment is empty string, exit successfully without posting
-	if commentInput.Comment == "" {
-		output := Output{
-			Success: true,
-		}
-
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(output); err != nil {
-			outputError(fmt.Errorf("failed to encode output: %w", err))
-			return
-		}
-		return
-	}
-
-	// Validate token
-	if token == "" {
+	// Validate required input
+	if input.Token == "" {
 		outputError(fmt.Errorf("GitHub token is required"))
 		return
 	}
 
-	// Prepare the comment payload
-	payload := CommentPayload{
-		Body: commentInput.Comment,
+	if input.Owner == "" {
+		outputError(fmt.Errorf("repository owner is required"))
+		return
+	}
+
+	if input.Repo == "" {
+		outputError(fmt.Errorf("repository name is required"))
+		return
+	}
+
+	if input.Title == "" && input.Prompt.PRTitle == "" {
+		outputError(fmt.Errorf("pull request title is required"))
+		return
+	}
+
+	if input.Base == "" {
+		outputError(fmt.Errorf("base branch is required"))
+		return
+	}
+
+	// If head branch is not provided, try to detect it automatically
+	headBranch := input.Head
+	if headBranch == "" {
+		var err error
+		headBranch, err = getCurrentBranchName()
+		if err != nil {
+			outputError(fmt.Errorf("failed to detect current branch name: %w", err))
+			return
+		}
+
+		if headBranch == "" {
+			outputError(fmt.Errorf("could not detect current branch name"))
+			return
+		}
+
+		// Log that we're using the detected branch name
+		fmt.Fprintf(os.Stderr, "Using detected branch name: %s\n", headBranch)
+	}
+
+	// set title and body
+	var body, title string
+	if input.Prompt.PRBody != "" {
+		body = input.Prompt.PRBody
+	} else {
+		body = input.Body
+	}
+	if input.Prompt.PRTitle != "" {
+		title = input.Prompt.PRTitle
+	} else {
+		title = input.Title
+	}
+
+	// Prepare the pull request payload
+	payload := PullRequestPayload{
+		Title: title,
+		Head:  headBranch,
+		Base:  input.Base,
+		Body:  body,
+		Draft: input.Draft,
 	}
 
 	// Convert payload to JSON
 	payloadPtr, payloadSize, err := mapToJSONPtr(payload)
 	if err != nil {
-		outputError(fmt.Errorf("failed to marshal comment payload: %w", err))
+		outputError(fmt.Errorf("failed to marshal pull request payload: %w", err))
 		return
 	}
 
 	// Prepare headers
 	headers := map[string]string{
-		"Authorization": fmt.Sprintf("Bearer %s", token),
+		"Authorization": fmt.Sprintf("Bearer %s", input.Token),
 		"Accept":        "application/vnd.github.v3+json",
 		"Content-Type":  "application/json",
 		"User-Agent":    "Mule-AI-WASM-Module",
@@ -224,7 +207,8 @@ func main() {
 	// Prepare HTTP request parameters
 	method := "POST"
 	methodPtr, methodSize := stringToPtr(method)
-	urlPtr, urlSize := stringToPtr(commentInput.Issue + "/comments")
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls", input.Owner, input.Repo)
+	urlPtr, urlSize := stringToPtr(url)
 
 	// Make HTTP request using the enhanced host function
 	errorCode := http_request_with_headers(
@@ -276,9 +260,8 @@ func main() {
 		// Success
 		output := Output{
 			Success: true,
+			Message: "Pull request created successfully",
 			URL:     responseURL,
-			PRTitle: commentInput.PRTitle,
-			PRBody:  commentInput.PRBody,
 		}
 
 		encoder := json.NewEncoder(os.Stdout)
@@ -345,6 +328,23 @@ func getErrorMessage(errorCode uintptr) string {
 		return "failed to write response data to memory"
 	case 0xFFFFFFF7:
 		return "failed to read header name from memory"
+	// Error codes for get_current_branch function
+	case 0xFFFFFFE1:
+		return "failed to read base path from memory (branch detection)"
+	case 0xFFFFFFE2:
+		return "failed to get current working directory (branch detection)"
+	case 0xFFFFFFE3:
+		return "base path is not a git repository (branch detection)"
+	case 0xFFFFFFE4:
+		return "failed to get current branch name"
+	case 0xFFFFFFE5:
+		return "buffer too small for branch name"
+	case 0xFFFFFFE6:
+		return "failed to write branch name to memory"
+	case 0xFFFFFFE7:
+		return "base path is not accessible (branch detection)"
+	case 0xFFFFFFE8:
+		return "empty branch name detected (branch detection)"
 	default:
 		return fmt.Sprintf("unknown error (code: 0x%x)", errorCode)
 	}

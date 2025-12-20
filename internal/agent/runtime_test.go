@@ -355,8 +355,8 @@ func (m *MockJobStore) GetJob(id string) (*job.Job, error) {
 	return nil, job.ErrJobNotFound
 }
 
-func (m *MockJobStore) ListJobs() ([]*job.Job, error) {
-	return nil, nil
+func (m *MockJobStore) ListJobs(opts job.ListJobsOptions) ([]*job.Job, int, error) {
+	return nil, 0, nil
 }
 
 func (m *MockJobStore) UpdateJob(job *job.Job) error {

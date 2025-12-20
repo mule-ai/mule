@@ -2,7 +2,7 @@
 
 # Build the WASM module
 build:
-	GOOS=wasip1 GOARCH=wasm go build -o main.wasm .
+	GOOS=wasip1 GOARCH=wasm go build -o main.wasm main.go
 
 # Clean build artifacts
 clean:

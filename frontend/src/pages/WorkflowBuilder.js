@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Button, Form, Modal, ListGroup } from 'react-bootstrap';
+import { Card, Row, Col, Button, Form, Modal, ListGroup, Toast, ToastContainer } from 'react-bootstrap';
 import {
   DndContext,
   closestCenter,
@@ -32,6 +32,8 @@ function WorkflowBuilder() {
   const [newWorkflow, setNewWorkflow] = useState({ name: '', description: '' });
   const [newStep, setNewStep] = useState({ type: 'agent', agent_id: '', wasm_module_id: '', config: {} });
   const [loading, setLoading] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   // Set up drag and drop sensors
   const sensors = useSensors(
@@ -46,6 +48,20 @@ function WorkflowBuilder() {
     loadAgents();
     loadWasmModules();
   }, []);
+
+  const copyToClipboard = (text, message) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setToastMessage(message);
+      setShowToast(true);
+      // Auto-hide toast after 2 seconds
+      setTimeout(() => setShowToast(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy: ', err);
+      setToastMessage('Failed to copy to clipboard');
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2000);
+    });
+  };
 
   const loadWorkflows = async () => {
     try {
@@ -298,16 +314,29 @@ function WorkflowBuilder() {
                       <h6>{workflow.name}</h6>
                       <small className="text-muted">{workflow.description}</small>
                     </div>
-                    <Button
-                      variant="outline-danger"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteWorkflow(workflow);
-                      }}
-                    >
-                      Delete
-                    </Button>
+                    <div>
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        className="me-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToClipboard(workflow.id, `Copied workflow ID: ${workflow.id.substring(0, 8)}...`);
+                        }}
+                      >
+                        Copy ID
+                      </Button>
+                      <Button
+                        variant="outline-danger"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteWorkflow(workflow);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </ListGroup.Item>
                 ))}
               </ListGroup>
@@ -576,6 +605,11 @@ function WorkflowBuilder() {
           </Button>
         </Modal.Footer>
       </Modal>
+      <ToastContainer position="bottom-end" className="p-3" style={{ zIndex: 1050 }}>
+        <Toast show={showToast} onClose={() => setShowToast(false)} delay={2000} autohide>
+          <Toast.Body>{toastMessage}</Toast.Body>
+        </Toast>
+      </ToastContainer>
     </div>
   );
 }

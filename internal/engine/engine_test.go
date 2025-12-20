@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -315,12 +317,57 @@ func (m *MockJobStore) GetJob(id string) (*job.Job, error) {
 	return nil, job.ErrJobNotFound
 }
 
-func (m *MockJobStore) ListJobs() ([]*job.Job, error) {
+func (m *MockJobStore) ListJobs(opts job.ListJobsOptions) ([]*job.Job, int, error) {
 	var jobs []*job.Job
 	for _, j := range m.Jobs {
-		jobs = append(jobs, j)
+		// Apply status filter if provided
+		if opts.Status != nil && j.Status != *opts.Status {
+			continue
+		}
+
+		// Apply search filter if provided
+		if opts.Search != "" {
+			// Simple search in workflow_id and working_directory
+			if j.WorkflowID != "" && strings.Contains(strings.ToLower(j.WorkflowID), strings.ToLower(opts.Search)) {
+				jobs = append(jobs, j)
+			} else if j.WorkingDirectory != "" && strings.Contains(strings.ToLower(j.WorkingDirectory), strings.ToLower(opts.Search)) {
+				jobs = append(jobs, j)
+			}
+		} else {
+			jobs = append(jobs, j)
+		}
 	}
-	return jobs, nil
+
+	// Sort by created_at descending (newest first)
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].CreatedAt.After(jobs[j].CreatedAt)
+	})
+
+	// Apply pagination
+	totalCount := len(jobs)
+
+	// Set default values if not provided
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	if opts.PageSize <= 0 {
+		opts.PageSize = 20
+	}
+
+	startIndex := (opts.Page - 1) * opts.PageSize
+	endIndex := startIndex + opts.PageSize
+
+	if startIndex >= totalCount {
+		return []*job.Job{}, totalCount, nil
+	}
+
+	if endIndex > totalCount {
+		endIndex = totalCount
+	}
+
+	pagedJobs := jobs[startIndex:endIndex]
+
+	return pagedJobs, totalCount, nil
 }
 
 func (m *MockJobStore) UpdateJob(j *job.Job) error {

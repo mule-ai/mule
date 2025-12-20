@@ -1,0 +1,9 @@
+{
+  "token": "your-github-token",
+  "owner": "octocat",
+  "repo": "Hello-World",
+  "title": "Test pull request from WASM module",
+  "base": "main",
+  "body": "This is a test pull request created by the Mule AI WASM module.",
+  "draft": false
+}
