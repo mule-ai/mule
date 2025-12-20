@@ -195,9 +195,14 @@ func (h *WebSocketHandler) handleConnection(client *WebSocketClient) {
 	}()
 
 	// Set read deadline and pong handler
-	_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	if err := client.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		log.Printf("Error setting read deadline: %v", err)
+		return
+	}
 	client.conn.SetPongHandler(func(string) error {
-		_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := client.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			return err
+		}
 		return nil
 	})
 
@@ -205,24 +210,35 @@ func (h *WebSocketHandler) handleConnection(client *WebSocketClient) {
 	ticker := time.NewTicker(54 * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				// Don't log ping errors as they're expected when the connection is closed
-				return
-			}
-
-		default:
-			// Read messages from client (for now, we don't expect any)
-			_, _, err := client.conn.ReadMessage()
-			if err != nil {
-				// Don't log close errors as they're expected when the connection is closed
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("WebSocket error: %v", err)
+	// Goroutine to send pings
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				if err := client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					log.Printf("Error setting write deadline: %v", err)
+					return
 				}
+				if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					// Don't log ping errors as they're expected when the connection is closed
+					return
+				}
+			case <-client.closed:
 				return
 			}
+		}
+	}()
+
+	// Main read loop
+	for {
+		// Read messages from client (for now, we don't expect any)
+		_, _, err := client.conn.ReadMessage()
+		if err != nil {
+			// Don't log close errors as they're expected when the connection is closed
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("WebSocket error: %v", err)
+			}
+			return
 		}
 	}
 }
