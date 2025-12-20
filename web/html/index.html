@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mule Event Service</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #6366f1;
+            --secondary-color: #8b5cf6;
+            --dark-bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+        }
+        
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            padding-top: 20px;
+        }
+        
+        .navbar {
+            background-color: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            margin-bottom: 20px;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            background-color: #4f46e5;
+            border-color: #4f46e5;
+        }
+        
+        .btn-secondary {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        
+        .btn-secondary:hover {
+            background-color: #7c3aed;
+            border-color: #7c3aed;
+        }
+        
+        .form-control, .form-select {
+            background-color: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            color: var(--text-primary);
+        }
+        
+        .form-control:focus, .form-select:focus {
+            background-color: rgba(30, 41, 59, 0.7);
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.25rem rgba(99, 102, 241, 0.25);
+            color: var(--text-primary);
+        }
+        
+        .form-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .section-divider {
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+            margin: 2rem 0;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-active {
+            background-color: #10b981;
+        }
+        
+        .status-inactive {
+            background-color: #ef4444;
+        }
+        
+        .status-pending {
+            background-color: #f59e0b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1 class="display-4">Mule Event Service</h1>
+                <p class="lead">Bridge external webhooks to Mule workflows through Supabase</p>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Overview</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>This service acts as a bridge between external webhooks and Mule workflows:</p>
+                        <ol>
+                            <li>External services send webhooks to your Supabase instance</li>
+                            <li>Supabase stores and processes these events</li>
+                            <li>This service listens for new events in Supabase</li>
+                            <li>Events are transformed and sent to the Mule API for processing</li>
+                        </ol>
+                        <p>To get started, configure your Supabase instance and Mule API connection.</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Quick Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-start">
+                            <a href="/config" class="btn btn-primary me-md-2">Configure Service</a>
+                            <a href="/events" class="btn btn-outline-primary">View Events</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Service Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="status-indicator status-active"></div>
+                            <div>
+                                <h6 class="mb-0">Event Service</h6>
+                                <small class="text-muted">Running</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="status-indicator status-inactive"></div>
+                            <div>
+                                <h6 class="mb-0">Supabase Connection</h6>
+                                <small class="text-muted">Not configured</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="status-indicator status-inactive"></div>
+                            <div>
+                                <h6 class="mb-0">Terraform Deployed</h6>
+                                <small class="text-muted">Not deployed</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <div class="status-indicator status-inactive"></div>
+                            <div>
+                                <h6 class="mb-0">Mule API Access</h6>
+                                <small class="text-muted">Not configured</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Documentation</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><a href="#" class="text-decoration-none">Getting Started Guide</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none">Configuration Reference</a></li>
+                            <li class="mb-2"><a href="#" class="text-decoration-none">Troubleshooting</a></li>
+                            <li><a href="#" class="text-decoration-none">API Documentation</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
