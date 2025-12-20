@@ -18,22 +18,52 @@ type WebSocketMessage struct {
 	Timestamp time.Time   `json:"timestamp"`
 }
 
+// WebSocketClient wraps a websocket.Conn with exactly-once closure semantics
+type WebSocketClient struct {
+	conn      *websocket.Conn
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+// NewWebSocketClient creates a new WebSocket client wrapper
+func NewWebSocketClient(conn *websocket.Conn) *WebSocketClient {
+	return &WebSocketClient{
+		conn:   conn,
+		closed: make(chan struct{}),
+	}
+}
+
+// Close closes the WebSocket connection exactly once
+func (wsc *WebSocketClient) Close() error {
+	var err error
+	wsc.closeOnce.Do(func() {
+		err = wsc.conn.Close()
+		close(wsc.closed)
+	})
+	return err
+}
+
+// Conn returns the underlying websocket connection
+func (wsc *WebSocketClient) Conn() *websocket.Conn {
+	return wsc.conn
+}
+
 // WebSocketHub manages WebSocket connections
 type WebSocketHub struct {
-	clients    map[*websocket.Conn]bool
+	clients    map[*WebSocketClient]bool
 	broadcast  chan WebSocketMessage
-	register   chan *websocket.Conn
-	unregister chan *websocket.Conn
+	register   chan *WebSocketClient
+	unregister chan *WebSocketClient
 	mutex      sync.RWMutex
 }
 
 // NewWebSocketHub creates a new WebSocket hub
 func NewWebSocketHub() *WebSocketHub {
 	return &WebSocketHub{
-		clients:    make(map[*websocket.Conn]bool),
+		clients:    make(map[*WebSocketClient]bool),
 		broadcast:  make(chan WebSocketMessage, 256),
-		register:   make(chan *websocket.Conn),
-		unregister: make(chan *websocket.Conn),
+		register:   make(chan *WebSocketClient),
+		unregister: make(chan *WebSocketClient),
 	}
 }
 
@@ -52,7 +82,10 @@ func (h *WebSocketHub) Run() {
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				if closeErr := client.Close(); closeErr != nil {
-					log.Printf("Error closing WebSocket client: %v", closeErr)
+					// Don't log "use of closed network connection" errors as they're expected
+					if closeErr.Error() != "use of closed network connection" {
+						log.Printf("Error closing WebSocket client: %v", closeErr)
+					}
 				}
 			}
 			h.mutex.Unlock()
@@ -66,14 +99,20 @@ func (h *WebSocketHub) Run() {
 					// Write timeout, remove client
 					delete(h.clients, client)
 					if closeErr := client.Close(); closeErr != nil {
-						log.Printf("Error closing WebSocket client: %v", closeErr)
+						// Don't log "use of closed network connection" errors as they're expected
+						if closeErr.Error() != "use of closed network connection" {
+							log.Printf("Error closing WebSocket client: %v", closeErr)
+						}
 					}
 				default:
-					if err := client.WriteJSON(message); err != nil {
+					if err := client.Conn().WriteJSON(message); err != nil {
 						log.Printf("Error writing to WebSocket client: %v", err)
 						delete(h.clients, client)
 						if closeErr := client.Close(); closeErr != nil {
-							log.Printf("Error closing WebSocket client: %v", closeErr)
+							// Don't log "use of closed network connection" errors as they're expected
+							if closeErr.Error() != "use of closed network connection" {
+								log.Printf("Error closing WebSocket client: %v", closeErr)
+							}
 						}
 					}
 				}
@@ -135,27 +174,30 @@ func NewWebSocketHandler(hub *WebSocketHub) *WebSocketHandler {
 func (h *WebSocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
+		// Don't log upgrade errors as they're often client-side issues
 		return
 	}
 
+	// Create a new WebSocket client wrapper
+	client := NewWebSocketClient(conn)
+
 	// Register the new client
-	h.hub.register <- conn
+	h.hub.register <- client
 
 	// Start a goroutine to handle this connection
-	go h.handleConnection(conn)
+	go h.handleConnection(client)
 }
 
 // handleConnection handles a WebSocket connection
-func (h *WebSocketHandler) handleConnection(conn *websocket.Conn) {
+func (h *WebSocketHandler) handleConnection(client *WebSocketClient) {
 	defer func() {
-		h.hub.unregister <- conn
+		h.hub.unregister <- client
 	}()
 
 	// Set read deadline and pong handler
-	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	conn.SetPongHandler(func(string) error {
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	client.conn.SetPongHandler(func(string) error {
+		_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 
@@ -166,15 +208,16 @@ func (h *WebSocketHandler) handleConnection(conn *websocket.Conn) {
 	for {
 		select {
 		case <-ticker.C:
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("WebSocket ping error: %v", err)
+			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				// Don't log ping errors as they're expected when the connection is closed
 				return
 			}
 
 		default:
 			// Read messages from client (for now, we don't expect any)
-			_, _, err := conn.ReadMessage()
+			_, _, err := client.conn.ReadMessage()
 			if err != nil {
+				// Don't log close errors as they're expected when the connection is closed
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					log.Printf("WebSocket error: %v", err)
 				}

@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -52,6 +54,12 @@ func CORSMiddleware(next http.Handler) http.Handler {
 func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip timeout for WebSocket connections
+			if r.Header.Get("Upgrade") == "websocket" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			timeout := getTimeoutFunc()
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
@@ -167,6 +175,26 @@ type responseWriter struct {
 	http.ResponseWriter
 	statusCode    int
 	headerWritten bool
+}
+
+// Check if the underlying ResponseWriter implements http.Hijacker
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	// Check if the underlying ResponseWriter implements Hijacker
+	hj, ok := rw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+
+	// Delegate to the underlying Hijacker
+	conn, buf, err := hj.Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Mark that headers have been written since we're hijacking the connection
+	rw.headerWritten = true
+
+	return conn, buf, nil
 }
 
 func (rw *responseWriter) WriteHeader(code int) {

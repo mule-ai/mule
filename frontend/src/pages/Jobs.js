@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Row, Col, Badge, Button, Modal, ListGroup, Form, Pagination, InputGroup, FormControl } from 'react-bootstrap';
 import { jobsAPI } from '../services/api';
+import webSocketService from '../services/websocket';
 
 function Jobs() {
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [jobSteps, setJobSteps] = useState([]);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [pollingFallback, setPollingFallback] = useState(false);
 
   // Pagination and filtering state
   const [currentPage, setCurrentPage] = useState(1);
@@ -37,11 +40,91 @@ function Jobs() {
   }, [currentPage, pageSize, statusFilter, searchQuery, workflowNameFilter]);
 
   useEffect(() => {
+    // Load initial jobs
     loadJobs();
-    // Poll for updates every 5 seconds
-    const interval = setInterval(loadJobs, 5000);
-    return () => clearInterval(interval);
-  }, [currentPage, pageSize, statusFilter, searchQuery, workflowNameFilter, loadJobs]);
+
+    // Set up polling interval variable
+    let pollingInterval = null;
+
+    // Set up WebSocket connection
+    const handleJobUpdate = (jobData) => {
+      // Update the specific job in the list if it's in the current view
+      setJobs(prevJobs => {
+        const jobIndex = prevJobs.findIndex(job => job.id === jobData.id);
+        if (jobIndex >= 0) {
+          // Replace the updated job
+          const updatedJobs = [...prevJobs];
+          updatedJobs[jobIndex] = jobData;
+          return updatedJobs;
+        }
+        // If job is not in current list, we might want to refresh the list
+        // But only if it matches current filters
+        return prevJobs;
+      });
+
+      // If job details modal is open for this job, refresh its data
+      if (selectedJob && selectedJob.id === jobData.id) {
+        setSelectedJob(jobData);
+      }
+    };
+
+    const handleConnectionStatus = (status) => {
+      setWsConnected(status.connected);
+
+      // If disconnected and not already using polling fallback, set it up
+      if (!status.connected && !pollingFallback) {
+        console.log('WebSocket disconnected, setting up polling fallback');
+        setPollingFallback(true);
+      }
+
+      // If reconnected and using polling fallback, disable it
+      if (status.connected && pollingFallback) {
+        console.log('WebSocket reconnected, disabling polling fallback');
+        setPollingFallback(false);
+      }
+    };
+
+    // Set up polling fallback if WebSocket fails
+    if (pollingFallback) {
+      console.log('Setting up polling fallback with 30s interval');
+      pollingInterval = setInterval(loadJobs, 30000); // 30 seconds
+    }
+
+    // Connect to WebSocket
+    webSocketService.connect();
+
+    // Subscribe to job updates
+    webSocketService.subscribe('job_update', handleJobUpdate);
+    webSocketService.subscribe('connection_status', handleConnectionStatus);
+
+    // Cleanup function
+    return () => {
+      // Unsubscribe from WebSocket events
+      webSocketService.unsubscribe('job_update', handleJobUpdate);
+      webSocketService.unsubscribe('connection_status', handleConnectionStatus);
+
+      // Clear polling interval if it exists
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [currentPage, pageSize, statusFilter, searchQuery, workflowNameFilter, loadJobs, selectedJob, pollingFallback]);
+
+  // Separate useEffect to handle polling fallback changes
+  useEffect(() => {
+    let pollingInterval = null;
+
+    if (pollingFallback) {
+      console.log('Setting up polling fallback with 30s interval');
+      pollingInterval = setInterval(loadJobs, 30000); // 30 seconds
+    }
+
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingFallback, loadJobs]);
 
   const loadJobSteps = async (jobId) => {
     try {
@@ -224,7 +307,16 @@ function Jobs() {
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h1>Jobs</h1>
+        <div>
+          <h1>Jobs</h1>
+          {wsConnected ? (
+            <span className="badge bg-success">Live Updates</span>
+          ) : pollingFallback ? (
+            <span className="badge bg-warning text-dark">Polling Mode (30s)</span>
+          ) : (
+            <span className="badge bg-secondary">Connecting...</span>
+          )}
+        </div>
         <Button variant="outline-primary" onClick={loadJobs}>
           Refresh
         </Button>

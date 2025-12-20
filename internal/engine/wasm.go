@@ -722,8 +722,105 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			// Return 0 for success
 			return 0
 		}).
-		Export("execute_target").
-		// Add host function for retrieving the last operation result
+		Export("execute_target")
+
+	// Add host function for retrieving the last operation result
+	// Function to execute bash commands
+	hostModule.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, module api.Module, commandPtr, commandSize, workingDirPtr, workingDirSize uint32) uint32 {
+			// Check for context cancellation before processing
+			select {
+			case <-ctx.Done():
+				// Return error code for cancellation
+				return 0xFFFFFFFA
+			default:
+			}
+
+			// Get memory from the module
+			mem := module.Memory()
+
+			// Read command from WASM memory
+			command, err := readStringFromMemory(ctx, mem, commandPtr, commandSize)
+			if err != nil {
+				log.Printf("Failed to read command from WASM memory: %v", err)
+				// Return error code (0xFFFFFFF0)
+				return 0xFFFFFFF0
+			}
+
+			// Read working directory from WASM memory (optional, can be empty)
+			var workingDir string
+			if workingDirSize > 0 {
+				workingDir, err = readStringFromMemory(ctx, mem, workingDirPtr, workingDirSize)
+				if err != nil {
+					log.Printf("Failed to read working directory from WASM memory: %v", err)
+					// Return error code (0xFFFFFFF1)
+					return 0xFFFFFFF1
+				}
+			}
+
+			// If no working directory provided, use current working directory
+			if workingDir == "" {
+				workingDir = e.workingDir
+				if workingDir == "" {
+					cwd, err := os.Getwd()
+					if err != nil {
+						log.Printf("Failed to get current working directory: %v", err)
+						// Return error code (0xFFFFFFF2)
+						return 0xFFFFFFF2
+					}
+					workingDir = cwd
+				}
+			}
+
+			// Validate that working directory exists
+			if _, err := os.Stat(workingDir); os.IsNotExist(err) {
+				log.Printf("Working directory does not exist: %s", workingDir)
+				// Return error code (0xFFFFFFF3)
+				return 0xFFFFFFF3
+			}
+
+			// Execute bash command with 30-second timeout
+			timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+
+			cmd := exec.CommandContext(timeoutCtx, "bash", "-c", command)
+			cmd.Dir = workingDir
+
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				// Check for timeout
+				if timeoutCtx.Err() == context.DeadlineExceeded {
+					log.Printf("Command timed out after 30 seconds: %s", command)
+					// Return error code (0xFFFFFFF4) for timeout
+					return 0xFFFFFFF4
+				}
+
+				// Store error output for retrieval by the module
+				key := fmt.Sprintf("%p", module)
+				e.lastOperationResult[key] = output
+
+				// Get the actual exit code if available
+				exitCode := 1 // Default error code
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					exitCode = exitErr.ExitCode()
+				}
+				e.lastOperationStatus[key] = exitCode
+
+				log.Printf("Command failed: %v, output: %s", err, string(output))
+				// Return error code (0xFFFFFFF5) for command failure
+				return 0xFFFFFFF5
+			}
+
+			// Store successful result for retrieval by the module
+			key := fmt.Sprintf("%p", module)
+			e.lastOperationResult[key] = output
+			e.lastOperationStatus[key] = 0 // Success status
+
+			log.Printf("Command executed successfully: %s", command)
+			// Return 0 for success
+			return 0
+		}).
+		Export("execute_bash_command").
 		// Function to get the last operation result
 		NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, module api.Module, bufferPtr uint32, bufferSize uint32) uint32 {

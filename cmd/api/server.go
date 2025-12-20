@@ -128,12 +128,29 @@ func main() {
 
 	router := mux.NewRouter()
 
-	// Apply middleware
+	// Apply basic middleware first
 	router.Use(api.LoggingMiddleware)
 	router.Use(api.RecoveryMiddleware)
 	router.Use(api.CORSMiddleware)
 
-	// Create a function to get timeout from database
+	// Register WebSocket endpoint BEFORE timeout middleware
+	// This is critical because the timeout middleware wraps the ResponseWriter
+	// in a way that doesn't implement http.Hijacker, which is required for WebSocket upgrades
+	wsHub := api.NewWebSocketHub()
+	go wsHub.Run()
+
+	// Initialize job streamer
+	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
+	jobStreamer := api.NewJobStreamer(wsHub, jobStore)
+	jobStreamer.Start()
+	defer jobStreamer.Stop()
+
+	// WebSocket endpoint - registered BEFORE timeout middleware
+	wsHandler := api.NewWebSocketHandler(wsHub)
+	router.Handle("/ws", wsHandler)
+
+	// NOW apply the timeout middleware - it won't affect the WebSocket endpoint
+	// because it was registered before this middleware
 	getTimeoutFunc := func() time.Duration {
 		// Default workflow timeout of 5 minutes
 		defaultWorkflowTimeout := 5 * time.Minute
@@ -180,18 +197,9 @@ func main() {
 
 	handler := NewAPIHandler(db)
 
-	// Initialize WebSocket hub
-	wsHub := api.NewWebSocketHub()
-	go wsHub.Run()
-
-	// Initialize job streamer
-	jobStore := job.NewPGStore(db.DB) // Access the underlying *sql.DB
-	jobStreamer := api.NewJobStreamer(wsHub, jobStore)
-	jobStreamer.Start()
-	defer jobStreamer.Stop()
-
 	// Start the workflow engine
-	ctx := context.Background()
+	var ctx context.Context
+	ctx = context.Background()
 	if err := handler.workflowEngine.Start(ctx); err != nil {
 		log.Fatalf("Failed to start workflow engine: %v", err)
 	}
@@ -266,10 +274,6 @@ func main() {
 	router.HandleFunc("/api/v1/wasm-modules/{id}", handler.deleteWasmModuleHandler).Methods("DELETE")
 	router.HandleFunc("/api/v1/wasm-modules/{id}/source", handler.getWasmModuleSourceHandler).Methods("GET")
 	router.HandleFunc("/api/v1/wasm-modules/{id}/source", handler.updateWasmModuleSourceHandler).Methods("PUT")
-
-	// WebSocket endpoint
-	wsHandler := api.NewWebSocketHandler(wsHub)
-	router.Handle("/ws", wsHandler)
 
 	// Serve frontend (catch-all route)
 	router.PathPrefix("/").Handler(frontend.ServeStatic())

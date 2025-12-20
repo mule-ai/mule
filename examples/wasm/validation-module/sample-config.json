@@ -1,0 +1,6 @@
+{
+  "validation_command": "go test ./...",
+  "corrective_workflow_id": "fix-test-failures",
+  "max_attempts": 3,
+  "working_directory": "."
+}
