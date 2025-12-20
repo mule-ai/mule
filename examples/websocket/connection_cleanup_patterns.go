@@ -1,6 +1,6 @@
 // Package websocket_examples demonstrates robust WebSocket connection management
 // focusing on proper cleanup patterns to avoid "use of closed network connection" errors.
-package main
+package websocket_examples
 
 import (
 	"errors"
@@ -37,8 +37,10 @@ func (rwc *RobustWebSocketConn) WriteMessage(messageType int, data []byte) error
 	}
 
 	// Set write deadline to prevent hanging
-	rwc.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	
+	if err := rwc.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+
 	return rwc.conn.WriteMessage(messageType, data)
 }
 
@@ -52,8 +54,10 @@ func (rwc *RobustWebSocketConn) ReadMessage() (int, []byte, error) {
 	}
 
 	// Set read deadline to prevent hanging
-	rwc.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	
+	if err := rwc.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		return 0, nil, err
+	}
+
 	return rwc.conn.ReadMessage()
 }
 
@@ -101,11 +105,13 @@ func (cm *ConnectionManager) AddConnection(conn *RobustWebSocketConn) {
 func (cm *ConnectionManager) RemoveConnection(conn *RobustWebSocketConn) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	if _, exists := cm.connections[conn]; exists {
 		delete(cm.connections, conn)
 		// Ensure connection is closed exactly once
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			log.Printf("Error closing connection: %v", err)
+		}
 	}
 }
 
@@ -134,9 +140,11 @@ func (cm *ConnectionManager) Broadcast(message []byte) {
 func (cm *ConnectionManager) CloseAll() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	for conn := range cm.connections {
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			log.Printf("Error closing connection: %v", err)
+		}
 	}
 	cm.connections = make(map[*RobustWebSocketConn]bool)
 }
@@ -168,9 +176,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, connManager *Connec
 	}()
 	
 	// Set up ping/pong handlers for connection health
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		log.Printf("Error setting read deadline: %v", err)
+	}
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			return err
+		}
 		return nil
 	})
 	
@@ -197,12 +209,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, connManager *Connec
 	}()
 	
 	// Main message loop
-	for {
-		// Check if connection is closed before reading
-		if robustConn.IsClosed() {
-			break
-		}
-		
+	for !robustConn.IsClosed() {
 		messageType, message, err := robustConn.ReadMessage()
 		if err != nil {
 			// Handle different types of errors appropriately
@@ -216,7 +223,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, connManager *Connec
 			}
 			break
 		}
-		
+
 		// Echo message back to client
 		if messageType == websocket.TextMessage {
 			if err := robustConn.WriteMessage(websocket.TextMessage, message); err != nil {
@@ -227,22 +234,24 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, connManager *Connec
 	}
 }
 
-func main() {
+func RunConnectionCleanupExample() {
 	// Create connection manager
 	connManager := NewConnectionManager()
 	defer connManager.CloseAll()
-	
+
 	// Set up HTTP handler
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWebSocket(w, r, connManager)
 	})
-	
+
 	// Simple health check endpoint
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		if _, err := w.Write([]byte("OK")); err != nil {
+			log.Printf("Error writing health check response: %v", err)
+		}
 	})
-	
+
 	log.Println("Starting WebSocket server on :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatal("Server failed to start:", err)

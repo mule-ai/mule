@@ -1,4 +1,4 @@
-package main
+package websocket_examples
 
 import (
 	"bytes"
@@ -58,13 +58,19 @@ type Client struct {
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
-		c.Close()
+		if err := c.Close(); err != nil {
+			log.Printf("Error closing connection: %v", err)
+		}
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { 
-		c.conn.SetReadDeadline(time.Now().Add(pongWait)); 
-		return nil 
+	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		log.Printf("Error setting read deadline: %v", err)
+	}
+	c.conn.SetPongHandler(func(string) error {
+		if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+			return err
+		}
+		return nil
 	})
 	
 	for {
@@ -75,7 +81,7 @@ func (c *Client) readPump() {
 			}
 			break
 		}
-		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
+		message = bytes.TrimSpace(bytes.ReplaceAll(message, newline, space))
 		c.hub.broadcast <- message
 	}
 }
@@ -89,16 +95,22 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.Close()
+		if err := c.Close(); err != nil {
+			log.Printf("Error closing connection: %v", err)
+		}
 	}()
-	
+
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("Error setting write deadline: %v", err)
+			}
 			if !ok {
 				// The hub closed the channel.
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					log.Printf("Error writing close message: %v", err)
+				}
 				return
 			}
 
@@ -106,21 +118,31 @@ func (c *Client) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			if _, err := w.Write(message); err != nil {
+				log.Printf("Error writing message: %v", err)
+			}
 
 			// Add queued chat messages to the current websocket message.
 			n := len(c.send)
 			for i := 0; i < n; i++ {
-				w.Write(newline)
-				w.Write(<-c.send)
+				if _, err := w.Write(newline); err != nil {
+					log.Printf("Error writing newline: %v", err)
+				}
+				if _, err := w.Write(<-c.send); err != nil {
+					log.Printf("Error writing queued message: %v", err)
+				}
 			}
 
 			if err := w.Close(); err != nil {
+				log.Printf("Error closing writer: %v", err)
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("Error setting write deadline: %v", err)
+			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("Error writing ping message: %v", err)
 				return
 			}
 		case <-c.closed:
@@ -201,7 +223,9 @@ func (h *Hub) run() {
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				// Ensure client connection is closed
-				client.Close()
+				if err := client.Close(); err != nil {
+					log.Printf("Error closing client connection: %v", err)
+				}
 			}
 			h.mu.Unlock()
 		case message := <-h.broadcast:
@@ -212,7 +236,9 @@ func (h *Hub) run() {
 				default:
 					// Client is gone, close and unregister
 					close(client.send)
-					client.Close()
+					if err := client.Close(); err != nil {
+						log.Printf("Error closing client connection: %v", err)
+					}
 					delete(h.clients, client)
 				}
 			}
@@ -221,16 +247,18 @@ func (h *Hub) run() {
 	}
 }
 
-func main() {
+func RunRobustWebsocketExample() {
 	hub := newHub()
 	go hub.run()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Serve the HTML template
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		homeTemplate.Execute(w, "ws://"+r.Host+"/ws")
+		if err := homeTemplate.Execute(w, "ws://"+r.Host+"/ws"); err != nil {
+			log.Printf("Error executing template: %v", err)
+		}
 	})
-	
+
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		serveWs(hub, w, r)
 	})
