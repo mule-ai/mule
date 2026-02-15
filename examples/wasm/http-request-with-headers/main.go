@@ -1,5 +1,3 @@
-//go:build ignore
-
 package main
 
 import (
@@ -19,9 +17,10 @@ type InputData struct {
 
 // OutputData represents the output structure from the WASM module
 type OutputData struct {
-	Result  string                 `json:"result"`            // Result message
-	Data    map[string]interface{} `json:"data,omitempty"`    // Response data
-	Success bool                   `json:"success"`           // Success flag
+	Result     string                 `json:"result"`               // Result message
+	Data       interface{}            `json:"data,omitempty"`       // Response data
+	StatusCode int                    `json:"status_code,omitempty"` // HTTP status code
+	Success    bool                   `json:"success"`              // Success flag
 }
 
 // http_request_with_headers is the enhanced host function for making HTTP requests with headers
@@ -29,6 +28,14 @@ type OutputData struct {
 //
 //go:wasmimport env http_request_with_headers
 func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uint32
+
+// get_last_response_body gets the last response body
+//go:wasmimport env get_last_response_body
+func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
+
+// get_last_response_status gets the last response status code
+//go:wasmimport env get_last_response_status
+func get_last_response_status() uint32
 
 func main() {
 	// Read input from stdin
@@ -105,35 +112,60 @@ func processInput(input InputData) OutputData {
 	// Call the enhanced host function to make HTTP request with headers
 	resultCode := http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize)
 
-	var result string
-	switch resultCode {
-	case 0:
-		result = fmt.Sprintf("Successfully made HTTP request to: %s", urlStr)
-	case 0xFFFFFFFF:
-		result = "Error: Failed to read URL from memory"
-	case 0xFFFFFFFE:
-		result = "Error: URL not allowed"
-	case 0xFFFFFFFD:
-		result = "Error: Failed to create HTTP request"
-	case 0xFFFFFFFC:
-		result = "Error: Failed to make HTTP request"
-	case 0xFFFFFFF0:
-		result = "Error: Failed to read HTTP method from memory"
-	case 0xFFFFFFF1:
-		result = "Error: Failed to read HTTP body from memory"
-	case 0xFFFFFFF2:
-		result = "Error: Failed to read HTTP headers from memory"
-	case 0xFFFFFFF3:
-		result = "Error: Failed to parse HTTP headers JSON"
-	default:
-		result = fmt.Sprintf("Error: Unknown error code: 0x%08X", resultCode)
-	}
-
-	return OutputData{
-		Result:  result,
+	// Initialize output data
+	output := OutputData{
 		Data:    input.Data,
 		Success: resultCode == 0,
 	}
+
+	// Handle the result
+	switch resultCode {
+	case 0:
+		// Success - get response data
+		statusCode := int(get_last_response_status())
+		output.StatusCode = statusCode
+		output.Result = fmt.Sprintf("Successfully made HTTP request to: %s", urlStr)
+
+		// Try to get response body
+		// Allocate a buffer for the response body (100KB max)
+		buffer := make([]byte, 102400)
+		bufferPtr := uintptr(unsafe.Pointer(&buffer[0]))
+		bufferSize := uintptr(len(buffer))
+
+		bodySizeRet := get_last_response_body(bufferPtr, bufferSize)
+		if bodySizeRet > 0 && bodySizeRet <= uint32(len(buffer)) {
+			// Parse response body as JSON
+			responseBody := string(buffer[:bodySizeRet])
+			var responseData interface{}
+			if err := json.Unmarshal([]byte(responseBody), &responseData); err != nil {
+				// If not valid JSON, store as raw string
+				responseData = map[string]interface{}{
+					"raw_response": responseBody,
+				}
+			}
+			output.Data = responseData
+		}
+	case 0xFFFFFFFF:
+		output.Result = "Error: Failed to read URL from memory"
+	case 0xFFFFFFFE:
+		output.Result = "Error: URL not allowed"
+	case 0xFFFFFFFD:
+		output.Result = "Error: Failed to create HTTP request"
+	case 0xFFFFFFFC:
+		output.Result = "Error: Failed to make HTTP request"
+	case 0xFFFFFFF0:
+		output.Result = "Error: Failed to read HTTP method from memory"
+	case 0xFFFFFFF1:
+		output.Result = "Error: Failed to read HTTP body from memory"
+	case 0xFFFFFFF2:
+		output.Result = "Error: Failed to read HTTP headers from memory"
+	case 0xFFFFFFF3:
+		output.Result = "Error: Failed to parse HTTP headers JSON"
+	default:
+		output.Result = fmt.Sprintf("Error: Unknown error code: 0x%08X", resultCode)
+	}
+
+	return output
 }
 
 func outputResult(result OutputData) {

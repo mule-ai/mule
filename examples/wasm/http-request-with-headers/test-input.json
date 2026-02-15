@@ -1,0 +1,8 @@
+{
+  "url": "https://httpbin.org/get",
+  "method": "GET",
+  "headers": {
+    "Authorization": "Bearer token123",
+    "Custom-Header": "custom-value"
+  }
+}

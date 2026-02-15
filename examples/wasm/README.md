@@ -10,7 +10,7 @@ This directory contains various examples of WASM modules that can be used with M
 4. [pirate-transform](pirate-transform/) - Transforms text to pirate speak
 5. [prompt-sender](prompt-sender/) - Sends prompts to AI agents
 6. [http-request](http-request/) - Makes HTTP requests
-7. [http-request-with-headers](http-request-with-headers/) - Makes HTTP requests with custom headers
+7. [http-request-with-headers](http-request-with-headers/) - Makes HTTP requests with custom headers and returns response data
 8. [github-issues](github-issues/) - Interacts with GitHub Issues API
 9. [issues-to-markdown](issues-to-markdown/) - Converts GitHub issues to formatted markdown
 10. [execute-target](execute-target/) - Executes targets in workflows

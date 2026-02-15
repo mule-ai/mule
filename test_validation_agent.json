@@ -1,0 +1,9 @@
+{
+  "model": "agent/validation-solver",
+  "messages": [
+    {
+      "role": "user",
+      "content": "I'm getting a Go dependency error: 'go: cannot find main module; see 'go help modules''. How can I fix this?"
+    }
+  ]
+}

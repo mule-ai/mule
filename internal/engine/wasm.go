@@ -1598,6 +1598,9 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 			// Get memory from the module
 			mem := module.Memory()
 
+			// Use the working directory from the executor
+			workingDir := e.workingDir
+
 			// If buffer size is 0, return the required size without writing data
 			if bufferSize == 0 {
 				return uint32(len(workingDir))

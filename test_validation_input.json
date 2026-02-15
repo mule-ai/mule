@@ -1,0 +1,16 @@
+{
+  "validation_context": {
+    "corrective_workflow_id": "fix-validations",
+    "original_prompt": "go test ./...",
+    "remaining_attempts": 3,
+    "validation_output": {
+      "attempt": 1,
+      "command": "go test ./...",
+      "error": "command execution failed",
+      "exit_code": 1,
+      "stderr": "",
+      "stdout": "# test-project/cmd/api\ncmd/api/handlers.go:14:2: github.com/chenzhuoyu/base64x@v0.0.0-20230717121745-296ad8d36708: missing go.sum entry for go.mod file; to add it:\n\tgo mod download github.com/chenzhuoyu/base64x\n# test-project/internal/supabase\ninternal/supabase/client.go:8:2: missing go.sum entry for module providing package github.com/jackc/pgx/v5/pgxpool (imported by test-project/internal/supabase); to add:\n\tgo get test-project/internal/supabase\n# test-project/cmd/event-service\ncmd/event-service/main.go:14:2: missing go.sum entry for module providing package github.com/gin-gonic/gin (imported by test-project/cmd/event-service); to add:\n\tgo get test-project/cmd/event-service\nFAIL\ttest-project/cmd/api [setup failed]\nFAIL\ttest-project/internal/supabase [setup failed]\nFAIL\ttest-project/cmd/event-service [setup failed]"
+    },
+    "working_directory": "/tmp/test-go-project"
+  }
+}

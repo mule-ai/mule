@@ -1,6 +1,6 @@
 # HTTP Request with Headers WASM Module Example
 
-This example demonstrates how to make HTTP requests from a WASM module using the enhanced `http_request_with_headers` host function that supports passing HTTP headers.
+This example demonstrates how to make HTTP requests from a WASM module using the enhanced `http_request_with_headers` host function that supports passing HTTP headers, and how to retrieve and return the response data.
 
 ## Overview
 
@@ -8,12 +8,17 @@ The module shows how to:
 1. Read input data from stdin
 2. Make HTTP requests using the `http_request_with_headers` host function
 3. Pass HTTP headers to the request
-4. Handle responses and errors properly
-5. Output results in JSON format
+4. Retrieve response data using `get_last_response_body` and `get_last_response_status`
+5. Parse and return the response data in JSON format
+6. Handle responses and errors properly
 
-## Host Function Interface
+## Host Functions
 
-The module uses the `http_request_with_headers` host function which has the following signature:
+The module uses several host functions:
+
+### `http_request_with_headers`
+
+Makes an HTTP request with headers:
 
 ```go
 func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uintptr
@@ -32,9 +37,35 @@ Parameters:
 Returns:
 - `errorCode`: Error code (0 for success, non-zero for errors)
 
+### `get_last_response_body`
+
+Retrieves the body of the last HTTP response:
+
+```go
+func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
+```
+
+Parameters:
+- `bufferPtr` - Pointer to buffer where response body will be written
+- `bufferSize` - Size of the buffer
+
+Returns:
+- Number of bytes written to buffer, or required buffer size if `bufferSize` is 0
+
+### `get_last_response_status`
+
+Retrieves the status code of the last HTTP response:
+
+```go
+func get_last_response_status() uint32
+```
+
+Returns:
+- HTTP status code (e.g., 200, 404, 500)
+
 ## Error Codes
 
-The host function returns the following error codes:
+The `http_request_with_headers` function returns the following error codes:
 - `0x00000000`: Success
 - `0xFFFFFFFF`: Failed to read URL from memory
 - `0xFFFFFFFE`: URL not allowed
@@ -49,12 +80,6 @@ The host function returns the following error codes:
 - `0xFFFFFFF5`: Buffer too small for response data
 - `0xFFFFFFF6`: Failed to write response data to memory
 - `0xFFFFFFF7`: Failed to read header name from memory
-
-## Current Limitations
-
-In this proof-of-concept implementation:
-1. The WASM module needs to allocate sufficient buffer space to receive response data
-2. A full implementation would include more comprehensive response handling functions
 
 ## Usage
 
@@ -77,4 +102,7 @@ To compile and use this module:
    }
    ```
 
-3. The module will make an HTTP request with the specified headers and return the success status
+3. The module will make an HTTP request with the specified headers and return:
+   - Success status
+   - HTTP status code
+   - Response data (parsed as JSON if possible, otherwise as raw text)

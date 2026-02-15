@@ -1,0 +1,6 @@
+{
+  "validation_command": "./validate.sh",
+  "corrective_workflow_id": "fix-workflow",
+  "max_attempts": 3,
+  "working_directory": "/tmp/validation-test"
+}
