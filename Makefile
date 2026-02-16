@@ -44,7 +44,7 @@ all: clean fmt test build
 
 # Clean build artifacts
 clean:
-	rm -f ./cmd/mule/bin/mule
+	rm -f ./cmd/api/bin/mule
 
 # Build backend
 build:
@@ -52,7 +52,7 @@ build:
 
 # Run the application
 run: all
-	./cmd/mule/bin/mule
+	./cmd/api/bin/mule
 
 # WASM Inspector - Simple inspection
 .PHONY: wasm-inspect

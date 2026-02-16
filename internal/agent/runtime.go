@@ -2,59 +2,24 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/memory"
-	"google.golang.org/adk/model"
-	"google.golang.org/adk/session"
-	"google.golang.org/adk/tool"
-	"google.golang.org/genai"
-
+	"github.com/mule-ai/mule/internal/agent/pirc"
 	"github.com/mule-ai/mule/internal/primitive"
-	"github.com/mule-ai/mule/internal/provider"
 	"github.com/mule-ai/mule/internal/tools"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
-// Runtime handles agent execution using Google ADK
+// Runtime handles agent execution using pi RPC
 type Runtime struct {
 	store          primitive.PrimitiveStore
 	workflowEngine WorkflowEngine
 	jobStore       job.JobStore
 	toolRegistry   *tools.Registry
-	genaiClient    GenAIClient // Mockable interface for testing
-}
-
-// GenAIClient interface for mocking Google GenAI client
-type GenAIClient interface {
-	Models() ModelsClient
-}
-
-// ModelsClient interface for the Models service
-type ModelsClient interface {
-	GenerateContent(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error)
-}
-
-// realGenAIClient wraps the actual genai.Client to implement our GenAIClient interface
-type realGenAIClient struct {
-	client *genai.Client
-}
-
-func (r *realGenAIClient) Models() ModelsClient {
-	return &realModelsClient{models: r.client.Models}
-}
-
-// realModelsClient wraps the actual genai.Models to implement our ModelsClient interface
-type realModelsClient struct {
-	models *genai.Models
-}
-
-func (r *realModelsClient) GenerateContent(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
-	return r.models.GenerateContent(ctx, modelName, contents, config)
 }
 
 // NewRuntime creates a new agent runtime
@@ -77,11 +42,6 @@ func NewRuntime(store primitive.PrimitiveStore, jobStore job.JobStore) *Runtime 
 // SetWorkflowEngine sets the workflow engine for the runtime
 func (r *Runtime) SetWorkflowEngine(engine WorkflowEngine) {
 	r.workflowEngine = engine
-}
-
-// SetGenAIClient sets the GenAI client for testing
-func (r *Runtime) SetGenAIClient(client GenAIClient) {
-	r.genaiClient = client
 }
 
 // ReinitializeMemoryTool reinitializes the memory tool when configuration changes
@@ -167,12 +127,6 @@ func (r *Runtime) ExecuteAgentWithWorkingDir(ctx context.Context, req *ChatCompl
 		return nil, fmt.Errorf("agent '%s' not found", agentName)
 	}
 
-	// Get provider information
-	provider, err := r.store.GetProvider(ctx, targetAgent.ProviderID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get provider: %w", err)
-	}
-
 	// Concatenate messages for the prompt
 	var prompt strings.Builder
 	for _, msg := range req.Messages {
@@ -181,127 +135,161 @@ func (r *Runtime) ExecuteAgentWithWorkingDir(ctx context.Context, req *ChatCompl
 		}
 	}
 
-	// Determine which execution method to use based on provider configuration
-	fmt.Printf("DEBUG: Provider APIBaseURL = '%s'\n", provider.APIBaseURL)
-	fmt.Printf("DEBUG: Contains googleapis.com = %v\n", strings.Contains(provider.APIBaseURL, "googleapis.com"))
-	fmt.Printf("DEBUG: Is empty = %v\n", provider.APIBaseURL == "")
-
-	if provider.APIBaseURL != "" && !strings.Contains(provider.APIBaseURL, "googleapis.com") {
-		// Use custom LLM provider for non-Google endpoints
-		fmt.Printf("DEBUG: Routing to executeWithCustomLLM\n")
-		return r.executeWithCustomLLMWithWorkingDir(ctx, targetAgent, provider, req.Messages, workingDir)
-	} else {
-		// Use Google ADK for Google endpoints
-		fmt.Printf("DEBUG: Routing to executeWithGoogleADK\n")
-		return r.executeWithGoogleADK(ctx, targetAgent, provider, prompt.String())
-	}
+	// Use pi for agent execution
+	return r.executeWithPI(ctx, targetAgent, prompt.String(), workingDir)
 }
 
-// executeWithGoogleADK executes the agent using Google's Generative AI
-func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Agent, provider *primitive.Provider, prompt string) (*ChatCompletionResponse, error) {
-	var client GenAIClient
-	var err error
+// executeWithPI executes the agent using pi RPC
+func (r *Runtime) executeWithPI(ctx context.Context, agent *primitive.Agent, prompt string, workingDir string) (*ChatCompletionResponse, error) {
+	// Get provider information for API key and provider name
+	var apiKey string
+	var providerName string
 
-	// Use injected client if available (for testing), otherwise create a new one
-	if r.genaiClient != nil {
-		client = r.genaiClient
-	} else {
-		// Create client config
-		config := &genai.ClientConfig{
-			APIKey: string(provider.APIKeyEnc),
-		}
-
-		// If a custom endpoint is provided, use it
-		if provider.APIBaseURL != "" {
-			config.HTTPOptions = genai.HTTPOptions{
-				BaseURL: provider.APIBaseURL,
-			}
-		}
-
-		// Log the endpoint being used for debugging
-		fmt.Printf("Creating genai client with endpoint: %s and API key: %s\n", provider.APIBaseURL, string(provider.APIKeyEnc))
-
-		genaiClient, err := genai.NewClient(ctx, config)
+	if agent.ProviderID != "" {
+		provider, err := r.store.GetProvider(ctx, agent.ProviderID)
 		if err != nil {
-			fmt.Printf("Failed to create genai client: %v\n", err)
-			return nil, fmt.Errorf("failed to create genai client: %w", err)
+			log.Printf("Warning: failed to get provider: %v, proceeding without API key", err)
+		} else {
+			apiKey = string(provider.APIKeyEnc)
+			// Use the provider name as configured by the user
+			providerName = provider.Name
 		}
-		client = &realGenAIClient{client: genaiClient}
 	}
 
-	// Get the model - use the model from agent config if available, otherwise use a default
-	modelName := "gemini-1.5-flash"
-	if agent.ModelID != "" {
-		modelName = agent.ModelID
-	}
-	fmt.Printf("Using model: %s\n", modelName)
-
-	// Generate content
-	fmt.Printf("Generating content with model: %s and prompt: %s\n", modelName, prompt)
-
-	// Create generate config with system instruction if provided
-	genConfig := &genai.GenerateContentConfig{}
-	if agent.SystemPrompt != "" {
-		genConfig.SystemInstruction = genai.NewContentFromText(agent.SystemPrompt, genai.RoleUser)
-	}
-
-	// Get tools for this agent and add them to the request
-	adkTools, err := r.getAgentTools(ctx, agent.ID)
-	if err == nil && len(adkTools) > 0 {
-		// Convert ADK tools to FunctionDeclarations for Google GenAI SDK
-		funcDecls := make([]*genai.FunctionDeclaration, 0, len(adkTools))
-		for _, t := range adkTools {
-			funcDecl := &genai.FunctionDeclaration{
-				Name:        t.Name(),
-				Description: t.Description(),
-				// Note: Parameters would need to be extracted from the tool's schema
-			}
-			funcDecls = append(funcDecls, funcDecl)
-		}
-
-		// Add tools to the config
-		genConfig.Tools = []*genai.Tool{
-			{
-				FunctionDeclarations: funcDecls,
-			},
-		}
-		fmt.Printf("Added %d tools to the request\n", len(adkTools))
-	}
-
-	// Check for context cancellation before making the API call
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
-	default:
-	}
-
-	resp, err := client.Models().GenerateContent(ctx, modelName, []*genai.Content{{Parts: []*genai.Part{{Text: prompt}}}}, genConfig)
+	// Get skills for this agent
+	skills, err := r.store.GetAgentSkills(ctx, agent.ID)
 	if err != nil {
-		fmt.Printf("Failed to generate content: %v\n", err)
-		// Print the type of error for debugging
-		fmt.Printf("Error type: %T\n", err)
+		log.Printf("Warning: failed to get agent skills: %v", err)
+	}
 
-		// Check if this is a context cancellation error
+	// Extract skill paths
+	var skillPaths []string
+	for _, skill := range skills {
+		if skill.Enabled {
+			skillPaths = append(skillPaths, skill.Path)
+		}
+	}
+
+	// Get thinking level from pi_config
+	thinkingLevel := "medium" // Default
+	if agent.PIConfig != nil {
+		if level, ok := agent.PIConfig["thinking_level"].(string); ok && level != "" {
+			thinkingLevel = level
+		}
+	}
+
+	// Build pi config
+	cfg := pirc.Config{
+		Provider:         providerName,
+		ModelID:          agent.ModelID,
+		APIKey:           apiKey,
+		SystemPrompt:     agent.SystemPrompt,
+		ThinkingLevel:    thinkingLevel,
+		Skills:           skillPaths,
+		WorkingDirectory: workingDir,
+		Timeout:          5 * time.Minute, // Default timeout
+	}
+
+	// Create and start the pi bridge
+	bridge := pirc.NewBridge(cfg)
+	if err := bridge.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start pi: %w", err)
+	}
+
+	// Ensure bridge is stopped when done
+	defer func() {
+		if err := bridge.Stop(); err != nil {
+			log.Printf("Error stopping pi bridge: %v", err)
+		}
+	}()
+
+	// Send the prompt
+	if err := bridge.Prompt(ctx, prompt); err != nil {
+		return nil, fmt.Errorf("failed to send prompt to pi: %w", err)
+	}
+
+	// Collect events and build response
+	var responseText string
+	timeout := time.After(cfg.Timeout)
+
+	// Use a labeled break to exit when agent finishes
+AgentLoop:
+	for {
 		select {
 		case <-ctx.Done():
+			// Try to abort gracefully first
+			if err := bridge.Abort(ctx); err != nil {
+				log.Printf("failed to abort bridge: %v", err)
+			}
 			return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
-		default:
+		case <-timeout:
+			if err := bridge.Abort(ctx); err != nil {
+				log.Printf("failed to abort bridge: %v", err)
+			}
+			return nil, fmt.Errorf("agent execution timed out after %v", cfg.Timeout)
+		case event := <-bridge.Events():
+			// Only extract response from agent_end - ignore intermediate events
+			// to avoid duplicate content
+			switch event.Type {
+			case "agent_end":
+				// Extract text from messages array in the event
+				// Use Messages field (plural) which contains the full messages array
+				msgData := event.Messages
+				if len(msgData) > 0 {
+				}
+				if len(msgData) > 0 {
+					// The JSON is an array of messages like [{"role":"user","content":[...]},{"role":"assistant","content":[{...}]}]
+					// NOT an object with a "messages" field
+					var messages []struct {
+						Role    string `json:"role"`
+						Content []struct {
+							Type string `json:"type"`
+							Text string `json:"text"`
+						} `json:"content"`
+					}
+					if err := json.Unmarshal(msgData, &messages); err == nil {
+						for _, m := range messages {
+							if m.Role == "assistant" {
+								for _, c := range m.Content {
+									if c.Type == "text" {
+										responseText += c.Text
+									}
+								}
+							}
+						}
+					}
+				}
+				// Agent has finished - we can break out and return the response
+				break AgentLoop
+			case "error":
+				// Error occurred
+				var errMsg struct {
+					Error string `json:"error"`
+				}
+				if len(event.Message) > 0 {
+					if err := json.Unmarshal(event.Message, &errMsg); err != nil {
+						log.Printf("failed to parse error message: %v", err)
+					}
+				}
+				if errMsg.Error != "" {
+					return nil, fmt.Errorf("pi error: %s", errMsg.Error)
+				}
+			default:
+				// Ignore other events for now - we only care about agent_end
+			}
+		case err := <-bridge.Errors():
+			return nil, fmt.Errorf("pi process error: %w", err)
 		}
 
-		return nil, fmt.Errorf("failed to generate content: %w", err)
-	}
+		// Check if bridge is still running
+		if !bridge.IsRunning() {
+			break
+		}
 
-	if len(resp.Candidates) == 0 {
-		return nil, fmt.Errorf("no response generated")
-	}
-
-	// Extract the response text
-	var responseText string
-	if resp.Candidates[0].Content != nil {
-		for _, part := range resp.Candidates[0].Content.Parts {
-			if part.Text != "" {
-				responseText += part.Text
-			}
+		// If we have response text and bridge is still running, wait a bit more
+		// for the final response (since events come in sequence)
+		if responseText != "" && !bridge.IsRunning() {
+			break
 		}
 	}
 
@@ -331,349 +319,10 @@ func (r *Runtime) executeWithGoogleADK(ctx context.Context, agent *primitive.Age
 	return chatResp, nil
 }
 
-// executeWithCustomLLMWithWorkingDir executes the agent using a custom LLM provider with working directory context
-func (r *Runtime) executeWithCustomLLMWithWorkingDir(ctx context.Context, agent *primitive.Agent, providerInfo *primitive.Provider, messages []ChatCompletionMessage, workingDir string) (*ChatCompletionResponse, error) {
-	// Create custom LLM provider config
-	config := provider.ProviderConfig{
-		Name:    providerInfo.Name,
-		APIKey:  string(providerInfo.APIKeyEnc),
-		BaseURL: providerInfo.APIBaseURL,
-		Model:   agent.ModelID,
-	}
-
-	// Create the custom LLM provider
-	customProvider := provider.NewCustomLLMProvider(config)
-
-	// Convert ChatCompletionMessage array to ADK genai.Content format
-	contents := make([]*genai.Content, 0, len(messages))
-	for _, msg := range messages {
-		content := &genai.Content{
-			Role: msg.Role,
-			Parts: []*genai.Part{
-				{Text: msg.Content},
-			},
-		}
-		contents = append(contents, content)
-	}
-
-	// Create LLM request
-	llmReq := &model.LLMRequest{
-		Model:    agent.ModelID,
-		Contents: contents,
-	}
-
-	// Add system prompt if available
-	if agent.SystemPrompt != "" {
-		// Create a system message as the first content
-		systemContent := &genai.Content{
-			Role: "system",
-			Parts: []*genai.Part{
-				{Text: agent.SystemPrompt},
-			},
-		}
-		// Insert system content at the beginning
-		llmReq.Contents = append([]*genai.Content{systemContent}, llmReq.Contents...)
-	}
-
-	// Get tools for this agent and add them to the request
-	adkTools, err := r.getAgentTools(ctx, agent.ID)
-	if err == nil && len(adkTools) > 0 {
-		// Initialize tools map and config if needed
-		if llmReq.Tools == nil {
-			llmReq.Tools = make(map[string]interface{})
-		}
-		if llmReq.Config == nil {
-			llmReq.Config = &genai.GenerateContentConfig{}
-		}
-
-		// Add each tool to the request
-		for _, t := range adkTools {
-			// If this is a filesystem tool and we have a working directory, set it
-			if fsTool, ok := t.(*tools.FilesystemToolAdapter); ok && workingDir != "" {
-				fsTool.GetTool().(*tools.FilesystemTool).SetWorkingDirectory(workingDir)
-			}
-			// If this is a bash tool and we have a working directory, set it
-			if toolWithWorkingDir, ok := t.(interface{ GetTool() interface{} }); ok {
-				if bashTool, ok := toolWithWorkingDir.GetTool().(*tools.BashTool); ok && workingDir != "" {
-					bashTool.SetWorkingDirectory(workingDir)
-				}
-			}
-
-			llmReq.Tools[t.Name()] = t
-
-			// Add function declaration to config
-			if funcTool, ok := t.(interface {
-				Declaration() *genai.FunctionDeclaration
-			}); ok {
-				decl := funcTool.Declaration()
-				if decl != nil {
-					// Find or create the function declarations tool
-					var funcTool *genai.Tool
-					for _, tool := range llmReq.Config.Tools {
-						if tool != nil && tool.FunctionDeclarations != nil {
-							funcTool = tool
-							break
-						}
-					}
-					if funcTool == nil {
-						llmReq.Config.Tools = append(llmReq.Config.Tools, &genai.Tool{
-							FunctionDeclarations: []*genai.FunctionDeclaration{decl},
-						})
-					} else {
-						funcTool.FunctionDeclarations = append(funcTool.FunctionDeclarations, decl)
-					}
-				}
-			}
-		}
-		fmt.Printf("Added %d tools to custom LLM request\n", len(adkTools))
-	} else {
-		fmt.Printf("No tools added to custom LLM request (err: %v, tools: %d)\n", err, len(adkTools))
-	}
-
-	// Generate content
-	var resp *model.LLMResponse
-	seq := customProvider.GenerateContent(ctx, llmReq, false)
-	for resp, err = range seq {
-		// Check for context cancellation
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
-		default:
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate content: %w", err)
-		}
-
-		if resp.ErrorCode != "" {
-			return nil, fmt.Errorf("LLM error [%s]: %s", resp.ErrorCode, resp.ErrorMessage)
-		}
-	}
-
-	// Handle tool execution loop using ADK's built-in tool handling
-	// Get max tool calls from settings
-	maxIterations := 10 // Default value
-	maxToolCallsSetting, err := r.store.GetSetting(ctx, "max_tool_calls")
-	if err != nil {
-		fmt.Printf("Warning: Could not get max_tool_calls setting, using default: %v\n", err)
-	} else if maxToolCallsSetting != nil && maxToolCallsSetting.Value != "" {
-		// Parse the value as integer
-		if parsedValue, parseErr := fmt.Sscanf(maxToolCallsSetting.Value, "%d", &maxIterations); parseErr == nil && parsedValue == 1 {
-			fmt.Printf("Using max_tool_calls setting: %d\n", maxIterations)
-			// If maxIterations is -1, treat it as unlimited
-			if maxIterations == -1 {
-				fmt.Println("Tool call limit set to -1, allowing unlimited tool calls")
-			}
-		} else {
-			fmt.Printf("Warning: Invalid max_tool_calls setting value '%s', using default: %d\n", maxToolCallsSetting.Value, maxIterations)
-		}
-	}
-
-	iteration := 0
-
-	// If maxIterations is -1, treat as unlimited (no iteration limit)
-	for maxIterations == -1 || iteration < maxIterations {
-		// Check for context cancellation before each iteration
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
-		default:
-		}
-
-		iteration++
-
-		// Check if response contains function calls
-		hasFunctionCalls := false
-		if resp.Content != nil {
-			for _, part := range resp.Content.Parts {
-				if part.FunctionCall != nil {
-					hasFunctionCalls = true
-					break
-				}
-			}
-		}
-
-		if !hasFunctionCalls {
-			// No function calls, we have a final response
-			break
-		}
-
-		fmt.Printf("Executing %d tool calls (iteration %d)\n", len(resp.Content.Parts), iteration)
-
-		// Add the tool call request to the conversation
-		llmReq.Contents = append(llmReq.Contents, resp.Content) // Model message with FunctionCall parts
-
-		// Execute each function call and add as separate messages
-		for _, part := range resp.Content.Parts {
-			if part.FunctionCall != nil {
-				// Check for context cancellation before executing each tool
-				select {
-				case <-ctx.Done():
-					return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
-				default:
-				}
-
-				funcCall := part.FunctionCall
-				fmt.Printf("Executing tool: %s with args: %v\n", funcCall.Name, funcCall.Args)
-
-				// Find and execute the tool using the FunctionTool interface
-				var result map[string]any
-				var err error
-
-				for _, t := range adkTools {
-					if t.Name() == funcCall.Name {
-						// If this is a filesystem tool and we have a working directory, set it
-						if fsTool, ok := t.(*tools.FilesystemToolAdapter); ok && workingDir != "" {
-							fsTool.GetTool().(*tools.FilesystemTool).SetWorkingDirectory(workingDir)
-						}
-						// If this is a bash tool and we have a working directory, set it
-						if toolWithWorkingDir, ok := t.(interface{ GetTool() interface{} }); ok {
-							if bashTool, ok := toolWithWorkingDir.GetTool().(*tools.BashTool); ok && workingDir != "" {
-								bashTool.SetWorkingDirectory(workingDir)
-							}
-						}
-
-						if funcTool, ok := t.(interface {
-							Run(ctx tool.Context, args any) (map[string]any, error)
-						}); ok {
-							// Create a simple tool context adapter
-							toolCtx := &toolContextAdapter{ctx: ctx, functionCallID: funcCall.ID}
-							result, err = funcTool.Run(toolCtx, funcCall.Args)
-						} else {
-							err = fmt.Errorf("tool %s does not implement Run method", funcCall.Name)
-						}
-						break
-					}
-				}
-
-				if err != nil {
-					fmt.Printf("Tool execution failed: %v\n", err)
-					result = map[string]any{
-						"error": err.Error(),
-					}
-				}
-
-				// Create a separate content for each tool response
-				toolResult := genai.NewPartFromFunctionResponse(funcCall.Name, result)
-				toolResult.FunctionResponse.ID = funcCall.ID
-
-				llmReq.Contents = append(llmReq.Contents, &genai.Content{
-					Role:  "tool",
-					Parts: []*genai.Part{toolResult},
-				})
-				fmt.Printf("Tool result for %s (ID: %s): %+v\n", funcCall.Name, funcCall.ID, result)
-			}
-		}
-
-		// Generate next response with tool results
-		seq = customProvider.GenerateContent(ctx, llmReq, false)
-		for resp, err = range seq {
-			// Check for context cancellation
-			select {
-			case <-ctx.Done():
-				return nil, fmt.Errorf("agent execution cancelled: %w", ctx.Err())
-			default:
-			}
-
-			if err != nil {
-				return nil, fmt.Errorf("failed to generate content after tool execution: %w", err)
-			}
-
-			if resp.ErrorCode != "" {
-				return nil, fmt.Errorf("LLM error after tool execution [%s]: %s", resp.ErrorCode, resp.ErrorMessage)
-			}
-		}
-	}
-
-	if iteration >= maxIterations {
-		fmt.Printf("Warning: Reached maximum tool execution iterations (%d)\n", maxIterations)
-	}
-
-	// Extract response text
-	var responseText string
-	if resp.Content != nil {
-		for _, part := range resp.Content.Parts {
-			if part.Text != "" {
-				responseText += part.Text
-			}
-		}
-	}
-
-	// Create OpenAI-compatible response
-	chatResp := &ChatCompletionResponse{
-		ID:      fmt.Sprintf("chatcmpl-%d", time.Now().Unix()),
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   fmt.Sprintf("agent/%s", strings.ToLower(agent.Name)),
-		Choices: []ChatCompletionChoice{
-			{
-				Index: 0,
-				Message: ChatCompletionMessage{
-					Role:    "assistant",
-					Content: responseText,
-				},
-				FinishReason: "stop",
-			},
-		},
-		Usage: ChatCompletionUsage{
-			PromptTokens:     int(getPromptTokenCount(resp)),
-			CompletionTokens: int(getCandidatesTokenCount(resp)),
-			TotalTokens:      int(getTotalTokenCount(resp)),
-		},
-	}
-
-	return chatResp, nil
-}
-
-// getPromptTokenCount safely gets the prompt token count from LLMResponse
-func getPromptTokenCount(resp *model.LLMResponse) int32 {
-	if resp.UsageMetadata != nil {
-		return resp.UsageMetadata.PromptTokenCount
-	}
-	return 0
-}
-
-// getCandidatesTokenCount safely gets the candidates token count from LLMResponse
-func getCandidatesTokenCount(resp *model.LLMResponse) int32 {
-	if resp.UsageMetadata != nil {
-		return resp.UsageMetadata.CandidatesTokenCount
-	}
-	return 0
-}
-
-// getTotalTokenCount safely gets the total token count from LLMResponse
-func getTotalTokenCount(resp *model.LLMResponse) int32 {
-	if resp.UsageMetadata != nil {
-		return resp.UsageMetadata.TotalTokenCount
-	}
-	return 0
-}
-
 // estimateTokens provides a rough token estimation (in real implementation, use proper tokenizer)
 func estimateTokens(text string) int {
 	// Rough estimation: ~4 characters per token
 	return len(text) / 4
-}
-
-// getAgentTools retrieves tools for an agent
-func (r *Runtime) getAgentTools(ctx context.Context, agentID string) ([]tool.Tool, error) {
-	// Use the store interface method to get agent tools
-	tools, err := r.store.GetAgentTools(ctx, agentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get agent tools: %w", err)
-	}
-
-	var adkTools []tool.Tool
-	for _, t := range tools {
-		// Check if it's a built-in tool by checking metadata for tool_type
-		if toolType, ok := t.Metadata["tool_type"].(string); ok {
-			if builtinTool, err := r.toolRegistry.Get(toolType); err == nil {
-				adkTools = append(adkTools, builtinTool.ToTool())
-			}
-		}
-	}
-
-	return adkTools, nil
 }
 
 // ExecuteWorkflow submits a workflow for execution and returns the job
@@ -743,84 +392,4 @@ func (r *Runtime) ExecuteWorkflowWithWorkingDir(ctx context.Context, req *ChatCo
 	}
 
 	return job, nil
-}
-
-// toolContextAdapter adapts context.Context to tool.Context
-type toolContextAdapter struct {
-	ctx            context.Context
-	functionCallID string
-}
-
-func (a *toolContextAdapter) FunctionCallID() string {
-	return a.functionCallID
-}
-
-func (a *toolContextAdapter) Actions() *session.EventActions {
-	// Return nil as we don't need actions for now
-	return nil
-}
-
-func (a *toolContextAdapter) SearchMemory(ctx context.Context, query string) (*memory.SearchResponse, error) {
-	// Return nil as we don't have memory search implemented yet
-	return nil, nil
-}
-
-func (a *toolContextAdapter) Artifacts() agent.Artifacts {
-	// Return nil as we don't have artifacts implemented yet
-	return nil
-}
-
-func (a *toolContextAdapter) State() session.State {
-	// Return nil as we don't have state implemented yet
-	return nil
-}
-
-// Implement agent.ReadonlyContext methods
-func (a *toolContextAdapter) UserContent() *genai.Content {
-	return nil
-}
-
-func (a *toolContextAdapter) InvocationID() string {
-	return ""
-}
-
-func (a *toolContextAdapter) AgentName() string {
-	return ""
-}
-
-func (a *toolContextAdapter) ReadonlyState() session.ReadonlyState {
-	return nil
-}
-
-func (a *toolContextAdapter) UserID() string {
-	return ""
-}
-
-func (a *toolContextAdapter) AppName() string {
-	return ""
-}
-
-func (a *toolContextAdapter) SessionID() string {
-	return ""
-}
-
-func (a *toolContextAdapter) Branch() string {
-	return ""
-}
-
-// Implement context.Context methods by delegating to the wrapped context
-func (a *toolContextAdapter) Deadline() (deadline time.Time, ok bool) {
-	return a.ctx.Deadline()
-}
-
-func (a *toolContextAdapter) Done() <-chan struct{} {
-	return a.ctx.Done()
-}
-
-func (a *toolContextAdapter) Err() error {
-	return a.ctx.Err()
-}
-
-func (a *toolContextAdapter) Value(key any) any {
-	return a.ctx.Value(key)
 }

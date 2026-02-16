@@ -28,14 +28,26 @@ type Tool struct {
 
 // Agent represents an AI agent.
 type Agent struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	ProviderID   string    `json:"provider_id"`
-	ModelID      string    `json:"model_id"`
-	SystemPrompt string    `json:"system_prompt"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	ProviderID   string                 `json:"provider_id"`
+	ModelID      string                 `json:"model_id"`
+	SystemPrompt string                 `json:"system_prompt"`
+	PIConfig     map[string]interface{} `json:"pi_config"` // PI-specific configuration
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+}
+
+// Skill represents a pi agent skill.
+type Skill struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Path        string    `json:"path"`
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Workflow represents an ordered sequence of steps.
@@ -150,6 +162,25 @@ type PrimitiveStore interface {
 
 	// RemoveToolFromAgent removes a tool from an agent
 	RemoveToolFromAgent(ctx context.Context, agentID, toolID string) error
+
+	// Skill methods
+	CreateSkill(ctx context.Context, s *Skill) error
+	GetSkill(ctx context.Context, id string) (*Skill, error)
+	ListSkills(ctx context.Context) ([]*Skill, error)
+	UpdateSkill(ctx context.Context, s *Skill) error
+	DeleteSkill(ctx context.Context, id string) error
+
+	// GetAgentSkills retrieves skills associated with an agent
+	GetAgentSkills(ctx context.Context, agentID string) ([]*Skill, error)
+
+	// AssignSkillToAgent assigns a skill to an agent
+	AssignSkillToAgent(ctx context.Context, agentID, skillID string) error
+
+	// RemoveSkillFromAgent removes a skill from an agent
+	RemoveSkillFromAgent(ctx context.Context, agentID, skillID string) error
+
+	// SetAgentSkills replaces all skills for an agent
+	SetAgentSkills(ctx context.Context, agentID string, skillIDs []string) error
 
 	// Memory configuration methods
 	GetMemoryConfig(ctx context.Context, id string) (*MemoryConfig, error)

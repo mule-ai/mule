@@ -93,16 +93,16 @@ make run
 ## Overview
 
 Mule consists of a few core primitives:
-* **AI providers** - connections to models, supporting OpenAI compliant APIs
-* **Tools** - extensible tools that can be provided to agents
+* **AI providers** - connections to models, supporting OpenAI-compliant APIs
+* **Skills** - pi agent skills that can be assigned to agents for specialized capabilities
 * **WASM modules** - imperative code execution using the wazero library
-* **Agents** - combination of a model, system prompt, and tools using Google ADK
+* **Agents** - AI agents powered by pi RPC runtime with configurable skills
 * **Workflow Steps** - either a call to an Agent or execution of a WASM module
 * **Workflows** - ordered execution of workflow steps
 
 ## Technology Stack
 
-* **Backend**: Go programming language with Google ADK and wazero
+* **Backend**: Go programming language with pi RPC agent runtime and wazero
 * **Frontend**: React UI compiled into the Go binary with light/dark mode support
 * **Database**: PostgreSQL for configuration storage and job queuing
 * **API**: OpenAI-compatible API as the main interface to workflows
@@ -118,19 +118,31 @@ Mule consists of a few core primitives:
 * Light and dark UI modes
 * Docker support with multi-stage builds for minimal container size
 * Health checks and graceful shutdown
-* Built-in tools including filesystem, HTTP, database, memory, and bash command execution
+* Built-in tools via pi including filesystem, bash command execution, and more
+* Agent skills system for specialized capabilities
 * WebSocket support for real-time updates
 
 ## API Endpoints
 
 ### Core API
 - `GET /health` - Health check endpoint
-- `GET /v1/models` - List available AI models
+- `GET /v1/models` - List available AI models (agents and workflows)
 - `POST /v1/chat/completions` - OpenAI-compatible chat completions
+
+### Skills API
+- `GET /api/v1/skills` - List all skills
+- `POST /api/v1/skills` - Create a new skill
+- `GET /api/v1/skills/{id}` - Get a skill by ID
+- `PUT /api/v1/skills/{id}` - Update a skill
+- `DELETE /api/v1/skills/{id}` - Delete a skill
+
+### Agent Skills API
+- `GET /api/v1/agents/{id}/skills` - Get skills assigned to an agent
+- `PUT /api/v1/agents/{id}/skills` - Assign skills to an agent
+- `DELETE /api/v1/agents/{id}/skills/{skillId}` - Remove a skill from an agent
 
 ### Management API
 - `GET/POST/PUT/DELETE /api/v1/providers` - AI provider management
-- `GET/POST/PUT/DELETE /api/v1/tools` - Tool management
 - `GET/POST/PUT/DELETE /api/v1/agents` - Agent management
 - `GET/POST/PUT/DELETE /api/v1/workflows` - Workflow management
 - `GET /api/v1/workflows/{id}/steps` - Workflow step management

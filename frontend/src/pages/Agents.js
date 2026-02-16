@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Button, Form, Modal, ListGroup } from 'react-bootstrap';
-import { agentsAPI, providersAPI, toolsAPI } from '../services/api';
+import { agentsAPI, providersAPI, skillsAPI } from '../services/api';
 import FilterableDropdown from '../components/FilterableDropdown';
 
 function Agents() {
   const [agents, setAgents] = useState([]);
   const [providers, setProviders] = useState([]);
   const [models, setModels] = useState([]);
-  const [tools, setTools] = useState([]);
+  const [skills, setSkills] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showToolsModal, setShowToolsModal] = useState(false);
+  const [showSkillsModal, setShowSkillsModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
-  const [selectedAgentTools, setSelectedAgentTools] = useState([]);
+  const [selectedAgentSkills, setSelectedAgentSkills] = useState([]);
   const [newAgent, setNewAgent] = useState({
     name: '',
     description: '',
@@ -25,7 +25,7 @@ function Agents() {
   useEffect(() => {
     loadAgents();
     loadProviders();
-    loadTools();
+    loadSkills();
   }, []);
 
   const loadAgents = async () => {
@@ -46,22 +46,22 @@ function Agents() {
     }
   };
 
-  const loadTools = async () => {
+  const loadSkills = async () => {
     try {
-      const response = await toolsAPI.list();
-      setTools(response.data || []);
+      const response = await skillsAPI.list();
+      setSkills(response.data || []);
     } catch (error) {
-      console.error('Failed to load tools:', error);
+      console.error('Failed to load skills:', error);
     }
   };
 
-  const loadAgentTools = async (agentId) => {
+  const loadAgentSkills = async (agentId) => {
     try {
-      const response = await agentsAPI.getTools(agentId);
-      setSelectedAgentTools(response.data || []);
+      const response = await agentsAPI.getSkills(agentId);
+      setSelectedAgentSkills(response.data || []);
     } catch (error) {
-      console.error('Failed to load agent tools:', error);
-      setSelectedAgentTools([]);
+      console.error('Failed to load agent skills:', error);
+      setSelectedAgentSkills([]);
     }
   };
 
@@ -93,7 +93,15 @@ function Agents() {
   const handleCreateAgent = async () => {
     setLoading(true);
     try {
-      await agentsAPI.create(newAgent);
+      console.log('Creating agent with data:', newAgent);
+      const createData = {
+        name: newAgent.name,
+        description: newAgent.description,
+        provider_id: newAgent.provider_id,
+        model_id: newAgent.model_id,
+        system_prompt: newAgent.system_prompt,
+      };
+      await agentsAPI.create(createData);
       setShowCreateModal(false);
       setNewAgent({
         name: '',
@@ -105,20 +113,36 @@ function Agents() {
       loadAgents();
     } catch (error) {
       console.error('Failed to create agent:', error);
+      console.error('Error response:', error.response?.data);
+      alert('Failed to create agent: ' + (error.response?.data?.error || error.message));
     } finally {
       setLoading(false);
     }
   };
 
   const handleUpdateAgent = async () => {
+    if (!selectedAgent?.id) {
+      alert('Error: No agent selected');
+      return;
+    }
     setLoading(true);
     try {
-      await agentsAPI.update(selectedAgent.id, selectedAgent);
+      console.log('Updating agent with data:', selectedAgent);
+      const updateData = {
+        name: selectedAgent.name,
+        description: selectedAgent.description,
+        provider_id: selectedAgent.provider_id,
+        model_id: selectedAgent.model_id,
+        system_prompt: selectedAgent.system_prompt,
+      };
+      await agentsAPI.update(selectedAgent.id, updateData);
       setShowEditModal(false);
       setSelectedAgent(null);
       loadAgents();
     } catch (error) {
       console.error('Failed to update agent:', error);
+      console.error('Error response:', error.response?.data);
+      alert('Failed to update agent: ' + (error.response?.data?.error || error.message));
     } finally {
       setLoading(false);
     }
@@ -144,35 +168,35 @@ function Agents() {
     }
   };
 
-  const openToolsModal = async (agent) => {
+  const openSkillsModal = async (agent) => {
     setSelectedAgent(agent);
-    await loadAgentTools(agent.id);
-    setShowToolsModal(true);
+    await loadAgentSkills(agent.id);
+    setShowSkillsModal(true);
   };
 
-  const handleAssignTool = async (toolId) => {
+  const handleAssignSkill = async (skillId) => {
     if (!selectedAgent) return;
 
     setLoading(true);
     try {
-      await agentsAPI.assignTool(selectedAgent.id, toolId);
-      await loadAgentTools(selectedAgent.id);
+      await agentsAPI.assignSkill(selectedAgent.id, skillId);
+      await loadAgentSkills(selectedAgent.id);
     } catch (error) {
-      console.error('Failed to assign tool:', error);
+      console.error('Failed to assign skill:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRemoveTool = async (toolId) => {
+  const handleRemoveSkill = async (skillId) => {
     if (!selectedAgent) return;
 
     setLoading(true);
     try {
-      await agentsAPI.removeTool(selectedAgent.id, toolId);
-      await loadAgentTools(selectedAgent.id);
+      await agentsAPI.removeSkill(selectedAgent.id, skillId);
+      await loadAgentSkills(selectedAgent.id);
     } catch (error) {
-      console.error('Failed to remove tool:', error);
+      console.error('Failed to remove skill:', error);
     } finally {
       setLoading(false);
     }
@@ -221,9 +245,9 @@ function Agents() {
                   <Button
                     variant="outline-info"
                     size="sm"
-                    onClick={() => openToolsModal(agent)}
+                    onClick={() => openSkillsModal(agent)}
                   >
-                    Tools
+                    Skills
                   </Button>
                   <Button
                     variant="outline-danger"
@@ -410,30 +434,30 @@ function Agents() {
         </Modal.Footer>
       </Modal>
 
-      {/* Tools Management Modal */}
-      <Modal show={showToolsModal} onHide={() => setShowToolsModal(false)} size="lg">
+      {/* Skills Management Modal */}
+      <Modal show={showSkillsModal} onHide={() => setShowSkillsModal(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>Manage Tools for {selectedAgent?.name}</Modal.Title>
+          <Modal.Title>Manage Skills for {selectedAgent?.name}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {selectedAgent && (
             <>
-              <h6>Assigned Tools</h6>
-              {selectedAgentTools.length > 0 ? (
+              <h6>Assigned Skills</h6>
+              {selectedAgentSkills.length > 0 ? (
                 <ListGroup className="mb-4">
-                  {selectedAgentTools.map((tool) => (
-                    <ListGroup.Item key={tool.id} className="d-flex justify-content-between align-items-center">
+                  {selectedAgentSkills.map((skill) => (
+                    <ListGroup.Item key={skill.id} className="d-flex justify-content-between align-items-center">
                       <div>
-                        <strong>{tool.name}</strong>
-                        <div className="small text-muted">{tool.description}</div>
+                        <strong>{skill.name}</strong>
+                        <div className="small text-muted">{skill.description}</div>
                         <div className="small text-muted">
-                          Type: {tool.metadata?.tool_type || 'N/A'}
+                          Path: {skill.path}
                         </div>
                       </div>
                       <Button
                         variant="outline-danger"
                         size="sm"
-                        onClick={() => handleRemoveTool(tool.id)}
+                        onClick={() => handleRemoveSkill(skill.id)}
                         disabled={loading}
                       >
                         Remove
@@ -442,26 +466,26 @@ function Agents() {
                   ))}
                 </ListGroup>
               ) : (
-                <p className="text-muted mb-4">No tools assigned to this agent.</p>
+                <p className="text-muted mb-4">No skills assigned to this agent.</p>
               )}
 
-              <h6>Available Tools</h6>
+              <h6>Available Skills</h6>
               <ListGroup>
-                {tools
-                  .filter((tool) => !selectedAgentTools.find((t) => t.id === tool.id))
-                  .map((tool) => (
-                    <ListGroup.Item key={tool.id} className="d-flex justify-content-between align-items-center">
+                {skills
+                  .filter((skill) => !selectedAgentSkills.find((s) => s.id === skill.id))
+                  .map((skill) => (
+                    <ListGroup.Item key={skill.id} className="d-flex justify-content-between align-items-center">
                       <div>
-                        <strong>{tool.name}</strong>
-                        <div className="small text-muted">{tool.description}</div>
+                        <strong>{skill.name}</strong>
+                        <div className="small text-muted">{skill.description}</div>
                         <div className="small text-muted">
-                          Type: {tool.metadata?.tool_type || 'N/A'}
+                          Path: {skill.path}
                         </div>
                       </div>
                       <Button
                         variant="outline-success"
                         size="sm"
-                        onClick={() => handleAssignTool(tool.id)}
+                        onClick={() => handleAssignSkill(skill.id)}
                         disabled={loading}
                       >
                         Assign
@@ -473,7 +497,7 @@ function Agents() {
           )}
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowToolsModal(false)}>
+          <Button variant="secondary" onClick={() => setShowSkillsModal(false)}>
             Close
           </Button>
         </Modal.Footer>

@@ -150,6 +150,20 @@ func (h *WebSocketHub) BroadcastJobStepUpdate(step *job.JobStep) {
 	}
 }
 
+// BroadcastAgentEvent broadcasts an agent event to all connected clients
+func (h *WebSocketHub) BroadcastAgentEvent(eventType string, data interface{}) {
+	message := WebSocketMessage{
+		Type:      eventType,
+		Data:      data,
+		Timestamp: time.Now(),
+	}
+	select {
+	case h.broadcast <- message:
+	default:
+		// Channel is full, skip this update
+	}
+}
+
 // WebSocketHandler handles WebSocket connections
 type WebSocketHandler struct {
 	hub      *WebSocketHub

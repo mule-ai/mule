@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,8 +9,6 @@ import (
 
 	jbutlerdevgenai "github.com/jbutlerdev/genai"
 	genaitools "github.com/jbutlerdev/genai/tools"
-	"google.golang.org/adk/tool"
-	"google.golang.org/genai"
 
 	"github.com/mule-ai/mule/internal/primitive"
 )
@@ -37,7 +34,6 @@ type Tool interface {
 	IsLongRunning() bool
 	Execute(ctx context.Context, params map[string]interface{}) (interface{}, error)
 	GetSchema() map[string]interface{}
-	ToTool() tool.Tool
 }
 
 // NewRegistry creates a new tool registry with built-in tools (legacy, without config)
@@ -216,19 +212,6 @@ func (r *Registry) List() []Tool {
 	}
 
 	return tools
-}
-
-// GetADKTools returns all tools as ADK tool interfaces
-func (r *Registry) GetADKTools() []tool.Tool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	adkTools := make([]tool.Tool, 0, len(r.tools))
-	for _, t := range r.tools {
-		adkTools = append(adkTools, t.ToTool())
-	}
-
-	return adkTools
 }
 
 // GetToolNames returns a list of all registered tool names
@@ -436,63 +419,6 @@ func (a *genaiMemoryToolAdapter) GetSchema() map[string]interface{} {
 		},
 		"required": []string{"operation"},
 	}
-}
-
-func (a *genaiMemoryToolAdapter) ToTool() tool.Tool {
-	return &genaiMemoryToolADKAdapter{adapter: a}
-}
-
-// genaiMemoryToolADKAdapter adapts the genaiMemoryToolAdapter to the ADK tool interface
-type genaiMemoryToolADKAdapter struct {
-	adapter *genaiMemoryToolAdapter
-}
-
-func (a *genaiMemoryToolADKAdapter) Name() string {
-	return a.adapter.Name()
-}
-
-func (a *genaiMemoryToolADKAdapter) Description() string {
-	return a.adapter.Description()
-}
-
-func (a *genaiMemoryToolADKAdapter) IsLongRunning() bool {
-	return a.adapter.IsLongRunning()
-}
-
-func (a *genaiMemoryToolADKAdapter) GetTool() interface{} {
-	return a.adapter
-}
-
-func (a *genaiMemoryToolADKAdapter) Declaration() *genai.FunctionDeclaration {
-	schema := a.adapter.GetSchema()
-	paramsJSON, _ := json.Marshal(schema)
-
-	return &genai.FunctionDeclaration{
-		Name:                 a.adapter.Name(),
-		Description:          a.adapter.Description(),
-		ParametersJsonSchema: string(paramsJSON),
-	}
-}
-
-func (a *genaiMemoryToolADKAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
-	// Convert args to map[string]interface{}
-	argsMap, ok := args.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("expected map[string]any, got %T", args)
-	}
-
-	result, err := a.adapter.Execute(context.Background(), argsMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert result to map[string]any
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		return map[string]any{"result": result}, nil
-	}
-
-	return resultMap, nil
 }
 
 // BuiltInTools returns a list of built-in tool names

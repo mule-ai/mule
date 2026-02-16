@@ -60,6 +60,13 @@ func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) h
 				return
 			}
 
+			// Skip timeout for chat completions - these can be long-running
+			// and are handled by the workflow engine with its own timeout
+			if r.URL.Path == "/v1/chat/completions" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			timeout := getTimeoutFunc()
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()

@@ -119,7 +119,7 @@ func callAgent(agentID string, params map[string]interface{}) (string, error) {
 	status := trigger_workflow_or_agent(
 		uint32(uintptr(unsafe.Pointer(&[]byte(operationType)[0]))), uint32(len(operationType)),
 		uint32(uintptr(unsafe.Pointer(&[]byte(agentID)[0]))), uint32(len(agentID)),
-		uint32(uintptr(unsafe.Pointer(¶msJSON[0]))), uint32(len(paramsJSON)))
+		uint32(uintptr(unsafe.Pointer(paramsJSONmsJSON[0]))), uint32(len(paramsJSON)))
 
 	if status != 0 {
 		return "", fmt.Errorf("host function failed with status: %d", status)
@@ -186,12 +186,12 @@ func makeHTTPRequest(url string, params map[string]interface{}) (string, error) 
 
 	// Get the response
 	statusCode := get_last_response_status()
-	
+
 	// Try to get response body
 	// Allocate a buffer for the response body (100KB max)
 	buffer := make([]byte, 102400)
 	bodySize := get_last_response_body(uint32(uintptr(unsafe.Pointer(&buffer[0]))), uint32(len(buffer)))
-	
+
 	var responseData interface{}
 	if bodySize > 0 && bodySize <= uint32(len(buffer)) {
 		// Parse response body as JSON
@@ -224,17 +224,17 @@ func makeHTTPRequest(url string, params map[string]interface{}) (string, error) 
 func getLastOperationResult() string {
 	// First, get the required buffer size
 	bufferSize := get_last_operation_result(0, 0)
-	
+
 	// Allocate buffer
 	buffer := make([]byte, bufferSize)
-	
+
 	// Get the actual result
 	actualSize := get_last_operation_result(uint32(uintptr(unsafe.Pointer(&buffer[0]))), bufferSize)
-	
+
 	if actualSize <= bufferSize {
 		return string(buffer[:actualSize])
 	}
-	
+
 	return ""
 }
 

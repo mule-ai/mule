@@ -20,22 +20,22 @@ type Configuration struct {
 
 // ValidationResult represents the result of a validation attempt
 type ValidationResult struct {
-	Success   bool   `json:"success"`
-	Command   string `json:"command"`
-	ExitCode  int    `json:"exit_code"`
-	Stdout    string `json:"stdout"`
-	Stderr    string `json:"stderr"`
-	Attempt   int    `json:"attempt"`
-	Error     string `json:"error,omitempty"`
+	Success  bool   `json:"success"`
+	Command  string `json:"command"`
+	ExitCode int    `json:"exit_code"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	Attempt  int    `json:"attempt"`
+	Error    string `json:"error,omitempty"`
 }
 
 // ValidationContext represents the context passed to corrective workflows
 type ValidationContext struct {
-	OriginalPrompt       string          `json:"original_prompt"`
+	OriginalPrompt       string           `json:"original_prompt"`
 	ValidationOutput     ValidationResult `json:"validation_output"`
-	WorkingDirectory     string          `json:"working_directory"`
-	RemainingAttempts    int             `json:"remaining_attempts"`
-	CorrectiveWorkflowID string          `json:"corrective_workflow_id"`
+	WorkingDirectory     string           `json:"working_directory"`
+	RemainingAttempts    int              `json:"remaining_attempts"`
+	CorrectiveWorkflowID string           `json:"corrective_workflow_id"`
 }
 
 // Host function declarations for WASM imports

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mule is an AI workflow platform that enables users to create, configure, and execute complex AI-powered workflows. It combines AI agents, custom tools, and WebAssembly modules to create flexible automation pipelines, exposed through an OpenAI-compatible API.
+Mule is an AI workflow platform that enables users to create, configure, and execute complex AI-powered workflows. It combines AI agents powered by pi RPC, custom tools, skills, and WebAssembly modules to create flexible automation pipelines, exposed through an OpenAI-compatible API.
 
 ## Development Commands
 
@@ -59,15 +59,15 @@ The system is built around six core primitives stored in PostgreSQL:
    - Configuration: API base URL, encrypted API key
    - Enables dynamic model discovery
 
-2. **Tools** - Extensible tools for agents (Google ADK patterns)
-   - Table: `tools`
-   - Includes memory operations and custom tool creation
-   - Tools are bound to agents via `agent_tools` junction table
+2. **Skills** - Pi agent skills that can be assigned to agents
+   - Table: `skills`
+   - Stores skill name, description, path, and enabled status
+   - Skills are bound to agents via `agent_skills` junction table
 
-3. **Agents** - AI agents combining models, prompts, and tools
+3. **Agents** - AI agents powered by pi RPC runtime
    - Table: `agents`
-   - References: provider_id, model_id, system_prompt
-   - Uses Google ADK for execution
+   - References: provider_id, model_id, system_prompt, pi_config
+   - Uses pi RPC for execution with configurable skills
 
 4. **WASM Modules** - WebAssembly modules for imperative code
    - Table: `wasm_modules`
@@ -86,7 +86,7 @@ The system is built around six core primitives stored in PostgreSQL:
 ### Execution Flow
 
 1. **Configuration Phase**: Primitives configured via UI/API → Stored in PostgreSQL via Primitive Manager
-2. **Execution Phase**: User calls `/v1/chat/completions` → Request queued as Job → Worker executes Workflow Steps → Each step invokes Agent (ADK) or WASM (wazero) → Results streamed via WebSocket
+2. **Execution Phase**: User calls `/v1/chat/completions` → Request queued as Job → Worker executes Workflow Steps → Each step invokes Agent (pi RPC) or WASM (wazero) → Results streamed via WebSocket
 
 ### Key Components
 
@@ -96,7 +96,8 @@ The system is built around six core primitives stored in PostgreSQL:
   - `integration_test.go`, `comprehensive_test.go`: API tests
 
 - **internal/**: Core application logic
-  - `agent/`: Agent runtime with Google ADK integration
+  - `agent/`: Agent runtime with pi RPC integration (`pirc` package)
+  - `agent/pirc/`: pi process bridge for RPC communication
   - `api/`: HTTP middleware and WebSocket handling
   - `database/`: PostgreSQL connection, migrations, and data access
   - `engine/`: Workflow engine orchestrating job execution
@@ -116,8 +117,10 @@ The system is built around six core primitives stored in PostgreSQL:
   - `GET /v1/models` - Lists agents (prefixed with "agent/") and workflows (prefixed with "workflow/")
   - `POST /v1/chat/completions` - Executes agents/workflows with sync/async modes
 
+- **Skills API** (`/api/v1/skills`) - CRUD operations for skills
+- **Agent Skills API** (`/api/v1/agents/{id}/skills`) - Assign/remove skills from agents
 - **Management API** (`/api/v1`):
-  - `/providers`, `/tools`, `/agents`, `/workflows` - CRUD operations
+  - `/providers`, `/agents`, `/workflows` - CRUD operations
   - `/jobs`, `/jobs/{id}`, `/jobs/{id}/steps` - Job monitoring
   - `/workflows/{id}/steps` - Workflow step management
 

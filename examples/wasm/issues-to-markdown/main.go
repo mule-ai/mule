@@ -10,13 +10,13 @@ import (
 
 // GitHubIssue represents a GitHub issue structure based on the provided example
 type GitHubIssue struct {
-	Body     string `json:"body"`
-	DueDate  string `json:"due_date"`
-	Filter   string `json:"filter"`
-	State    string `json:"state"`
-	Status   string `json:"status"`
-	Title    string `json:"title"`
-	URL      string `json:"url"`
+	Body    string `json:"body"`
+	DueDate string `json:"due_date"`
+	Filter  string `json:"filter"`
+	State   string `json:"state"`
+	Status  string `json:"status"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
 }
 
 // Input represents the expected input structure
@@ -130,7 +130,7 @@ func formatState(state, status string) string {
 		}
 		return status
 	}
-	
+
 	// Default to state if status is empty
 	return strings.ToUpper(state[:1]) + strings.ToLower(state[1:])
 }
@@ -140,12 +140,12 @@ func formatDueDate(dueDate string) string {
 	if dueDate == "No Due Date" {
 		return dueDate
 	}
-	
+
 	// Try to parse the date and reformat it as MM/DD/YY
 	if parsedDate, err := time.Parse("2006-01-02", dueDate); err == nil {
 		return parsedDate.Format("1/2/06")
 	}
-	
+
 	// Return as is if parsing fails
 	return dueDate
 }

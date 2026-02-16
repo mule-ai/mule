@@ -21,8 +21,8 @@ RUN npm run build
 # Stage 2: Backend build stage
 FROM golang:1.25-alpine AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev
+# Install build dependencies (including nodejs for pi during testing)
+RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev nodejs npm
 
 # Set working directory
 WORKDIR /app
@@ -39,6 +39,9 @@ COPY . .
 # Copy built frontend files to the internal/frontend/build directory
 COPY --from=frontend-builder /app/build ./internal/frontend/build
 
+# Install pi for tests
+RUN npm install -g @jbutlerdev/pi-coding-agent
+
 # Run tests before building
 RUN go test ./...
 
@@ -48,8 +51,11 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o mule ./cmd/api
 # Stage 3: Final stage with alpine
 FROM alpine:latest
 
-# Install ca-certificates for HTTPS requests and Go toolchain for WASM compilation
-RUN apk --no-cache add ca-certificates tzdata go git musl-dev
+# Install ca-certificates for HTTPS requests, Go toolchain for WASM compilation, and Node.js for pi
+RUN apk --no-cache add ca-certificates tzdata go git musl-dev nodejs npm
+
+# Install pi CLI tool
+RUN npm install -g @jbutlerdev/pi-coding-agent
 
 # Create non-root user
 RUN adduser -D -s /bin/sh mule

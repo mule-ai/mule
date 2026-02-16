@@ -202,23 +202,44 @@ func (s *PGStore) CreateAgent(ctx context.Context, a *Agent) error {
 	if a.ID == "" {
 		a.ID = uuid.New().String()
 	}
-	query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`
-	_, err := s.db.ExecContext(ctx, query, a.ID, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt)
+	// Handle pi_config JSONB
+	var piConfigJSON interface{}
+	if a.PIConfig != nil {
+		var err error
+		piConfigJSON, err = json.Marshal(a.PIConfig)
+		if err != nil {
+			return fmt.Errorf("failed to marshal pi_config: %w", err)
+		}
+	} else {
+		piConfigJSON = []byte("null")
+	}
+	query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`
+	_, err := s.db.ExecContext(ctx, query, a.ID, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON)
 	return err
 }
 
 func (s *PGStore) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	a := &Agent{}
-	query := `SELECT id, name, description, provider_id, model_id, system_prompt, created_at, updated_at FROM agents WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &a.CreatedAt, &a.UpdatedAt)
+	var piConfigJSON []byte
+	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at FROM agents WHERE id = $1`
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return a, err
+	if err != nil {
+		return nil, err
+	}
+	// Unmarshal pi_config JSON
+	if len(piConfigJSON) > 0 {
+		if err = json.Unmarshal(piConfigJSON, &a.PIConfig); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal pi_config: %w", err)
+		}
+	}
+	return a, nil
 }
 
 func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
-	query := `SELECT id, name, description, provider_id, model_id, system_prompt, created_at, updated_at FROM agents ORDER BY name`
+	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at FROM agents ORDER BY name`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -232,9 +253,16 @@ func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &a.CreatedAt, &a.UpdatedAt)
+		var piConfigJSON []byte
+		err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &a.CreatedAt, &a.UpdatedAt)
 		if err != nil {
 			return nil, err
+		}
+		// Unmarshal pi_config JSON
+		if len(piConfigJSON) > 0 {
+			if err = json.Unmarshal(piConfigJSON, &a.PIConfig); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal pi_config: %w", err)
+			}
 		}
 		agents = append(agents, a)
 	}
@@ -242,8 +270,19 @@ func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 }
 
 func (s *PGStore) UpdateAgent(ctx context.Context, a *Agent) error {
-	query := `UPDATE agents SET name = $1, description = $2, provider_id = $3, model_id = $4, system_prompt = $5, updated_at = NOW() WHERE id = $6`
-	res, err := s.db.ExecContext(ctx, query, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, a.ID)
+	// Handle pi_config JSONB
+	var piConfigJSON interface{}
+	if a.PIConfig != nil {
+		var err error
+		piConfigJSON, err = json.Marshal(a.PIConfig)
+		if err != nil {
+			return fmt.Errorf("failed to marshal pi_config: %w", err)
+		}
+	} else {
+		piConfigJSON = []byte("null")
+	}
+	query := `UPDATE agents SET name = $1, description = $2, provider_id = $3, model_id = $4, system_prompt = $5, pi_config = $6, updated_at = NOW() WHERE id = $7`
+	res, err := s.db.ExecContext(ctx, query, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ID)
 	if err != nil {
 		return err
 	}
@@ -736,5 +775,178 @@ func (s *PGStore) DeleteWasmModule(ctx context.Context, id string) error {
 	if count == 0 {
 		return ErrNotFound
 	}
+	return nil
+}
+
+// Skill CRUD methods
+
+func (s *PGStore) CreateSkill(ctx context.Context, skill *Skill) error {
+	if skill.ID == "" {
+		skill.ID = uuid.New().String()
+	}
+	query := `INSERT INTO skills (id, name, description, path, enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
+	_, err := s.db.ExecContext(ctx, query, skill.ID, skill.Name, skill.Description, skill.Path, skill.Enabled)
+	return err
+}
+
+func (s *PGStore) GetSkill(ctx context.Context, id string) (*Skill, error) {
+	skill := &Skill{}
+	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills WHERE id = $1`
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&skill.ID, &skill.Name, &skill.Description, &skill.Path, &skill.Enabled,
+		&skill.CreatedAt, &skill.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return skill, nil
+}
+
+func (s *PGStore) ListSkills(ctx context.Context) ([]*Skill, error) {
+	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills ORDER BY name`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
+
+	var skills []*Skill
+	for rows.Next() {
+		skill := &Skill{}
+		err := rows.Scan(
+			&skill.ID, &skill.Name, &skill.Description, &skill.Path, &skill.Enabled,
+			&skill.CreatedAt, &skill.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		skills = append(skills, skill)
+	}
+	return skills, rows.Err()
+}
+
+func (s *PGStore) UpdateSkill(ctx context.Context, skill *Skill) error {
+	query := `UPDATE skills SET name = $1, description = $2, path = $3, enabled = $4, updated_at = NOW() WHERE id = $5`
+	res, err := s.db.ExecContext(ctx, query, skill.Name, skill.Description, skill.Path, skill.Enabled, skill.ID)
+	if err != nil {
+		return err
+	}
+	count, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PGStore) DeleteSkill(ctx context.Context, id string) error {
+	query := `DELETE FROM skills WHERE id = $1`
+	res, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	count, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetAgentSkills retrieves skills associated with an agent
+func (s *PGStore) GetAgentSkills(ctx context.Context, agentID string) ([]*Skill, error) {
+	query := `
+		SELECT s.id, s.name, s.description, s.path, s.enabled, s.created_at, s.updated_at
+		FROM skills s
+		JOIN agent_skills ast ON s.id = ast.skill_id
+		WHERE ast.agent_id = $1
+		ORDER BY s.name
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query agent skills: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
+
+	var skills []*Skill
+	for rows.Next() {
+		skill := &Skill{}
+		err := rows.Scan(
+			&skill.ID, &skill.Name, &skill.Description, &skill.Path, &skill.Enabled,
+			&skill.CreatedAt, &skill.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan skill: %w", err)
+		}
+		skills = append(skills, skill)
+	}
+
+	return skills, rows.Err()
+}
+
+// AssignSkillToAgent assigns a skill to an agent
+func (s *PGStore) AssignSkillToAgent(ctx context.Context, agentID, skillID string) error {
+	query := `INSERT INTO agent_skills (agent_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	_, err := s.db.ExecContext(ctx, query, agentID, skillID)
+	if err != nil {
+		return fmt.Errorf("failed to assign skill to agent: %w", err)
+	}
+	return nil
+}
+
+// RemoveSkillFromAgent removes a skill from an agent
+func (s *PGStore) RemoveSkillFromAgent(ctx context.Context, agentID, skillID string) error {
+	query := `DELETE FROM agent_skills WHERE agent_id = $1 AND skill_id = $2`
+	result, err := s.db.ExecContext(ctx, query, agentID, skillID)
+	if err != nil {
+		return fmt.Errorf("failed to remove skill from agent: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// SetAgentSkills replaces all skills for an agent with the given skill IDs
+func (s *PGStore) SetAgentSkills(ctx context.Context, agentID string, skillIDs []string) error {
+	// Remove all existing skill assignments
+	_, err := s.db.ExecContext(ctx, "DELETE FROM agent_skills WHERE agent_id = $1", agentID)
+	if err != nil {
+		return fmt.Errorf("failed to remove existing skills from agent: %w", err)
+	}
+
+	// Add new skill assignments
+	for _, skillID := range skillIDs {
+		_, err := s.db.ExecContext(ctx,
+			"INSERT INTO agent_skills (agent_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+			agentID, skillID)
+		if err != nil {
+			return fmt.Errorf("failed to assign skill %s to agent: %w", skillID, err)
+		}
+	}
+
 	return nil
 }

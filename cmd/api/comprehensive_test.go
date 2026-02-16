@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -22,6 +23,14 @@ import (
 )
 
 func TestChatCompletionsEndpoint(t *testing.T) {
+	// This test requires a real API key to work with pi
+	// Skip if no API key is available
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	googleApiKey := os.Getenv("GOOGLE_API_KEY")
+	if apiKey == "" && googleApiKey == "" {
+		t.Skip("Skipping test: no API key available (ANTHROPIC_API_KEY or GOOGLE_API_KEY)")
+	}
+
 	mockStore := &MockPrimitiveStore{
 		Agents: []*primitive.Agent{
 			{
@@ -44,7 +53,7 @@ func TestChatCompletionsEndpoint(t *testing.T) {
 			{
 				ID:         "provider-1",
 				Name:       "Test Provider",
-				APIBaseURL: "", // Empty to route to Google ADK instead of custom LLM
+				APIBaseURL: "", // Empty - pi RPC will use provider API key
 				APIKeyEnc:  "test-api-key",
 			},
 		},
@@ -713,6 +722,43 @@ func (m *MockPrimitiveStore) UpdateWasmModule(ctx context.Context, w *primitive.
 }
 
 func (m *MockPrimitiveStore) DeleteWasmModule(ctx context.Context, id string) error {
+	return nil
+}
+
+// Skill methods
+func (m *MockPrimitiveStore) CreateSkill(ctx context.Context, s *primitive.Skill) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) GetSkill(ctx context.Context, id string) (*primitive.Skill, error) {
+	return nil, primitive.ErrNotFound
+}
+
+func (m *MockPrimitiveStore) ListSkills(ctx context.Context) ([]*primitive.Skill, error) {
+	return nil, nil
+}
+
+func (m *MockPrimitiveStore) UpdateSkill(ctx context.Context, s *primitive.Skill) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) DeleteSkill(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) GetAgentSkills(ctx context.Context, agentID string) ([]*primitive.Skill, error) {
+	return nil, nil
+}
+
+func (m *MockPrimitiveStore) AssignSkillToAgent(ctx context.Context, agentID, skillID string) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) RemoveSkillFromAgent(ctx context.Context, agentID, skillID string) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) SetAgentSkills(ctx context.Context, agentID string, skillIDs []string) error {
 	return nil
 }
 
