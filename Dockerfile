@@ -40,7 +40,7 @@ COPY . .
 COPY --from=frontend-builder /app/build ./internal/frontend/build
 
 # Install pi for tests
-RUN npm install -g @jbutlerdev/pi-coding-agent
+RUN npm install -g @mariozechner/pi-coding-agent
 
 # Run tests before building
 RUN go test ./...
@@ -55,7 +55,7 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates tzdata go git musl-dev nodejs npm
 
 # Install pi CLI tool
-RUN npm install -g @jbutlerdev/pi-coding-agent
+RUN npm install -g @mariozechner/pi-coding-agent
 
 # Create non-root user
 RUN adduser -D -s /bin/sh mule

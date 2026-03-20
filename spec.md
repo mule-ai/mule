@@ -134,7 +134,7 @@ User Request → HTTP Handler → Agent Runtime → PI RPC Process
 
 ### Dependencies
 
-- **pi**: @jbutlerdev/pi-coding-agent (npm package)
+- **pi**: @mariozechner/pi-coding-agent (npm package)
 - **Database**: PostgreSQL (existing)
 - **Messaging**: WebSocket (existing)
 
@@ -253,7 +253,7 @@ User Request → HTTP Handler → Agent Runtime → PI RPC Process
 
 ### External Dependencies
 
-- @jbutlerdev/pi-coding-agent package from npm
+- @mariozechner/pi-coding-agent package from npm
 - pi-mono repository for development reference
 
 ### Team Constraints
