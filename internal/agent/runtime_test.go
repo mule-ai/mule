@@ -20,18 +20,18 @@ func TestRuntime_ExecuteAgent(t *testing.T) {
 	openaiApiKey := os.Getenv("OPENAI_API_KEY")
 
 	// Determine which provider/model to use based on available keys
-	var providerAPIKey, providerURL, modelID string
+	var providerAPIKey, providerName, modelID string
 	if apiKey != "" {
 		providerAPIKey = apiKey
-		providerURL = "https://api.anthropic.com"
+		providerName = "anthropic"
 		modelID = "claude-3-5-sonnet-20241022"
 	} else if googleApiKey != "" {
 		providerAPIKey = googleApiKey
-		providerURL = "https://generativelanguage.googleapis.com"
+		providerName = "google"
 		modelID = "gemini-2.0-flash"
 	} else if openaiApiKey != "" {
 		providerAPIKey = openaiApiKey
-		providerURL = "https://api.openai.com"
+		providerName = "openai"
 		modelID = "gpt-4o-mini"
 	} else {
 		t.Skip("Skipping test: no API key available (ANTHROPIC_API_KEY, GOOGLE_API_KEY, or OPENAI_API_KEY)")
@@ -51,8 +51,8 @@ func TestRuntime_ExecuteAgent(t *testing.T) {
 		providers: map[string]*primitive.Provider{
 			"test-provider": {
 				ID:         "test-provider",
-				Name:       "Test Provider",
-				APIBaseURL: providerURL,
+				Name:       providerName, // Use valid pi provider name
+				APIBaseURL: "",
 				APIKeyEnc:  providerAPIKey,
 			},
 		},
