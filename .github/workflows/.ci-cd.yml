@@ -37,6 +37,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pi
+        run: npm install -g @mariozechner/pi-coding-agent
       - name: Create dummy build directory and file for embed
         run: |
           mkdir -p internal/frontend/build
