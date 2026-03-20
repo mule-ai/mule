@@ -3,10 +3,17 @@ package pirc
 import (
 	"context"
 	"encoding/json"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
 )
+
+// isPiAvailable checks if the pi executable is available in PATH
+func isPiAvailable() bool {
+	_, err := exec.LookPath("pi")
+	return err == nil
+}
 
 // mockHub implements EventBroadcaster for testing end-to-end streaming
 type mockHub struct {
@@ -41,6 +48,11 @@ func (m *mockHub) ClearMessages() {
 func TestEndToEndStreaming(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end streaming test in short mode")
+	}
+
+	// Skip if pi is not available
+	if !isPiAvailable() {
+		t.Skip("Skipping test: pi not available")
 	}
 
 	// Create mock hub for WebSocket broadcasting
@@ -183,6 +195,11 @@ done:
 func TestEndToEndStreamingWithTools(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end streaming test with tools in short mode")
+	}
+
+	// Skip if pi is not available
+	if !isPiAvailable() {
+		t.Skip("Skipping test: pi not available")
 	}
 
 	// Create mock hub for WebSocket broadcasting
