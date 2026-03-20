@@ -2,7 +2,6 @@ package pirc
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 )
@@ -179,19 +178,21 @@ func StreamAgentExecution(
 		}
 	}
 
-	// Wait for agent to finish
-	<-bridge.ProcessDone()
+	// Wait for agent to finish, respecting context cancellation
+	select {
+	case <-bridge.ProcessDone():
+		// Process finished normally
+	case <-ctx.Done():
+		// Context was cancelled or timed out
+		// Stop the bridge forcefully
+		_ = bridge.Stop()
+	}
 
 	// Give a moment for final events to be processed
 	time.Sleep(100 * time.Millisecond)
 
 	// Stop streaming
 	streamer.Stop()
-
-	// Stop the bridge
-	if err := bridge.Stop(); err != nil {
-		log.Printf("Warning: error stopping bridge: %v", err)
-	}
 
 	// Return nil - caller should collect final response from events if needed
 	return nil, nil

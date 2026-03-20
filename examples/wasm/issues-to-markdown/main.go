@@ -77,12 +77,12 @@ func convertIssuesToMarkdown(issues []GitHubIssue) string {
 
 	for i, issue := range issues {
 		// Add title as heading
-		builder.WriteString(fmt.Sprintf("# %s\n\n", issue.Title))
+		fmt.Fprintf(&builder, "# %s\n\n", issue.Title)
 
 		// Add metadata with transformed URL
-		builder.WriteString(fmt.Sprintf("* Link: %s\n", transformURL(issue.URL)))
-		builder.WriteString(fmt.Sprintf("* State: %s\n", formatState(issue.State, issue.Status)))
-		builder.WriteString(fmt.Sprintf("* Due Date: %s\n", formatDueDate(issue.DueDate)))
+		fmt.Fprintf(&builder, "* Link: %s\n", transformURL(issue.URL))
+		fmt.Fprintf(&builder, "* State: %s\n", formatState(issue.State, issue.Status))
+		fmt.Fprintf(&builder, "* Due Date: %s\n", formatDueDate(issue.DueDate))
 
 		// Add description/body
 		builder.WriteString("* Description: ")
@@ -94,13 +94,13 @@ func convertIssuesToMarkdown(issues []GitHubIssue) string {
 				lines := strings.Split(issue.Body, "\n")
 				for _, line := range lines {
 					if line != "" {
-						builder.WriteString(fmt.Sprintf("  %s\n", line))
+						fmt.Fprintf(&builder, "  %s\n", line)
 					} else {
 						builder.WriteString("\n")
 					}
 				}
 			} else {
-				builder.WriteString(fmt.Sprintf("%s\n", issue.Body))
+				fmt.Fprintf(&builder, "%s\n", issue.Body)
 			}
 		} else {
 			builder.WriteString("\n")

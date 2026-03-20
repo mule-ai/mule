@@ -4,42 +4,103 @@ This document describes the database migration system for Mule v2.
 
 ## Overview
 
-The migration system handles schema evolution and ensures that the database structure matches the Go models. Since this is an unreleased application, we use a **single migration approach** with SQL files that are **embedded directly in the binary** using Go's embed package.
+The migration system handles schema evolution and ensures that the database structure matches the Go models. Migrations are **embedded directly in the binary** using Go's embed package.
 
 ## Key Benefits
 
 - **No External Dependencies**: Migrations are embedded in the binary, no need to ship migration files separately
 - **Working Directory Independent**: Works regardless of where the application is run
 - **Docker-Friendly**: Perfect for containerized deployments
-- **Simple & Clean**: Single migration file since the app hasn't been released
+- **Single Source of Truth**: Migration versions tracked in database via `schema_migrations` table
 - **Version Controlled**: Migration versions are tracked in the database
 
-## Migration File
+## Migration Files
 
-There is a single migration file stored in `internal/database/migrations/`:
+Migration files are stored in `internal/database/migrations/` and executed in order:
 
-```
-0001_initial_schema.sql
-```
+| Migration | Purpose |
+|-----------|---------|
+| `0001_initial_schema.sql` | Creates the complete initial schema with all core tables |
+| `0002_add_error_message_to_jobs.sql` | Adds `error_message` column to jobs table |
+| `0002_add_memory_config.sql` | Adds memory vector search configuration table |
+| `0002_add_wasm_source_code.sql` | Adds `source_code` column to wasm_modules table |
+| `0003_add_settings_table.sql` | Creates application settings table |
+| `0004_add_max_tool_calls_setting.sql` | Adds max_tool_calls setting |
+| `0005_add_job_timeout_setting.sql` | Adds job_timeout setting |
+| `0006_add_wasm_module_config.sql` | Adds `config` column to wasm_modules table |
+| `0007_add_working_directory_to_jobs.sql` | Adds `working_directory` column to jobs table |
+| `0008_add_skills_table.sql` | Creates skills system (skills, agent_skills tables, pi_config on agents) |
+| `0009_optimize_job_queries.sql` | Adds indexes for job query performance |
 
-This migration creates the complete schema with VARCHAR UUID primary keys that match the Go models from the start.
+## Schema Details
 
-### Schema Details
-
-The initial schema creates all required tables:
+### Core Tables
 
 1. **providers** - AI provider configurations
-2. **tools** - Available tools for agents  
-3. **agents** - AI agent definitions
-4. **workflows** - Workflow definitions
-5. **workflow_steps** - Individual workflow steps
-6. **wasm_modules** - WASM module storage
-7. **agent_tools** - Many-to-many agent-tool relationships
-8. **jobs** - Job execution records
-9. **job_steps** - Individual job step executions
-10. **artifacts** - Generated artifacts and outputs
+   - API base URL, encrypted API key
+   - Supports OpenAI-compatible APIs (Anthropic, OpenAI, Google, etc.)
 
-All tables use VARCHAR(255) UUID primary keys to match the Go model expectations.
+2. **tools** - Available tools for agents
+   - Tool definitions and metadata
+   - Many-to-many relationship with agents via `agent_tools`
+
+3. **agents** - AI agent definitions
+   - References provider, system prompt, model ID
+   - pi_config JSONB for pi-specific configuration (thinking level, skills, tools, extensions)
+   - Many-to-many relationship with tools via `agent_tools`
+   - Many-to-many relationship with skills via `agent_skills`
+
+4. **workflows** - Workflow definitions
+   - Ordered sequences of workflow steps
+   - Supports async execution mode
+
+5. **workflow_steps** - Individual workflow steps
+   - Two types: "agent" (invokes agent) or "wasm_module" (executes WASM)
+   - Ordered by `step_order` within a workflow
+
+6. **wasm_modules** - WASM module storage
+   - Binary module_data stored in database
+   - Optional source_code for reference
+   - Optional config JSONB for configuration
+
+7. **agent_tools** - Many-to-many agent-tool relationships
+   - Junction table linking agents to tools
+
+8. **jobs** - Job execution records
+   - Tracks workflow/agent/WASM execution
+   - Status: queued, running, completed, failed, cancelled
+   - Stores input/output/error data
+
+9. **job_steps** - Individual job step executions
+   - Tracks each step within a job
+   - Status: queued, running, completed, failed
+
+10. **artifacts** - Generated artifacts and outputs
+    - Stores binary data from job steps
+
+### Skills System Tables (Migration 0008)
+
+11. **skills** - Pi agent skills
+    - Skill name, description, path, enabled status
+    - Skills provide extensibility (file operations, grep, find, bash, etc.)
+
+12. **agent_skills** - Many-to-many agent-skill relationships
+    - Junction table linking agents to skills
+
+### Configuration Tables
+
+13. **settings** - Application settings (Migration 0003)
+    - Key-value store for configuration
+    - Includes: max_tool_calls, job_timeout, memory_config
+
+14. **memory_config** - Memory vector search configuration (Migration 0002)
+    - Stores memory/semantic search settings
+
+### Internal Table
+
+15. **schema_migrations** - Migration tracking
+    - Tracks which migrations have been applied
+    - Created automatically by the migrator
 
 ## Migration System
 
@@ -85,14 +146,14 @@ You can test migrations using the provided script:
 ### Creating a New Migration
 
 1. Create a new SQL file in `internal/database/migrations/`
-2. Use the next sequential number in the filename
+2. Use the next sequential number in the filename (e.g., `0010_...`)
 3. Write your SQL migration
 4. Test the migration
 5. Rebuild the application to embed the new migration
 
 ### Migration Guidelines
 
-- **Idempotent**: Migrations should be safe to run multiple times
+- **Idempotent**: Migrations should be safe to run multiple times (use `IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`)
 - **Backwards Compatible**: Consider existing data when making changes
 - **Transactional**: Keep related changes in a single migration
 - **Tested**: Test migrations on both empty and populated databases
@@ -100,7 +161,7 @@ You can test migrations using the provided script:
 ### Example Migration
 
 ```sql
--- 0003_add_user_preferences.sql
+-- 0010_add_user_preferences.sql
 
 -- Add new column
 ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{}';
@@ -127,7 +188,6 @@ The new migration will be automatically embedded and available.
 1. **Foreign Key Constraint Errors**
    - Usually caused by type mismatches
    - Check that referenced columns have the same data type
-   - See migration 0002 for type conversion examples
 
 2. **Migration Already Applied**
    - Check `schema_migrations` table
@@ -170,20 +230,6 @@ JOIN information_schema.constraint_column_usage AS ccu
     AND ccu.table_schema = tc.table_schema
 WHERE tc.constraint_type = 'FOREIGN KEY';
 ```
-
-## Schema Changes
-
-### From SERIAL to UUID
-
-Migration 0002 handles the conversion from SERIAL (INTEGER) to VARCHAR UUID primary keys:
-
-1. Adds new UUID columns
-2. Populates them with generated values
-3. Drops old constraints
-4. Creates new constraints
-5. Cleans up old columns
-
-This ensures data integrity during the transition.
 
 ## Docker Deployment
 

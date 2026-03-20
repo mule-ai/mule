@@ -62,7 +62,7 @@ GRANT ALL PRIVILEGES ON DATABASE mulev2 TO mule;
 
 2. Run the database migration:
 ```bash
-psql -h localhost -U mule -d mulev2 -f internal/db/migrations/0001_initial_schema.sql
+psql -h localhost -U mule -d mulev2 -f internal/database/migrations/0001_initial_schema.sql
 ```
 
 ### Building and Running
@@ -89,6 +89,8 @@ make run
 - [Software Architecture](SOFTWARE_ARCHITECTURE.md) - High-level system architecture
 - [Primitives Relationship](PRIMITIVES_RELATIONSHIP.md) - How core primitives relate to each other
 - [Component Interaction](COMPONENT_INTERACTION.md) - Detailed component interaction diagram
+- [Database Migrations](DATABASE_MIGRATIONS.md) - Database schema migration guide
+- [Skill System](SKILL.md) - Documentation for the pi agent skills system
 
 ## Overview
 
@@ -143,12 +145,37 @@ Mule consists of a few core primitives:
 
 ### Management API
 - `GET/POST/PUT/DELETE /api/v1/providers` - AI provider management
+- `GET /api/v1/providers/{id}/models` - List models from a provider
 - `GET/POST/PUT/DELETE /api/v1/agents` - Agent management
 - `GET/POST/PUT/DELETE /api/v1/workflows` - Workflow management
 - `GET /api/v1/workflows/{id}/steps` - Workflow step management
+- `POST /api/v1/workflows/{id}/steps/reorder` - Reorder workflow steps
 - `GET /api/v1/jobs` - Job listing
 - `GET /api/v1/jobs/{id}` - Job details
+- `DELETE /api/v1/jobs/{id}` - Cancel a job
 - `GET /api/v1/jobs/{id}/steps` - Job step details
+
+### Agent Tools API
+- `GET /api/v1/agents/{id}/tools` - Get tools assigned to an agent
+- `POST /api/v1/agents/{id}/tools` - Assign tools to an agent
+- `DELETE /api/v1/agents/{id}/tools/{toolId}` - Remove a tool from an agent
+
+### Tools API
+- `GET/POST/PUT/DELETE /api/v1/tools` - Tool management
+
+### Configuration API
+- `GET /api/v1/memory-config` - Get memory configuration
+- `PUT /api/v1/memory-config` - Update memory configuration
+- `GET /api/v1/settings` - List all settings
+- `GET/PUT /api/v1/settings/{key}` - Get or update a specific setting
+
+### WASM Module API
+- `GET/POST /api/v1/wasm-modules` - List and create WASM modules
+- `POST /api/v1/wasm-modules/compile` - Compile Go code to WASM
+- `POST /api/v1/wasm-modules/test` - Test a WASM module
+- `GET /api/v1/wasm-modules/example` - Get example WASM Go code
+- `GET/PUT/DELETE /api/v1/wasm-modules/{id}` - WASM module CRUD
+- `GET/PUT /api/v1/wasm-modules/{id}/source` - Get or update WASM module source code
 
 ### Real-time
 - `WS /ws` - WebSocket endpoint for real-time job updates

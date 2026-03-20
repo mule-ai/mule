@@ -288,16 +288,19 @@ func TestPrimitiveManagementEndpointsComprehensive(t *testing.T) {
 		router.HandleFunc("/api/v1/agents", handler.listAgentsHandler).Methods("GET")
 		router.HandleFunc("/api/v1/agents", handler.createAgentHandler).Methods("POST")
 
-		// First create a provider
+		// First create a provider using the store so it gets an ID assigned
 		provider := primitive.Provider{
 			Name:       "Test Provider for Agent",
 			APIBaseURL: "https://api.openai.com/v1",
 			APIKeyEnc:  "test-api-key",
 		}
 
-		mockStore.Providers = append(mockStore.Providers, &provider)
+		// Create the provider through the store so it gets an ID
+		err := mockStore.CreateProvider(context.Background(), &provider)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, provider.ID)
 
-		// Create agent
+		// Create agent with valid provider_id
 		agentReq := primitive.Agent{
 			Name:         "Test Agent",
 			Description:  "Test Agent Description",
@@ -316,7 +319,7 @@ func TestPrimitiveManagementEndpointsComprehensive(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		var createdAgent primitive.Agent
-		err := json.Unmarshal(w.Body.Bytes(), &createdAgent)
+		err = json.Unmarshal(w.Body.Bytes(), &createdAgent)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, createdAgent.ID)
 		assert.Equal(t, agentReq.Name, createdAgent.Name)

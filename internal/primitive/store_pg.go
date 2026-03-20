@@ -938,14 +938,19 @@ func (s *PGStore) SetAgentSkills(ctx context.Context, agentID string, skillIDs [
 		return fmt.Errorf("failed to remove existing skills from agent: %w", err)
 	}
 
-	// Add new skill assignments
-	for _, skillID := range skillIDs {
-		_, err := s.db.ExecContext(ctx,
-			"INSERT INTO agent_skills (agent_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-			agentID, skillID)
-		if err != nil {
-			return fmt.Errorf("failed to assign skill %s to agent: %w", skillID, err)
-		}
+	// If no new skills to assign, we're done
+	if len(skillIDs) == 0 {
+		return nil
+	}
+
+	// Use batch insert with unnest for better performance
+	// This reduces N queries to 1 query regardless of skill count
+	query := `INSERT INTO agent_skills (agent_id, skill_id)
+			  SELECT $1::text, unnest($2::text[])
+			  ON CONFLICT DO NOTHING`
+	_, err = s.db.ExecContext(ctx, query, agentID, skillIDs)
+	if err != nil {
+		return fmt.Errorf("failed to batch assign skills to agent: %w", err)
 	}
 
 	return nil

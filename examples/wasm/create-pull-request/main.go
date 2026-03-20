@@ -9,9 +9,9 @@ import (
 	"unsafe"
 )
 
-// TODO:
-// Pull the owner and repo from the issue URL that can be passed
-// in from the github-comment wasm
+// TODO: Consider parsing issue URL to extract owner/repo automatically.
+// This would allow the github-comment wasm to pass an issue URL directly
+// instead of requiring separate owner and repo fields.
 
 // Input represents the input structure received from Mule runtime
 type Input struct {

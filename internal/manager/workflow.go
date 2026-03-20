@@ -304,50 +304,9 @@ func (wm *WorkflowManager) DeleteWorkflowStep(ctx context.Context, id string) er
 		return fmt.Errorf("workflow step not found: %s", id)
 	}
 
-	// Renumber remaining steps for this workflow using a two-phase approach to avoid constraint violations
-	// First, get all remaining steps for this workflow ordered by step_order
-	getStepsQuery := `SELECT id FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order ASC`
-	rows, err := tx.QueryContext(ctx, getStepsQuery, workflowID)
-	if err != nil {
-		return fmt.Errorf("failed to get remaining workflow steps: %w", err)
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
-
-	var stepIDs []string
-	for rows.Next() {
-		var stepID string
-		if err := rows.Scan(&stepID); err != nil {
-			return fmt.Errorf("failed to scan step ID: %w", err)
-		}
-		stepIDs = append(stepIDs, stepID)
-	}
-
-	// Use a two-phase approach to avoid unique constraint violations:
-	// 1. Set all step_orders to negative temporary values
-	// 2. Set the final step_orders to positive values
-
-	// Phase 1: Set temporary negative values
-	for i, stepID := range stepIDs {
-		tempOrder := -(i + 1) // Negative temporary values
-		updateQuery := `UPDATE workflow_steps SET step_order = $1 WHERE id = $2`
-		_, err := tx.ExecContext(ctx, updateQuery, tempOrder, stepID)
-		if err != nil {
-			return fmt.Errorf("failed to set temporary step order for step %s: %w", stepID, err)
-		}
-	}
-
-	// Phase 2: Set final positive values
-	for i, stepID := range stepIDs {
-		finalOrder := i + 1 // Positive final values
-		updateQuery := `UPDATE workflow_steps SET step_order = $1 WHERE id = $2`
-		_, err := tx.ExecContext(ctx, updateQuery, finalOrder, stepID)
-		if err != nil {
-			return fmt.Errorf("failed to set final step order for step %s: %w", stepID, err)
-		}
+	// Renumber remaining steps for this workflow
+	if err := wm.renumberWorkflowStepsTx(ctx, tx, workflowID); err != nil {
+		return err
 	}
 
 	// Commit the transaction
@@ -411,10 +370,54 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 		return fmt.Errorf("some step IDs do not belong to the specified workflow")
 	}
 
-	// Use a two-phase approach to avoid unique constraint violations:
-	// 1. Set all step_orders to negative temporary values
-	// 2. Set the final step_orders to positive values
+	// Use two-phase update to reorder steps (avoids unique constraint violations)
+	if err := wm.applyStepOrderTx(ctx, tx, stepIDs); err != nil {
+		return err
+	}
 
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// renumberWorkflowStepsTx renumbers all steps for a workflow in sequential order.
+// Uses a two-phase approach to avoid unique constraint violations on step_order.
+// The transaction must already be started; this function does not commit.
+func (wm *WorkflowManager) renumberWorkflowStepsTx(ctx context.Context, tx *sql.Tx, workflowID string) error {
+	// Get all remaining steps for this workflow ordered by step_order
+	getStepsQuery := `SELECT id FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order ASC`
+	rows, err := tx.QueryContext(ctx, getStepsQuery, workflowID)
+	if err != nil {
+		return fmt.Errorf("failed to get remaining workflow steps: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing rows: %v", closeErr)
+		}
+	}()
+
+	var stepIDs []string
+	for rows.Next() {
+		var stepID string
+		if err := rows.Scan(&stepID); err != nil {
+			return fmt.Errorf("failed to scan step ID: %w", err)
+		}
+		stepIDs = append(stepIDs, stepID)
+	}
+
+	// Apply the new order using two-phase approach
+	return wm.applyStepOrderTx(ctx, tx, stepIDs)
+}
+
+// applyStepOrderTx applies a new order to steps using a two-phase approach.
+// This avoids unique constraint violations on step_order when reordering.
+// Phase 1: Set all step_orders to negative temporary values.
+// Phase 2: Set the final step_orders to positive values.
+// The transaction must already be started; this function does not commit.
+func (wm *WorkflowManager) applyStepOrderTx(ctx context.Context, tx *sql.Tx, stepIDs []string) error {
 	// Phase 1: Set temporary negative values
 	for i, stepID := range stepIDs {
 		tempOrder := -(i + 1) // Negative temporary values
@@ -433,11 +436,6 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 		if err != nil {
 			return fmt.Errorf("failed to set final step order for step %s: %w", stepID, err)
 		}
-	}
-
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

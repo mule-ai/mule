@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	"github.com/mule-ai/mule/internal/primitive"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidateProvider(t *testing.T) {
 	tests := []struct {
-		name     string
-		provider *primitive.Provider
-		wantErr  bool
+		name         string
+		provider     *primitive.Provider
+		expectErrors int
 	}{
 		{
 			name: "valid provider",
@@ -19,7 +20,7 @@ func TestValidateProvider(t *testing.T) {
 				APIBaseURL: "https://api.openai.com",
 				APIKeyEnc:  "sk-test",
 			},
-			wantErr: false,
+			expectErrors: 0,
 		},
 		{
 			name: "missing name",
@@ -27,7 +28,7 @@ func TestValidateProvider(t *testing.T) {
 				APIBaseURL: "https://api.openai.com",
 				APIKeyEnc:  "sk-test",
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "missing API base URL",
@@ -35,7 +36,7 @@ func TestValidateProvider(t *testing.T) {
 				Name:      "openai",
 				APIKeyEnc: "sk-test",
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "missing API key",
@@ -43,26 +44,24 @@ func TestValidateProvider(t *testing.T) {
 				Name:       "openai",
 				APIBaseURL: "https://api.openai.com",
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewValidator()
-			err := v.ValidateProvider(tt.provider)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateProvider() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			errs := v.ValidateProvider(tt.provider)
+			assert.Len(t, errs, tt.expectErrors)
 		})
 	}
 }
 
 func TestValidateTool(t *testing.T) {
 	tests := []struct {
-		name    string
-		tool    *primitive.Tool
-		wantErr bool
+		name         string
+		tool         *primitive.Tool
+		expectErrors int
 	}{
 		{
 			name: "valid tool",
@@ -76,7 +75,7 @@ func TestValidateTool(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
+			expectErrors: 0,
 		},
 		{
 			name: "missing name",
@@ -89,7 +88,7 @@ func TestValidateTool(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "missing type",
@@ -102,7 +101,7 @@ func TestValidateTool(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "invalid type",
@@ -116,26 +115,24 @@ func TestValidateTool(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewValidator()
-			err := v.ValidateTool(tt.tool)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateTool() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			errs := v.ValidateTool(tt.tool)
+			assert.Len(t, errs, tt.expectErrors)
 		})
 	}
 }
 
 func TestValidateAgent(t *testing.T) {
 	tests := []struct {
-		name    string
-		agent   *primitive.Agent
-		wantErr bool
+		name         string
+		agent        *primitive.Agent
+		expectErrors int
 	}{
 		{
 			name: "valid agent",
@@ -145,7 +142,7 @@ func TestValidateAgent(t *testing.T) {
 				ProviderID:   "openai",
 				SystemPrompt: "You are a helpful assistant",
 			},
-			wantErr: false,
+			expectErrors: 0,
 		},
 		{
 			name: "missing name",
@@ -154,7 +151,7 @@ func TestValidateAgent(t *testing.T) {
 				ProviderID:   "openai",
 				SystemPrompt: "You are a helpful assistant",
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "missing model",
@@ -163,7 +160,7 @@ func TestValidateAgent(t *testing.T) {
 				ProviderID:   "openai",
 				SystemPrompt: "You are a helpful assistant",
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "missing provider ID",
@@ -172,26 +169,24 @@ func TestValidateAgent(t *testing.T) {
 				ModelID:      "gpt-4",
 				SystemPrompt: "You are a helpful assistant",
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewValidator()
-			err := v.ValidateAgent(tt.agent)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateAgent() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			errs := v.ValidateAgent(tt.agent)
+			assert.Len(t, errs, tt.expectErrors)
 		})
 	}
 }
 
 func TestValidateWorkflow(t *testing.T) {
 	tests := []struct {
-		name     string
-		workflow *primitive.Workflow
-		wantErr  bool
+		name         string
+		workflow     *primitive.Workflow
+		expectErrors int
 	}{
 		{
 			name: "valid workflow",
@@ -199,33 +194,31 @@ func TestValidateWorkflow(t *testing.T) {
 				Name:        "data-processing",
 				Description: "Process data pipeline",
 			},
-			wantErr: false,
+			expectErrors: 0,
 		},
 		{
 			name: "missing name",
 			workflow: &primitive.Workflow{
 				Description: "Process data pipeline",
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewValidator()
-			err := v.ValidateWorkflow(tt.workflow)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateWorkflow() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			errs := v.ValidateWorkflow(tt.workflow)
+			assert.Len(t, errs, tt.expectErrors)
 		})
 	}
 }
 
 func TestValidateWorkflowStep(t *testing.T) {
 	tests := []struct {
-		name    string
-		step    *primitive.WorkflowStep
-		wantErr bool
+		name         string
+		step         *primitive.WorkflowStep
+		expectErrors int
 	}{
 		{
 			name: "valid agent step",
@@ -237,7 +230,7 @@ func TestValidateWorkflowStep(t *testing.T) {
 				AgentID:    stringPtr("agent1"),
 				Config:     map[string]interface{}{},
 			},
-			wantErr: false,
+			expectErrors: 0,
 		},
 		{
 			name: "valid wasm step",
@@ -249,7 +242,7 @@ func TestValidateWorkflowStep(t *testing.T) {
 				WasmModuleID: stringPtr("module1"),
 				Config:       map[string]interface{}{},
 			},
-			wantErr: false,
+			expectErrors: 0,
 		},
 		{
 			name: "missing ID",
@@ -259,7 +252,7 @@ func TestValidateWorkflowStep(t *testing.T) {
 				StepType:   "agent",
 				Config:     map[string]interface{}{},
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "missing workflow ID",
@@ -269,7 +262,7 @@ func TestValidateWorkflowStep(t *testing.T) {
 				StepType:  "agent",
 				Config:    map[string]interface{}{},
 			},
-			wantErr: true,
+			expectErrors: 2, // missing workflow_id AND agent_id
 		},
 		{
 			name: "invalid step type",
@@ -280,7 +273,7 @@ func TestValidateWorkflowStep(t *testing.T) {
 				StepType:   "invalid",
 				Config:     map[string]interface{}{},
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "agent step missing agent ID",
@@ -291,7 +284,7 @@ func TestValidateWorkflowStep(t *testing.T) {
 				StepType:   "agent",
 				Config:     map[string]interface{}{},
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 		{
 			name: "wasm step missing module ID",
@@ -302,17 +295,15 @@ func TestValidateWorkflowStep(t *testing.T) {
 				StepType:   "wasm_module",
 				Config:     map[string]interface{}{},
 			},
-			wantErr: true,
+			expectErrors: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewValidator()
-			err := v.ValidateWorkflowStep(tt.step)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateWorkflowStep() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			errs := v.ValidateWorkflowStep(tt.step)
+			assert.Len(t, errs, tt.expectErrors)
 		})
 	}
 }

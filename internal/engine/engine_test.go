@@ -119,6 +119,7 @@ type MockPrimitiveStore struct {
 	WorkflowSteps []*primitive.WorkflowStep
 	Agents        []*primitive.Agent
 	Providers     []*primitive.Provider
+	WasmModules   []*primitive.WasmModuleListItem
 }
 
 func (m *MockPrimitiveStore) CreateProvider(ctx context.Context, p *primitive.Provider) error {
@@ -285,6 +286,16 @@ func (m *MockPrimitiveStore) CreateWasmModule(ctx context.Context, w *primitive.
 }
 
 func (m *MockPrimitiveStore) GetWasmModule(ctx context.Context, id string) (*primitive.WasmModule, error) {
+	// Find the WASM module in our mock list
+	for _, w := range m.WasmModules {
+		if w.ID == id {
+			// Return a mock WasmModule with the ID
+			return &primitive.WasmModule{
+				ID:   w.ID,
+				Name: w.Name,
+			}, nil
+		}
+	}
 	return nil, primitive.ErrNotFound
 }
 
@@ -493,4 +504,299 @@ func (m *MockJobStore) CancelJob(jobID string) error {
 		return nil
 	}
 	return job.ErrJobNotFound
+}
+
+// TestSubmitJob tests the SubmitJob function
+func TestSubmitJob(t *testing.T) {
+	mockStore := &MockPrimitiveStore{
+		Workflows: []*primitive.Workflow{
+			{
+				ID:          "workflow-1",
+				Name:        "test-workflow",
+				Description: "Test Workflow",
+			},
+		},
+	}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	ctx := context.Background()
+
+	// Test submitting a job
+	inputData := map[string]interface{}{
+		"message": "Hello, world!",
+	}
+
+	createdJob, err := engine.SubmitJob(ctx, "workflow-1", inputData)
+	assert.NoError(t, err)
+	assert.NotNil(t, createdJob)
+	assert.Equal(t, "workflow-1", createdJob.WorkflowID)
+	assert.Equal(t, job.StatusQueued, createdJob.Status)
+	assert.Equal(t, inputData, createdJob.InputData)
+	assert.NotEmpty(t, createdJob.ID)
+
+	// Verify job was stored
+	storedJob, err := mockJobStore.GetJob(createdJob.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, createdJob.ID, storedJob.ID)
+}
+
+// TestSubmitJobWithWorkingDir tests the SubmitJobWithWorkingDir function
+func TestSubmitJobWithWorkingDir(t *testing.T) {
+	mockStore := &MockPrimitiveStore{
+		Workflows: []*primitive.Workflow{
+			{
+				ID:          "workflow-2",
+				Name:        "test-workflow-2",
+				Description: "Test Workflow 2",
+			},
+		},
+	}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	ctx := context.Background()
+
+	// Test submitting a job with working directory
+	inputData := map[string]interface{}{
+		"task": "process files",
+	}
+	workingDir := "/tmp/test-workflow"
+
+	createdJob, err := engine.SubmitJobWithWorkingDir(ctx, "workflow-2", inputData, workingDir)
+	assert.NoError(t, err)
+	assert.NotNil(t, createdJob)
+	assert.Equal(t, "workflow-2", createdJob.WorkflowID)
+	assert.Equal(t, job.StatusQueued, createdJob.Status)
+	assert.Equal(t, inputData, createdJob.InputData)
+	assert.Equal(t, workingDir, createdJob.WorkingDirectory)
+	assert.NotEmpty(t, createdJob.ID)
+
+	// Verify job was stored with correct working directory
+	storedJob, err := mockJobStore.GetJob(createdJob.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, workingDir, storedJob.WorkingDirectory)
+}
+
+// TestGetWASMExecutor tests the GetWASMExecutor function
+func TestGetWASMExecutor(t *testing.T) {
+	mockStore := &MockPrimitiveStore{}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	// Test getting WASM executor when it's set
+	retrievedExecutor := engine.GetWASMExecutor()
+	assert.NotNil(t, retrievedExecutor)
+	assert.Equal(t, wasmExecutor, retrievedExecutor)
+
+	// Test getting WASM executor when it's nil
+	engineWithoutWasm := NewEngine(mockStore, mockJobStore, agentRuntime, nil, Config{Workers: 1})
+	retrievedExecutorNil := engineWithoutWasm.GetWASMExecutor()
+	assert.Nil(t, retrievedExecutorNil)
+}
+
+// TestEngineStartError tests that Start returns an error if engine is already running
+func TestEngineStartError(t *testing.T) {
+	mockStore := &MockPrimitiveStore{}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	ctx := context.Background()
+
+	// Start the engine first time - should succeed
+	err := engine.Start(ctx)
+	assert.NoError(t, err)
+
+	// Start the engine second time - should return error
+	err = engine.Start(ctx)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already running")
+
+	// Stop the engine
+	engine.Stop()
+}
+
+// TestEngineStopWhenNotRunning tests that Stop is safe to call when engine is not running
+func TestEngineStopWhenNotRunning(t *testing.T) {
+	mockStore := &MockPrimitiveStore{}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	// Stop without starting - should be safe (no-op)
+	engine.Stop()
+
+	// Start and then stop - normal operation
+	err := engine.Start(context.Background())
+	assert.NoError(t, err)
+	engine.Stop()
+}
+
+// TestProcessWASMStepWithWorkingDir tests the processWASMStepWithWorkingDir function
+func TestProcessWASMStepWithWorkingDir(t *testing.T) {
+	mockStore := &MockPrimitiveStore{
+		WasmModules: []*primitive.WasmModuleListItem{
+			{
+				ID:   "wasm-module-1",
+				Name: "test-wasm",
+			},
+		},
+		Workflows: []*primitive.Workflow{
+			{
+				ID:   "workflow-wasm",
+				Name: "WASM Workflow",
+			},
+		},
+	}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	// Create engine (not used directly in this test, but shows setup)
+	_ = NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	ctx := context.Background()
+
+	// Test with nil WASM executor - should return error
+	engineWithNilWasm := NewEngine(mockStore, mockJobStore, agentRuntime, nil, Config{Workers: 1})
+	stepWithNilExecutor := &primitive.WorkflowStep{
+		ID:           "step-wasm",
+		WorkflowID:   "workflow-wasm",
+		StepType:     "wasm_module",
+		WasmModuleID: &[]string{"wasm-module-1"}[0],
+		StepOrder:    1,
+	}
+	_, err := engineWithNilWasm.processStepWithWorkingDir(ctx, stepWithNilExecutor, nil, "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not available")
+}
+
+// TestProcessStepWithWorkingDir tests the processStepWithWorkingDir function with different step types
+func TestProcessStepWithWorkingDir(t *testing.T) {
+	mockStore := &MockPrimitiveStore{
+		Workflows: []*primitive.Workflow{
+			{
+				ID:   "workflow-test",
+				Name: "Test Workflow",
+			},
+		},
+	}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	ctx := context.Background()
+
+	t.Run("unknown step type", func(t *testing.T) {
+		unknownStep := &primitive.WorkflowStep{
+			ID:         "step-unknown",
+			WorkflowID: "workflow-test",
+			StepType:   "unknown_type",
+			StepOrder:  1,
+		}
+		_, err := engine.processStepWithWorkingDir(ctx, unknownStep, nil, "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown step type")
+	})
+
+	t.Run("agent step with nil agent ID", func(t *testing.T) {
+		agentStepNilID := &primitive.WorkflowStep{
+			ID:         "step-agent-nil",
+			WorkflowID: "workflow-test",
+			StepType:   "agent",
+			AgentID:    nil,
+			StepOrder:  1,
+		}
+		_, err := engine.processStepWithWorkingDir(ctx, agentStepNilID, nil, "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "agent_id not found")
+	})
+}
+
+// TestProcessAgentStepWithWorkingDir_Cancellation tests agent step handles context cancellation
+func TestProcessAgentStepWithWorkingDir_Cancellation(t *testing.T) {
+	mockStore := &MockPrimitiveStore{}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	agentID := "agent-1"
+	step := &primitive.WorkflowStep{
+		ID:         "step-agent",
+		WorkflowID: "workflow-1",
+		StepType:   "agent",
+		AgentID:    &agentID,
+		StepOrder:  1,
+	}
+
+	_, err := engine.processAgentStepWithWorkingDir(ctx, step, nil, "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cancelled")
+}
+
+// TestProcessWASMStepWithWorkingDir_Cancellation tests WASM step handles context cancellation
+func TestProcessWASMStepWithWorkingDir_Cancellation(t *testing.T) {
+	mockStore := &MockPrimitiveStore{}
+	mockJobStore := &MockJobStore{
+		Jobs: make(map[string]*job.Job),
+	}
+	agentRuntime := agent.NewRuntime(mockStore, mockJobStore)
+	wasmExecutor := NewWASMExecutor(nil, mockStore, agentRuntime, nil)
+
+	engine := NewEngine(mockStore, mockJobStore, agentRuntime, wasmExecutor, Config{Workers: 1})
+
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	wasmModuleID := "wasm-module-1"
+	step := &primitive.WorkflowStep{
+		ID:           "step-wasm",
+		WorkflowID:   "workflow-1",
+		StepType:     "wasm_module",
+		WasmModuleID: &wasmModuleID,
+		StepOrder:    1,
+	}
+
+	_, err := engine.processWASMStepWithWorkingDir(ctx, step, nil, "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cancelled")
 }

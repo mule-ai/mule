@@ -12,7 +12,7 @@ import (
 // http_request_with_headers is the enhanced host function for making HTTP requests with headers
 //
 //go:wasmimport env http_request_with_headers
-func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uint32
+func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uint32) uint32
 
 // trigger_workflow_or_agent is the unified host function for triggering workflows or calling agents
 //
@@ -119,7 +119,7 @@ func callAgent(agentID string, params map[string]interface{}) (string, error) {
 	status := trigger_workflow_or_agent(
 		uint32(uintptr(unsafe.Pointer(&[]byte(operationType)[0]))), uint32(len(operationType)),
 		uint32(uintptr(unsafe.Pointer(&[]byte(agentID)[0]))), uint32(len(agentID)),
-		uint32(uintptr(unsafe.Pointer(paramsJSONmsJSON[0]))), uint32(len(paramsJSON)))
+		uint32(uintptr(unsafe.Pointer(&paramsJSON[0]))), uint32(len(paramsJSON)))
 
 	if status != 0 {
 		return "", fmt.Errorf("host function failed with status: %d", status)
@@ -236,17 +236,4 @@ func getLastOperationResult() string {
 	}
 
 	return ""
-}
-
-// Wrapper functions for the host functions with proper parameter handling
-func get_last_operation_result(bufferPtr, bufferSize uint32) uint32 {
-	return get_last_operation_result(bufferPtr, bufferSize)
-}
-
-func get_last_response_status() uint32 {
-	return get_last_response_status()
-}
-
-func get_last_response_body(bufferPtr, bufferSize uint32) uint32 {
-	return get_last_response_body(bufferPtr, bufferSize)
 }

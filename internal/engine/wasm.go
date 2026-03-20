@@ -2195,8 +2195,9 @@ func (e *WASMExecutor) isURLAllowed(urlStr string) bool {
 	return false
 }
 
-// readStringFromMemory reads a string from WASM memory
-func readStringFromMemory(ctx context.Context, memory api.Memory, ptr uint32, size uint32) (string, error) {
+// ReadStringFromMemory reads a string from WASM memory.
+// This is exported for testing purposes.
+func ReadStringFromMemory(ctx context.Context, memory api.Memory, ptr uint32, size uint32) (string, error) {
 	// Read the bytes from memory
 	bytes, ok := memory.Read(ptr, size)
 	if !ok {
@@ -2205,6 +2206,11 @@ func readStringFromMemory(ctx context.Context, memory api.Memory, ptr uint32, si
 
 	// Convert bytes to string
 	return string(bytes), nil
+}
+
+// readStringFromMemory is an internal wrapper for ReadStringFromMemory
+func readStringFromMemory(ctx context.Context, memory api.Memory, ptr uint32, size uint32) (string, error) {
+	return ReadStringFromMemory(ctx, memory, ptr, size)
 }
 
 // triggerWorkflow triggers a workflow execution

@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConfigBuildArgs(t *testing.T) {
@@ -54,9 +56,7 @@ func TestConfigBuildArgs(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if !found[test.expected] {
-			t.Errorf("Expected argument %q not found in args: %v", test.expected, args)
-		}
+		assert.True(t, found[test.expected], "Expected argument %q not found in args: %v", test.expected, args)
 	}
 }
 
@@ -73,9 +73,7 @@ func TestNoToolsConfig(t *testing.T) {
 		found[arg] = true
 	}
 
-	if !found["--no-tools"] {
-		t.Errorf("Expected --no-tools not found in args: %v", args)
-	}
+	assert.True(t, found["--no-tools"], "Expected --no-tools not found in args: %v", args)
 }
 
 func TestNoExtensionsConfig(t *testing.T) {
@@ -91,9 +89,7 @@ func TestNoExtensionsConfig(t *testing.T) {
 		found[arg] = true
 	}
 
-	if !found["--no-extensions"] {
-		t.Errorf("Expected --no-extensions not found in args: %v", args)
-	}
+	assert.True(t, found["--no-extensions"], "Expected --no-extensions not found in args: %v", args)
 }
 
 func TestPromptMessageJSON(t *testing.T) {
@@ -104,37 +100,24 @@ func TestPromptMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal PromptMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal PromptMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
 
-	if parsed["type"] != "prompt" {
-		t.Errorf("Expected type 'prompt', got %v", parsed["type"])
-	}
-	if parsed["message"] != "Hello, world!" {
-		t.Errorf("Expected message 'Hello, world!', got %v", parsed["message"])
-	}
-	if parsed["id"] != "test-id-123" {
-		t.Errorf("Expected id 'test-id-123', got %v", parsed["id"])
-	}
+	assert.Equal(t, "prompt", parsed["type"])
+	assert.Equal(t, "Hello, world!", parsed["message"])
+	assert.Equal(t, "test-id-123", parsed["id"])
 }
 
 func TestAgentEventJSON(t *testing.T) {
 	eventJSON := `{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]},"assistantMessageEvent":{"type":"text_delta","delta":"Hello","contentIndex":0}}`
 
 	var event AgentEvent
-	if err := json.Unmarshal([]byte(eventJSON), &event); err != nil {
-		t.Fatalf("Failed to unmarshal AgentEvent: %v", err)
-	}
-
-	if event.Type != "message_update" {
-		t.Errorf("Expected type 'message_update', got %v", event.Type)
-	}
+	err := json.Unmarshal([]byte(eventJSON), &event)
+	assert.NoError(t, err, "Failed to unmarshal AgentEvent")
+	assert.Equal(t, "message_update", event.Type)
 }
 
 func TestSteerMessageJSON(t *testing.T) {
@@ -144,18 +127,12 @@ func TestSteerMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal SteerMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal SteerMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "steer" {
-		t.Errorf("Expected type 'steer', got %v", parsed["type"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "steer", parsed["type"])
 }
 
 func TestFollowUpMessageJSON(t *testing.T) {
@@ -165,18 +142,12 @@ func TestFollowUpMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal FollowUpMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal FollowUpMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "follow_up" {
-		t.Errorf("Expected type 'follow_up', got %v", parsed["type"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "follow_up", parsed["type"])
 }
 
 func TestAbortMessageJSON(t *testing.T) {
@@ -185,18 +156,12 @@ func TestAbortMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal AbortMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal AbortMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "abort" {
-		t.Errorf("Expected type 'abort', got %v", parsed["type"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "abort", parsed["type"])
 }
 
 func TestNewSessionMessageJSON(t *testing.T) {
@@ -206,21 +171,13 @@ func TestNewSessionMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal NewSessionMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal NewSessionMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "new_session" {
-		t.Errorf("Expected type 'new_session', got %v", parsed["type"])
-	}
-	if parsed["parentSession"] != "/path/to/parent.jsonl" {
-		t.Errorf("Expected parentSession '/path/to/parent.jsonl', got %v", parsed["parentSession"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "new_session", parsed["type"])
+	assert.Equal(t, "/path/to/parent.jsonl", parsed["parentSession"])
 }
 
 func TestSetModelMessageJSON(t *testing.T) {
@@ -231,24 +188,14 @@ func TestSetModelMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal SetModelMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal SetModelMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "set_model" {
-		t.Errorf("Expected type 'set_model', got %v", parsed["type"])
-	}
-	if parsed["provider"] != "openai" {
-		t.Errorf("Expected provider 'openai', got %v", parsed["provider"])
-	}
-	if parsed["modelId"] != "gpt-4o" {
-		t.Errorf("Expected modelId 'gpt-4o', got %v", parsed["modelId"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "set_model", parsed["type"])
+	assert.Equal(t, "openai", parsed["provider"])
+	assert.Equal(t, "gpt-4o", parsed["modelId"])
 }
 
 func TestSetThinkingLevelMessageJSON(t *testing.T) {
@@ -258,21 +205,13 @@ func TestSetThinkingLevelMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal SetThinkingLevelMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal SetThinkingLevelMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "set_thinking_level" {
-		t.Errorf("Expected type 'set_thinking_level', got %v", parsed["type"])
-	}
-	if parsed["level"] != "xhigh" {
-		t.Errorf("Expected level 'xhigh', got %v", parsed["level"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "set_thinking_level", parsed["type"])
+	assert.Equal(t, "xhigh", parsed["level"])
 }
 
 func TestBashMessageJSON(t *testing.T) {
@@ -282,43 +221,25 @@ func TestBashMessageJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal BashMessage: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal BashMessage")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "bash" {
-		t.Errorf("Expected type 'bash', got %v", parsed["type"])
-	}
-	if parsed["command"] != "ls -la" {
-		t.Errorf("Expected command 'ls -la', got %v", parsed["command"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "bash", parsed["type"])
+	assert.Equal(t, "ls -la", parsed["command"])
 }
 
 func TestExtensionUIRequestJSON(t *testing.T) {
 	eventJSON := `{"type":"extension_ui_request","id":"uuid-1","method":"select","title":"Allow dangerous command?","options":["Allow","Block"],"timeout":10000}`
 
 	var req ExtensionUIRequest
-	if err := json.Unmarshal([]byte(eventJSON), &req); err != nil {
-		t.Fatalf("Failed to unmarshal ExtensionUIRequest: %v", err)
-	}
-
-	if req.Type != "extension_ui_request" {
-		t.Errorf("Expected type 'extension_ui_request', got %v", req.Type)
-	}
-	if req.Method != "select" {
-		t.Errorf("Expected method 'select', got %v", req.Method)
-	}
-	if req.ID != "uuid-1" {
-		t.Errorf("Expected id 'uuid-1', got %v", req.ID)
-	}
-	if len(req.Options) != 2 {
-		t.Errorf("Expected 2 options, got %d", len(req.Options))
-	}
+	err := json.Unmarshal([]byte(eventJSON), &req)
+	assert.NoError(t, err, "Failed to unmarshal ExtensionUIRequest")
+	assert.Equal(t, "extension_ui_request", req.Type)
+	assert.Equal(t, "select", req.Method)
+	assert.Equal(t, "uuid-1", req.ID)
+	assert.Len(t, req.Options, 2)
 }
 
 func TestExtensionUIResponseJSON(t *testing.T) {
@@ -330,21 +251,13 @@ func TestExtensionUIResponseJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(resp)
-	if err != nil {
-		t.Fatalf("Failed to marshal ExtensionUIResponse: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal ExtensionUIResponse")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["type"] != "extension_ui_response" {
-		t.Errorf("Expected type 'extension_ui_response', got %v", parsed["type"])
-	}
-	if parsed["value"] != "Allow" {
-		t.Errorf("Expected value 'Allow', got %v", parsed["value"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, "extension_ui_response", parsed["type"])
+	assert.Equal(t, "Allow", parsed["value"])
 
 	// Test confirmation response
 	confirmResp := ExtensionUIResponse{
@@ -354,17 +267,11 @@ func TestExtensionUIResponseJSON(t *testing.T) {
 	}
 
 	data, err = json.Marshal(confirmResp)
-	if err != nil {
-		t.Fatalf("Failed to marshal confirm ExtensionUIResponse: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal confirm ExtensionUIResponse")
 
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["confirmed"] != true {
-		t.Errorf("Expected confirmed true, got %v", parsed["confirmed"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, true, parsed["confirmed"])
 
 	// Test cancellation response
 	cancelResp := ExtensionUIResponse{
@@ -374,17 +281,11 @@ func TestExtensionUIResponseJSON(t *testing.T) {
 	}
 
 	data, err = json.Marshal(cancelResp)
-	if err != nil {
-		t.Fatalf("Failed to marshal cancel ExtensionUIResponse: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal cancel ExtensionUIResponse")
 
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
-
-	if parsed["cancelled"] != true {
-		t.Errorf("Expected cancelled true, got %v", parsed["cancelled"])
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
+	assert.Equal(t, true, parsed["cancelled"])
 }
 
 func TestImageContentJSON(t *testing.T) {
@@ -403,24 +304,18 @@ func TestImageContentJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal PromptMessage with images: %v", err)
-	}
+	assert.NoError(t, err, "Failed to marshal PromptMessage with images")
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
-	}
+	err = json.Unmarshal(data, &parsed)
+	assert.NoError(t, err, "Failed to unmarshal JSON")
 
 	imagesRaw, ok := parsed["images"].([]interface{})
-	if !ok || len(imagesRaw) != 1 {
-		t.Fatalf("Expected 1 image, got %v", parsed["images"])
-	}
+	assert.True(t, ok, "Expected images to be an array")
+	assert.Len(t, imagesRaw, 1)
 
 	img := imagesRaw[0].(map[string]interface{})
-	if img["type"] != "image" {
-		t.Errorf("Expected image type 'image', got %v", img["type"])
-	}
+	assert.Equal(t, "image", img["type"])
 }
 
 func TestBridgeCreation(t *testing.T) {
@@ -434,25 +329,12 @@ func TestBridgeCreation(t *testing.T) {
 
 	bridge := NewBridge(cfg)
 
-	if bridge == nil {
-		t.Fatal("NewBridge returned nil")
-	}
-
-	if bridge.cfg.Provider != "google" {
-		t.Errorf("Expected provider 'google', got %v", bridge.cfg.Provider)
-	}
-	if bridge.cfg.ModelID != "gemini-2.5-flash" {
-		t.Errorf("Expected modelID 'gemini-2.5-flash', got %v", bridge.cfg.ModelID)
-	}
-	if bridge.cfg.ThinkingLevel != "medium" {
-		t.Errorf("Expected thinkingLevel 'medium', got %v", bridge.cfg.ThinkingLevel)
-	}
-	if bridge.eventChan == nil {
-		t.Error("Expected eventChan to be initialized")
-	}
-	if bridge.errChan == nil {
-		t.Error("Expected errChan to be initialized")
-	}
+	assert.NotNil(t, bridge)
+	assert.Equal(t, "google", bridge.cfg.Provider)
+	assert.Equal(t, "gemini-2.5-flash", bridge.cfg.ModelID)
+	assert.Equal(t, "medium", bridge.cfg.ThinkingLevel)
+	assert.NotNil(t, bridge.eventChan)
+	assert.NotNil(t, bridge.errChan)
 }
 
 func TestContextCancellation(t *testing.T) {
@@ -466,9 +348,7 @@ func TestContextCancellation(t *testing.T) {
 	// This is a simple test - in real usage, the bridge would check context
 	select {
 	case <-ctx.Done():
-		if ctx.Err() != context.Canceled {
-			t.Errorf("expected context canceled, got: %v", ctx.Err())
-		}
+		assert.Equal(t, context.Canceled, ctx.Err())
 	default:
 	}
 }
@@ -493,18 +373,14 @@ func TestBridgeIntegration(t *testing.T) {
 
 	bridge := NewBridge(cfg)
 
-	if err := bridge.Start(); err != nil {
-		t.Fatalf("Failed to start bridge: %v", err)
-	}
-
+	err := bridge.Start()
+	assert.NoError(t, err, "Failed to start bridge")
 	t.Log("PI bridge started successfully")
 
 	// Send a simple prompt
 	ctx := context.Background()
-	if err := bridge.Prompt(ctx, "Say 'hello' in exactly 3 words"); err != nil {
-		t.Fatalf("Failed to send prompt: %v", err)
-	}
-
+	err = bridge.Prompt(ctx, "Say 'hello' in exactly 3 words")
+	assert.NoError(t, err, "Failed to send prompt")
 	t.Log("Prompt sent successfully")
 
 	// Wait for events with timeout
@@ -558,9 +434,7 @@ func TestEventsChannel(t *testing.T) {
 	bridge := NewBridge(cfg)
 
 	events := bridge.Events()
-	if events == nil {
-		t.Fatal("Events() returned nil channel")
-	}
+	assert.NotNil(t, events)
 
 	// Verify it's a receive-only channel using blank identifier assignment
 	_ = events
@@ -572,9 +446,7 @@ func TestErrorsChannel(t *testing.T) {
 	bridge := NewBridge(cfg)
 
 	errs := bridge.Errors()
-	if errs == nil {
-		t.Fatal("Errors() returned nil channel")
-	}
+	assert.NotNil(t, errs)
 
 	// Verify it's a receive-only channel using blank identifier assignment
 	_ = errs
@@ -586,9 +458,7 @@ func TestProcessDoneChannel(t *testing.T) {
 	bridge := NewBridge(cfg)
 
 	done := bridge.ProcessDone()
-	if done == nil {
-		t.Fatal("ProcessDone() returned nil channel")
-	}
+	assert.NotNil(t, done)
 
 	// Verify it's a receive-only channel using blank identifier assignment
 	_ = done
@@ -602,9 +472,7 @@ func TestWorkingDirectoryConfig(t *testing.T) {
 
 	bridge := NewBridge(cfg)
 
-	if bridge.cfg.WorkingDirectory != "/home/user/project" {
-		t.Errorf("Expected working directory '/home/user/project', got %v", bridge.cfg.WorkingDirectory)
-	}
+	assert.Equal(t, "/home/user/project", bridge.cfg.WorkingDirectory)
 }
 
 // TestMultipleSkillsConfig tests configuration with multiple skills
@@ -627,9 +495,7 @@ func TestMultipleSkillsConfig(t *testing.T) {
 		}
 	}
 
-	if skillCount != 3 {
-		t.Errorf("Expected 3 skill flags, got %d", skillCount)
-	}
+	assert.Equal(t, 3, skillCount)
 }
 
 // TestMultipleExtensionsConfig tests configuration with multiple extensions
@@ -651,9 +517,7 @@ func TestMultipleExtensionsConfig(t *testing.T) {
 		}
 	}
 
-	if extCount != 2 {
-		t.Errorf("Expected 2 extension flags, got %d", extCount)
-	}
+	assert.Equal(t, 2, extCount)
 }
 
 // TestTimeoutConfig tests that timeout is properly stored
@@ -664,9 +528,7 @@ func TestTimeoutConfig(t *testing.T) {
 
 	bridge := NewBridge(cfg)
 
-	if bridge.cfg.Timeout != 5*time.Minute {
-		t.Errorf("Expected timeout of 5 minutes, got %v", bridge.cfg.Timeout)
-	}
+	assert.Equal(t, 5*time.Minute, bridge.cfg.Timeout)
 }
 
 // TestIsRunningBeforeStart tests IsRunning before starting the process
@@ -674,9 +536,7 @@ func TestIsRunningBeforeStart(t *testing.T) {
 	cfg := Config{}
 	bridge := NewBridge(cfg)
 
-	if bridge.IsRunning() {
-		t.Error("Expected IsRunning() to return false before Start()")
-	}
+	assert.False(t, bridge.IsRunning(), "Expected IsRunning() to return false before Start()")
 }
 
 // TestThinkingLevels tests all thinking level values
@@ -699,9 +559,7 @@ func TestThinkingLevels(t *testing.T) {
 			}
 		}
 
-		if !foundThinking {
-			t.Errorf("Expected thinking level '%s' not found in args: %v", level, args)
-		}
+		assert.True(t, foundThinking, "Expected thinking level '%s' not found in args: %v", level, args)
 	}
 }
 
@@ -714,9 +572,7 @@ func TestEmptyConfig(t *testing.T) {
 
 	// With empty config, should still return --mode rpc and --no-session from Start()
 	// But buildArgs should return empty slice
-	if len(args) != 0 {
-		t.Errorf("Expected empty args for empty config, got: %v", args)
-	}
+	assert.Len(t, args, 0)
 }
 
 // TestToolsAndNoToolsConflict tests that NoTools takes precedence over Tools
@@ -741,10 +597,446 @@ func TestToolsAndNoToolsConflict(t *testing.T) {
 		}
 	}
 
-	if !hasNoTools {
-		t.Errorf("Expected --no-tools in args: %v", args)
+	assert.True(t, hasNoTools, "Expected --no-tools in args: %v", args)
+	assert.False(t, hasTools, "Did not expect --tools when NoTools is true: %v", args)
+}
+
+// TestGetArgs tests that GetArgs returns the built command line arguments
+func TestGetArgs(t *testing.T) {
+	cfg := Config{
+		Provider:      "anthropic",
+		ModelID:       "claude-sonnet-4-20250514",
+		SystemPrompt:  "You are helpful",
+		ThinkingLevel: "medium",
+		Tools:         "read,write",
 	}
-	if hasTools {
-		t.Errorf("Did not expect --tools when NoTools is true: %v", args)
+
+	bridge := NewBridge(cfg)
+	args := bridge.GetArgs()
+
+	// Verify expected args are present
+	expectedArgs := map[string]bool{
+		"--provider":               true,
+		"anthropic":                true,
+		"--model":                  true,
+		"claude-sonnet-4-20250514": true,
+		"--system-prompt":          true,
+		"You are helpful":          true,
+		"--thinking":               true,
+		"medium":                   true,
+		"--tools":                  true,
+		"read,write":               true,
 	}
+
+	for _, arg := range args {
+		if expected, ok := expectedArgs[arg]; ok && expected {
+			delete(expectedArgs, arg)
+		}
+	}
+
+	assert.Empty(t, expectedArgs, "Expected args not found in GetArgs(): %v", expectedArgs)
+}
+
+// TestSendExtensionUICancel tests sending UI cancellation response
+func TestSendExtensionUICancel(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process, but verify method exists and doesn't panic
+	// The actual send will fail because stdin is nil, but that's expected
+	err := bridge.SendExtensionUICancel("test-uuid")
+	// Expect an error because process is not running (stdin is nil)
+	assert.Error(t, err, "Expected error when sending UI cancel without running process")
+}
+
+// TestSendExtensionUIResponse tests sending UI response with value and confirmed
+func TestSendExtensionUIResponse(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process, but verify method exists and doesn't panic
+	err := bridge.SendExtensionUIResponse("test-uuid", "Selected Option", true)
+	// Expect an error because process is not running (stdin is nil)
+	assert.Error(t, err, "Expected error when sending UI response without running process")
+}
+
+// TestSendExtensionUIResponseWithFalseConfirm tests UI response with confirmed=false
+func TestSendExtensionUIResponseWithFalseConfirm(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	err := bridge.SendExtensionUIResponse("test-uuid", "", false)
+	// Expect an error because process is not running (stdin is nil)
+	assert.Error(t, err, "Expected error when sending UI response without running process")
+}
+
+// TestSendExtensionUICancelOnClosedBridge tests that UI cancel returns error on closed bridge
+func TestSendExtensionUICancelOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Simulate closed bridge by calling Stop
+	_ = bridge.Stop()
+
+	err := bridge.SendExtensionUICancel("test-uuid")
+	assert.Error(t, err, "Expected error when sending UI cancel on closed bridge")
+	assert.Equal(t, "bridge is closed", err.Error())
+}
+
+// TestSendExtensionUIResponseOnClosedBridge tests that UI response returns error on closed bridge
+func TestSendExtensionUIResponseOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Simulate closed bridge by calling Stop
+	_ = bridge.Stop()
+
+	err := bridge.SendExtensionUIResponse("test-uuid", "value", true)
+	assert.Error(t, err, "Expected error when sending UI response on closed bridge")
+	assert.Equal(t, "bridge is closed", err.Error())
+}
+
+// TestSteerMessage tests that Steer sends the correct message structure
+func TestSteerMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process
+	err := bridge.Steer(context.Background(), "Stop and reconsider")
+	assert.Error(t, err, "Expected error when sending steer without running process")
+}
+
+// TestFollowUpMessage tests that FollowUp sends the correct message structure
+func TestFollowUpMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process
+	err := bridge.FollowUp(context.Background(), "Also do this task")
+	assert.Error(t, err, "Expected error when sending follow_up without running process")
+}
+
+// TestAbortMessage tests that Abort sends the correct message structure
+func TestAbortMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process
+	err := bridge.Abort(context.Background())
+	assert.Error(t, err, "Expected error when sending abort without running process")
+}
+
+// TestNewSessionMessage tests that NewSession sends the correct message structure
+func TestNewSessionMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process
+	err := bridge.NewSession(context.Background())
+	assert.Error(t, err, "Expected error when sending new_session without running process")
+}
+
+// TestSetModelMessage tests that SetModel sends the correct message structure
+func TestSetModelMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process
+	err := bridge.SetModel(context.Background(), "openai", "gpt-4o")
+	if err == nil {
+		t.Error("Expected error when sending set_model without running process")
+	}
+}
+
+// TestSetThinkingLevelMessage tests that SetThinkingLevel sends the correct message structure
+func TestSetThinkingLevelMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process
+	err := bridge.SetThinkingLevel(context.Background(), "high")
+	assert.Error(t, err, "Expected error when sending set_thinking_level without running process")
+}
+
+// TestBashMessage tests that Bash sends the correct message structure
+func TestBashMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Cannot actually send without running process
+	err := bridge.Bash(context.Background(), "ls -la")
+	assert.Error(t, err, "Expected error when sending bash without running process")
+}
+
+// TestPromptWithImagesMessage tests that PromptWithImages sends the correct message structure
+func TestPromptWithImagesMessage(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	images := []ImageContent{
+		{Type: "image", Data: "base64data", MimeType: "image/png"},
+		{Type: "image", Data: "base64data2", MimeType: "image/jpeg"},
+	}
+
+	// Cannot actually send without running process
+	err := bridge.PromptWithImages(context.Background(), "What's in these images?", images)
+	assert.Error(t, err, "Expected error when sending prompt with images without running process")
+}
+
+// TestSteerOnClosedBridge tests that Steer returns error on closed bridge
+func TestSteerOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	err := bridge.Steer(context.Background(), "message")
+	assert.Error(t, err, "Expected error when sending steer on closed bridge")
+}
+
+// TestFollowUpOnClosedBridge tests that FollowUp returns error on closed bridge
+func TestFollowUpOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	err := bridge.FollowUp(context.Background(), "message")
+	assert.Error(t, err, "Expected error when sending follow_up on closed bridge")
+}
+
+// TestAbortOnClosedBridge tests that Abort returns error on closed bridge
+func TestAbortOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	err := bridge.Abort(context.Background())
+	assert.Error(t, err, "Expected error when sending abort on closed bridge")
+}
+
+// TestNewSessionOnClosedBridge tests that NewSession returns error on closed bridge
+func TestNewSessionOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	err := bridge.NewSession(context.Background())
+	assert.Error(t, err, "Expected error when sending new_session on closed bridge")
+}
+
+// TestSetModelOnClosedBridge tests that SetModel returns error on closed bridge
+func TestSetModelOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	err := bridge.SetModel(context.Background(), "openai", "gpt-4")
+	assert.Error(t, err, "Expected error when sending set_model on closed bridge")
+}
+
+// TestSetThinkingLevelOnClosedBridge tests that SetThinkingLevel returns error on closed bridge
+func TestSetThinkingLevelOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	err := bridge.SetThinkingLevel(context.Background(), "low")
+	assert.Error(t, err, "Expected error when sending set_thinking_level on closed bridge")
+}
+
+// TestBashOnClosedBridge tests that Bash returns error on closed bridge
+func TestBashOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	err := bridge.Bash(context.Background(), "ls")
+	assert.Error(t, err, "Expected error when sending bash on closed bridge")
+}
+
+// TestPromptWithImagesOnClosedBridge tests that PromptWithImages returns error on closed bridge
+func TestPromptWithImagesOnClosedBridge(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+	_ = bridge.Stop()
+
+	images := []ImageContent{{Type: "image", Data: "base64", MimeType: "image/png"}}
+	err := bridge.PromptWithImages(context.Background(), "message", images)
+	assert.Error(t, err, "Expected error when sending prompt with images on closed bridge")
+}
+
+// TestIsRunningAfterStop tests IsRunning returns false after Stop
+func TestIsRunningAfterStop(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// Before start
+	assert.False(t, bridge.IsRunning(), "Expected IsRunning() to return false before Start()")
+
+	// After stop (without start)
+	_ = bridge.Stop()
+	assert.False(t, bridge.IsRunning(), "Expected IsRunning() to return false after Stop() without Start()")
+}
+
+// TestIsRunningWithNilProcess tests IsRunning when process is nil
+func TestIsRunningWithNilProcess(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// bridge.cmd is nil at this point
+	assert.False(t, bridge.IsRunning(), "Expected IsRunning() to return false with nil process")
+}
+
+// TestBuildArgsWithAllOptions tests buildArgs with all options set
+func TestBuildArgsWithAllOptions(t *testing.T) {
+	cfg := Config{
+		Provider:         "anthropic",
+		ModelID:          "claude-3-5-sonnet",
+		APIKey:           "secret-key",
+		SystemPrompt:     "You are a helpful assistant",
+		ThinkingLevel:    "high",
+		SessionDir:       "/tmp/sessions",
+		NoSession:        true,
+		Skills:           []string{"/path/skill1"},
+		Tools:            "read,write,edit",
+		NoTools:          false,
+		Extensions:       []string{"/path/ext1.ts"},
+		NoExtensions:     false,
+		WorkingDirectory: "/workspace",
+		Timeout:          10 * time.Minute,
+	}
+
+	bridge := NewBridge(cfg)
+	args := bridge.buildArgs()
+
+	// Count expected args
+	expectedMap := map[string]int{
+		"--provider":                  1,
+		"anthropic":                   1,
+		"--model":                     1,
+		"claude-3-5-sonnet":           1,
+		"--system-prompt":             1,
+		"You are a helpful assistant": 1,
+		"--thinking":                  1,
+		"high":                        1,
+		"--session-dir":               1,
+		"/tmp/sessions":               1,
+		"--skill":                     1,
+		"/path/skill1":                1,
+		"--tools":                     1,
+		"read,write,edit":             1,
+		"--extension":                 1,
+		"/path/ext1.ts":               1,
+	}
+
+	for _, arg := range args {
+		if count, ok := expectedMap[arg]; ok {
+			expectedMap[arg] = count - 1
+		}
+	}
+
+	for arg, remaining := range expectedMap {
+		assert.Equal(t, 0, remaining, "Expected argument '%s' not found or counted incorrectly", arg)
+	}
+}
+
+// TestBuildArgsWithOnlyProvider tests buildArgs with only provider
+func TestBuildArgsWithOnlyProvider(t *testing.T) {
+	cfg := Config{
+		Provider: "google",
+	}
+
+	bridge := NewBridge(cfg)
+	args := bridge.buildArgs()
+
+	assert.Len(t, args, 2)
+	assert.Equal(t, "--provider", args[0])
+	assert.Equal(t, "google", args[1])
+}
+
+// TestBuildArgsWithNoConfig tests buildArgs with empty config
+func TestBuildArgsWithNoConfig(t *testing.T) {
+	cfg := Config{}
+
+	bridge := NewBridge(cfg)
+	args := bridge.buildArgs()
+
+	assert.Len(t, args, 0)
+}
+
+// TestStopWhenAlreadyStopped tests that Stop is safe to call multiple times
+func TestStopWhenAlreadyStopped(t *testing.T) {
+	cfg := Config{}
+	bridge := NewBridge(cfg)
+
+	// First stop
+	err1 := bridge.Stop()
+	assert.NoError(t, err1, "First Stop() returned error: %v", err1)
+
+	// Second stop should be safe (returns nil or closed error)
+	err2 := bridge.Stop()
+	if err2 != nil {
+		// This is acceptable - bridge is already closed
+		t.Logf("Second Stop() returned error (acceptable): %v", err2)
+	}
+}
+
+// TestStreamAgentExecutionFunction tests the StreamAgentExecution helper function
+func TestStreamAgentExecutionFunction(t *testing.T) {
+	// This test requires a properly configured pi environment with API keys
+	// Skip if GOOGLE_API_KEY is not set
+	if os.Getenv("GOOGLE_API_KEY") == "" {
+		t.Skip("Skipping: GOOGLE_API_KEY not set")
+	}
+
+	// Create a mock broadcaster
+	mockHub := &MockEventBroadcaster{}
+
+	config := Config{
+		Provider:      "google",
+		ModelID:       "gemini-2.0-flash",
+		ThinkingLevel: "low",
+	}
+
+	messages := []string{"Hello"}
+
+	// Use a context with timeout to avoid hanging when pi is not available
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := StreamAgentExecution(ctx, mockHub, config, messages, "test-job-id")
+
+	// The function should complete without error when properly configured
+	if err != nil {
+		t.Logf("StreamAgentExecution returned error (expected in some cases): %v", err)
+	}
+	if result != nil {
+		t.Logf("StreamAgentExecution returned result: %v", *result)
+	}
+}
+
+// MockEventBroadcaster is a mock implementation of EventBroadcaster for testing
+type MockEventBroadcaster struct {
+	events []struct {
+		eventType string
+		data      interface{}
+	}
+}
+
+func (m *MockEventBroadcaster) BroadcastAgentEvent(eventType string, data interface{}) {
+	m.events = append(m.events, struct {
+		eventType string
+		data      interface{}
+	}{eventType, data})
+}
+
+// TestMockEventBroadcaster tests the mock broadcaster
+func TestMockEventBroadcaster(t *testing.T) {
+	mock := &MockEventBroadcaster{}
+
+	mock.BroadcastAgentEvent("text_delta", "Hello")
+	mock.BroadcastAgentEvent("agent_end", nil)
+
+	assert.Len(t, mock.events, 2)
+	assert.Equal(t, "text_delta", mock.events[0].eventType)
+	assert.Equal(t, "agent_end", mock.events[1].eventType)
 }

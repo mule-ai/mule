@@ -115,8 +115,8 @@ type RPCResponse struct {
 // AgentEvent represents an event from PI
 type AgentEvent struct {
 	Type                  string          `json:"type"`
-	Message              json.RawMessage `json:"message,omitempty"`
-	Messages             json.RawMessage `json:"messages,omitempty"`
+	Message               json.RawMessage `json:"message,omitempty"`
+	Messages              json.RawMessage `json:"messages,omitempty"`
 	AssistantMessageEvent json.RawMessage `json:"assistantMessageEvent,omitempty"`
 	ToolCallID            string          `json:"toolCallId,omitempty"`
 	ToolName              string          `json:"toolName,omitempty"`
@@ -356,6 +356,10 @@ func (b *Bridge) sendCommand(cmd RPCCommand) error {
 		return fmt.Errorf("bridge is closed")
 	}
 
+	if b.stdin == nil {
+		return fmt.Errorf("bridge is not running")
+	}
+
 	data, err := json.Marshal(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to marshal command: %w", err)
@@ -382,6 +386,17 @@ func (b *Bridge) sendCommand(cmd RPCCommand) error {
 // SendExtensionUICancel sends a cancellation response for extension UI requests
 // This is exported for use by external packages that need to cancel extension UI requests
 func (b *Bridge) SendExtensionUICancel(id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		return fmt.Errorf("bridge is closed")
+	}
+
+	if b.stdin == nil {
+		return fmt.Errorf("bridge is not running")
+	}
+
 	resp := ExtensionUIResponse{
 		Type:      "extension_ui_response",
 		ID:        id,
@@ -410,6 +425,17 @@ func (b *Bridge) SendExtensionUICancel(id string) error {
 // This is a public method that can be called by the WebSocket handler when
 // the client responds to a UI request (select, confirm, input, etc.)
 func (b *Bridge) SendExtensionUIResponse(id, value string, confirmed bool) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		return fmt.Errorf("bridge is closed")
+	}
+
+	if b.stdin == nil {
+		return fmt.Errorf("bridge is not running")
+	}
+
 	resp := ExtensionUIResponse{
 		Type:      "extension_ui_response",
 		ID:        id,
@@ -421,13 +447,6 @@ func (b *Bridge) SendExtensionUIResponse(id, value string, confirmed bool) error
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("failed to marshal UI response: %w", err)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.closed {
-		return fmt.Errorf("bridge is closed")
 	}
 
 	_, err = b.stdin.Write(data)

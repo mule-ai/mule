@@ -236,8 +236,6 @@ AgentLoop:
 				// Use Messages field (plural) which contains the full messages array
 				msgData := event.Messages
 				if len(msgData) > 0 {
-				}
-				if len(msgData) > 0 {
 					// The JSON is an array of messages like [{"role":"user","content":[...]},{"role":"assistant","content":[{...}]}]
 					// NOT an object with a "messages" field
 					var messages []struct {
