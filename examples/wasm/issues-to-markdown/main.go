@@ -10,13 +10,13 @@ import (
 
 // GitHubIssue represents a GitHub issue structure based on the provided example
 type GitHubIssue struct {
-	Body     string `json:"body"`
-	DueDate  string `json:"due_date"`
-	Filter   string `json:"filter"`
-	State    string `json:"state"`
-	Status   string `json:"status"`
-	Title    string `json:"title"`
-	URL      string `json:"url"`
+	Body    string `json:"body"`
+	DueDate string `json:"due_date"`
+	Filter  string `json:"filter"`
+	State   string `json:"state"`
+	Status  string `json:"status"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
 }
 
 // Input represents the expected input structure
@@ -77,12 +77,12 @@ func convertIssuesToMarkdown(issues []GitHubIssue) string {
 
 	for i, issue := range issues {
 		// Add title as heading
-		builder.WriteString(fmt.Sprintf("# %s\n\n", issue.Title))
+		fmt.Fprintf(&builder, "# %s\n\n", issue.Title)
 
 		// Add metadata with transformed URL
-		builder.WriteString(fmt.Sprintf("* Link: %s\n", transformURL(issue.URL)))
-		builder.WriteString(fmt.Sprintf("* State: %s\n", formatState(issue.State, issue.Status)))
-		builder.WriteString(fmt.Sprintf("* Due Date: %s\n", formatDueDate(issue.DueDate)))
+		fmt.Fprintf(&builder, "* Link: %s\n", transformURL(issue.URL))
+		fmt.Fprintf(&builder, "* State: %s\n", formatState(issue.State, issue.Status))
+		fmt.Fprintf(&builder, "* Due Date: %s\n", formatDueDate(issue.DueDate))
 
 		// Add description/body
 		builder.WriteString("* Description: ")
@@ -94,13 +94,13 @@ func convertIssuesToMarkdown(issues []GitHubIssue) string {
 				lines := strings.Split(issue.Body, "\n")
 				for _, line := range lines {
 					if line != "" {
-						builder.WriteString(fmt.Sprintf("  %s\n", line))
+						fmt.Fprintf(&builder, "  %s\n", line)
 					} else {
 						builder.WriteString("\n")
 					}
 				}
 			} else {
-				builder.WriteString(fmt.Sprintf("%s\n", issue.Body))
+				fmt.Fprintf(&builder, "%s\n", issue.Body)
 			}
 		} else {
 			builder.WriteString("\n")
@@ -130,7 +130,7 @@ func formatState(state, status string) string {
 		}
 		return status
 	}
-	
+
 	// Default to state if status is empty
 	return strings.ToUpper(state[:1]) + strings.ToLower(state[1:])
 }
@@ -140,12 +140,12 @@ func formatDueDate(dueDate string) string {
 	if dueDate == "No Due Date" {
 		return dueDate
 	}
-	
+
 	// Try to parse the date and reformat it as MM/DD/YY
 	if parsedDate, err := time.Parse("2006-01-02", dueDate); err == nil {
 		return parsedDate.Format("1/2/06")
 	}
-	
+
 	// Return as is if parsing fails
 	return dueDate
 }

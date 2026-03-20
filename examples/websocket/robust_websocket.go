@@ -72,7 +72,7 @@ func (c *Client) readPump() {
 		}
 		return nil
 	})
-	
+
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
@@ -197,7 +197,7 @@ type Hub struct {
 
 	// Unregister requests from clients.
 	unregister chan *Client
-	
+
 	// Mutex to protect concurrent access to clients map
 	mu sync.RWMutex
 }

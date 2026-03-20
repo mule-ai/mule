@@ -32,6 +32,7 @@ type Agent struct {
 	ProviderID   string    `json:"provider_id" db:"provider_id"`
 	ModelID      string    `json:"model_id" db:"model_id"`
 	SystemPrompt string    `json:"system_prompt" db:"system_prompt"`
+	PIConfig     []byte    `json:"pi_config" db:"pi_config"` // JSON configuration for pi
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -40,6 +41,23 @@ type Agent struct {
 type AgentTool struct {
 	AgentID string `json:"agent_id" db:"agent_id"`
 	ToolID  string `json:"tool_id" db:"tool_id"`
+}
+
+// Skill represents a pi agent skill
+type Skill struct {
+	ID          string    `json:"id" db:"id"`
+	Name        string    `json:"name" db:"name"`
+	Description string    `json:"description" db:"description"`
+	Path        string    `json:"path" db:"path"`
+	Enabled     bool      `json:"enabled" db:"enabled"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// AgentSkill represents the many-to-many relationship between agents and skills
+type AgentSkill struct {
+	AgentID string `json:"agent_id" db:"agent_id"`
+	SkillID string `json:"skill_id" db:"skill_id"`
 }
 
 // Workflow represents a workflow definition

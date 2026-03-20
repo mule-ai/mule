@@ -8,7 +8,7 @@ import Dashboard from './pages/Dashboard';
 import WorkflowBuilder from './pages/WorkflowBuilder';
 import Agents from './pages/Agents';
 import Providers from './pages/Providers';
-import Tools from './pages/Tools';
+import Skills from './pages/Skills';
 import Jobs from './pages/Jobs';
 import WasmModules from './pages/WasmModules';
 import WasmCodeEditor from './pages/WasmCodeEditor';
@@ -44,7 +44,7 @@ function App() {
                 <Nav.Link href="/workflows">Workflows</Nav.Link>
                 <Nav.Link href="/agents">Agents</Nav.Link>
                 <Nav.Link href="/providers">Providers</Nav.Link>
-                <Nav.Link href="/tools">Tools</Nav.Link>
+                <Nav.Link href="/skills">Skills</Nav.Link>
                 <Nav.Link href="/wasm-modules">WASM Modules</Nav.Link>
                 <Nav.Link href="/wasm-editor">WASM Editor</Nav.Link>
                 <Nav.Link href="/jobs">Jobs</Nav.Link>
@@ -60,7 +60,8 @@ function App() {
             <Route path="/workflows" element={<WorkflowBuilder />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/providers" element={<Providers />} />
-            <Route path="/tools" element={<Tools />} />
+            <Route path="/skills" element={<Skills />} />
+            <Route path="/tools" element={<Skills />} />
             <Route path="/wasm-modules" element={<WasmModules />} />
             <Route path="/wasm-editor" element={<WasmCodeEditor />} />
             <Route path="/jobs" element={<Jobs />} />

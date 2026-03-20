@@ -113,8 +113,8 @@ func (m *MockMemory) Size() uint32 {
 	return 1024
 }
 
-func (m *MockMemory) Grow(delta uint32) bool {
-	return true
+func (m *MockMemory) Grow(delta uint32) (uint32, bool) {
+	return 0, true
 }
 
 func (m *MockMemory) Read(offset, size uint32) ([]byte, bool) {

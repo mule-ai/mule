@@ -60,6 +60,13 @@ func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) h
 				return
 			}
 
+			// Skip timeout for chat completions - these can be long-running
+			// and are handled by the workflow engine with its own timeout
+			if r.URL.Path == "/v1/chat/completions" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			timeout := getTimeoutFunc()
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
@@ -68,6 +75,8 @@ func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) h
 
 			// Create a channel to signal when the handler is done
 			done := make(chan struct{})
+			// Use buffered channel to prevent goroutine leak if we return early
+			// and the handler panics after the select has completed
 			panicChan := make(chan interface{}, 1)
 
 			// Wrap the response writer to track if headers were written
@@ -76,7 +85,13 @@ func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) h
 			go func() {
 				defer func() {
 					if p := recover(); p != nil {
-						panicChan <- p
+						// Use non-blocking send to prevent goroutine leak
+						// if nobody is listening (e.g., after timeout case)
+						select {
+						case panicChan <- p:
+						default:
+							log.Printf("Handler panic (channel full, already returned): %v", p)
+						}
 					}
 					close(done)
 				}()
@@ -101,10 +116,12 @@ func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) h
 
 				// Headers not written yet, we can send a timeout response
 				w.WriteHeader(http.StatusRequestTimeout)
-				_ = json.NewEncoder(w).Encode(ErrorResponse{
+				if err := json.NewEncoder(w).Encode(ErrorResponse{
 					Error:   "request_timeout",
 					Message: "Request took too long to process",
-				})
+				}); err != nil {
+					log.Printf("Warning: failed to encode timeout response: %v", err)
+				}
 				return
 			}
 		})
@@ -125,10 +142,12 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 				}
 
 				w.WriteHeader(http.StatusInternalServerError)
-				_ = json.NewEncoder(w).Encode(ErrorResponse{
+				if encodeErr := json.NewEncoder(w).Encode(ErrorResponse{
 					Error:   "internal_server_error",
 					Message: "An unexpected error occurred",
-				})
+				}); encodeErr != nil {
+					log.Printf("Warning: failed to encode panic response: %v", encodeErr)
+				}
 			}
 		}()
 
@@ -148,20 +167,24 @@ func ValidationMiddleware(validator *validation.Validator, validationFunc func(*
 			var request interface{}
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(ErrorResponse{
+				if encodeErr := json.NewEncoder(w).Encode(ErrorResponse{
 					Error:   "invalid_json",
 					Message: "Invalid JSON in request body",
-				})
+				}); encodeErr != nil {
+					log.Printf("Warning: failed to encode validation error response: %v", encodeErr)
+				}
 				return
 			}
 
 			if errors := validationFunc(validator, request); len(errors) > 0 {
 				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				if encodeErr := json.NewEncoder(w).Encode(map[string]interface{}{
 					"error":   "validation_failed",
 					"message": "Request validation failed",
 					"details": errors,
-				})
+				}); encodeErr != nil {
+					log.Printf("Warning: failed to encode validation error response: %v", encodeErr)
+				}
 				return
 			}
 
@@ -246,9 +269,11 @@ func HandleValidationError(w http.ResponseWriter, errors validation.ValidationEr
 	}
 
 	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"error":   "validation_failed",
 		"message": "Request validation failed",
 		"details": errors,
-	})
+	}); err != nil {
+		log.Printf("Warning: failed to encode validation error response: %v", err)
+	}
 }

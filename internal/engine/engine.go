@@ -191,7 +191,9 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	// Get workflow details
 	workflow, err := e.store.GetWorkflow(ctx, currentJob.WorkflowID)
 	if err != nil {
-		_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("failed to get workflow: %w", err))
+		if markErr := e.jobStore.MarkJobFailed(jobID, fmt.Errorf("failed to get workflow: %w", err)); markErr != nil {
+			log.Printf("Warning: failed to mark job %s as failed: %v", jobID, markErr)
+		}
 		return fmt.Errorf("failed to get workflow: %w", err)
 	}
 
@@ -218,7 +220,9 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	// Get workflow steps
 	steps, err := e.store.ListWorkflowSteps(ctx, workflow.ID)
 	if err != nil {
-		_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("failed to get workflow steps: %w", err))
+		if markErr := e.jobStore.MarkJobFailed(jobID, fmt.Errorf("failed to get workflow steps: %w", err)); markErr != nil {
+			log.Printf("Warning: failed to mark job %s as failed: %v", jobID, markErr)
+		}
 		return fmt.Errorf("failed to get workflow steps: %w", err)
 	}
 
@@ -231,10 +235,14 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 		case <-jobCtx.Done():
 			// Context was cancelled (timeout or manual cancellation)
 			if jobCtx.Err() == context.DeadlineExceeded {
-				_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds))
+				if markErr := e.jobStore.MarkJobFailed(jobID, fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds)); markErr != nil {
+					log.Printf("Warning: failed to mark job %s as failed: %v", jobID, markErr)
+				}
 				return fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds)
 			} else {
-				_ = e.jobStore.CancelJob(jobID)
+				if cancelErr := e.jobStore.CancelJob(jobID); cancelErr != nil {
+					log.Printf("Warning: failed to cancel job %s: %v", jobID, cancelErr)
+				}
 				return fmt.Errorf("job was cancelled")
 			}
 		default:
@@ -260,7 +268,9 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 		}
 
 		if err := e.jobStore.CreateJobStep(jobStep); err != nil {
-			_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("failed to create job step: %w", err))
+			if markErr := e.jobStore.MarkJobFailed(jobID, fmt.Errorf("failed to create job step: %w", err)); markErr != nil {
+				log.Printf("Warning: failed to mark job %s as failed: %v", jobID, markErr)
+			}
 			return fmt.Errorf("failed to create job step: %w", err)
 		}
 
@@ -281,10 +291,14 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 				log.Printf("Warning: failed to update failed job step: %v", updateErr)
 			}
 			if jobCtx.Err() == context.DeadlineExceeded {
-				_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds))
+				if markErr := e.jobStore.MarkJobFailed(jobID, fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds)); markErr != nil {
+					log.Printf("Warning: failed to mark job %s as failed: %v", jobID, markErr)
+				}
 				return fmt.Errorf("job timed out after %d seconds", jobTimeoutSeconds)
 			} else {
-				_ = e.jobStore.CancelJob(jobID)
+				if cancelErr := e.jobStore.CancelJob(jobID); cancelErr != nil {
+					log.Printf("Warning: failed to cancel job %s: %v", jobID, cancelErr)
+				}
 				return fmt.Errorf("job was cancelled")
 			}
 		default:
@@ -297,7 +311,9 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 			if updateErr := e.jobStore.UpdateJobStep(jobStep); updateErr != nil {
 				log.Printf("Warning: failed to update failed job step: %v", updateErr)
 			}
-			_ = e.jobStore.MarkJobFailed(jobID, fmt.Errorf("step %d failed: %w", step.StepOrder, err))
+			if markErr := e.jobStore.MarkJobFailed(jobID, fmt.Errorf("step %d failed: %w", step.StepOrder, err)); markErr != nil {
+				log.Printf("Warning: failed to mark job %s as failed: %v", jobID, markErr)
+			}
 			return fmt.Errorf("step %d failed: %w", step.StepOrder, err)
 		}
 

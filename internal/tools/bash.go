@@ -2,14 +2,10 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
 	"time"
-
-	"google.golang.org/adk/tool"
-	"google.golang.org/genai"
 )
 
 // BashTool provides bash command execution capabilities for agents
@@ -116,64 +112,4 @@ func (b *BashTool) GetSchema() map[string]interface{} {
 		},
 		"required": []string{"command"},
 	}
-}
-
-// ToTool converts this to an ADK tool
-func (b *BashTool) ToTool() tool.Tool {
-	return &bashToolAdapter{tool: b}
-}
-
-// bashToolAdapter adapts BashTool to the ADK tool interface
-type bashToolAdapter struct {
-	tool *BashTool
-}
-
-func (a *bashToolAdapter) Name() string {
-	return a.tool.Name()
-}
-
-func (a *bashToolAdapter) Description() string {
-	return a.tool.Description()
-}
-
-func (a *bashToolAdapter) IsLongRunning() bool {
-	return a.tool.IsLongRunning()
-}
-
-func (a *bashToolAdapter) GetTool() interface{} {
-	return a.tool
-}
-
-// Declaration returns the function declaration for this tool
-func (a *bashToolAdapter) Declaration() *genai.FunctionDeclaration {
-	schema := a.tool.GetSchema()
-	paramsJSON, _ := json.Marshal(schema)
-
-	return &genai.FunctionDeclaration{
-		Name:                 a.tool.Name(),
-		Description:          a.tool.Description(),
-		ParametersJsonSchema: string(paramsJSON),
-	}
-}
-
-// Run executes the tool with the provided context and arguments
-func (a *bashToolAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
-	// Convert args to map[string]interface{}
-	argsMap, ok := args.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("expected map[string]any, got %T", args)
-	}
-
-	result, err := a.tool.Execute(context.Background(), argsMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert result to map[string]any
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		return map[string]any{"result": result}, nil
-	}
-
-	return resultMap, nil
 }

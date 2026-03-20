@@ -119,13 +119,13 @@ func (cm *ConnectionManager) RemoveConnection(conn *RobustWebSocketConn) {
 func (cm *ConnectionManager) Broadcast(message []byte) {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	
+
 	for conn := range cm.connections {
 		// Skip closed connections
 		if conn.IsClosed() {
 			continue
 		}
-		
+
 		// Try to send message
 		if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
 			// Handle send error by removing the connection
@@ -157,24 +157,24 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, connManager *Connec
 			return true // Allow all origins in this example
 		},
 	}
-	
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Failed to upgrade connection: %v", err)
 		return
 	}
-	
+
 	// Wrap connection with our robust wrapper
 	robustConn := NewRobustWebSocketConn(conn)
-	
+
 	// Register connection with manager
 	connManager.AddConnection(robustConn)
-	
+
 	// Ensure cleanup when function exits
 	defer func() {
 		connManager.RemoveConnection(robustConn)
 	}()
-	
+
 	// Set up ping/pong handlers for connection health
 	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 		log.Printf("Error setting read deadline: %v", err)
@@ -185,19 +185,19 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, connManager *Connec
 		}
 		return nil
 	})
-	
+
 	// Send periodic pings
 	go func() {
 		ticker := time.NewTicker(54 * time.Second)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
 				if robustConn.IsClosed() {
 					return
 				}
-				
+
 				if err := robustConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 					log.Printf("Failed to send ping: %v", err)
 					return
@@ -207,7 +207,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, connManager *Connec
 			}
 		}
 	}()
-	
+
 	// Main message loop
 	for !robustConn.IsClosed() {
 		messageType, message, err := robustConn.ReadMessage()

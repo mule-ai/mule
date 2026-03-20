@@ -14,29 +14,35 @@ Mule is an AI workflow platform that enables users to create, configure, and exe
   - Model discovery via `v1/models` endpoint
 - Dynamic model listing based on connected providers
 
-### 2. Tools
-- Extensible tool system based on Google ADK patterns
-- Integration with jbutlerdev/genai tools including memory operations
-- Built-in tools for filesystem operations, HTTP requests, database queries, and bash command execution
+### 2. Skills
+- Pi agent skills system for extensible agent capabilities
+- Built-in skills for filesystem operations, bash command execution, grep, find, read, write, edit
+- Custom skill creation capabilities
+- Skills assigned to agents via many-to-many relationship
+
+### 3. Tools
+- Tool system for agent extensibility
+- Integration with pi agent tools
 - Custom tool creation capabilities
 - Tool categorization and metadata management
 
-### 3. WASM Modules
+### 4. WASM Modules
 - Execution using the wazero library
 - Imperative code execution as workflow steps
 - Secure sandboxed execution environment
 - Data passing between Go and WASM contexts
 
-### 4. Agents
+### 5. Agents
 - Combination of:
   - Model from a provider
   - System prompt/instructions
-  - Available tools
-- Implementation using Google ADK agent patterns
-- Hierarchical agent composition
+  - Available skills and tools
+  - pi_config for pi RPC configuration (thinking level, tools, extensions)
+- Implementation using pi RPC runtime
+- Streaming event support
 - Callback mechanisms for extensibility
 
-### 5. Workflow Steps
+### 6. Workflow Steps
 - Atomic units of execution
 - Two types:
   - Agent invocation
@@ -44,7 +50,7 @@ Mule is an AI workflow platform that enables users to create, configure, and exe
 - Input/output handling
 - Error management
 
-### 6. Workflows
+### 7. Workflows
 - Ordered sequences of workflow steps
 - Conditional execution logic
 - Parallel execution capabilities
@@ -88,7 +94,7 @@ Mule is an AI workflow platform that enables users to create, configure, and exe
 
 ### Technology Stack
 - Go programming language
-- Google ADK for agent implementation
+- pi RPC runtime for agent implementation
 - wazero for WASM module execution
 - PostgreSQL for data persistence and job queuing
 - Idiomatic Go design patterns
@@ -130,21 +136,27 @@ Mule is an AI workflow platform that enables users to create, configure, and exe
 - Performance optimization through module compilation
 
 #### 5. Agent Runtime
-- Google ADK integration for agent execution
-- Tool binding and lifecycle management
+- pi RPC integration for agent execution
+- Skill and tool binding and lifecycle management
 - Memory service integration
 - Callback handling and event processing
 - Streaming response support
 
 ### Database Schema
 - Providers table (API configuration)
+- Skills table (pi agent skills)
 - Tools table (tool definitions and metadata)
-- Agents table (agent configurations)
+- Agents table (agent configurations with pi_config)
+- Agent-Skills junction table (many-to-many)
+- Agent-Tools junction table (many-to-many)
 - Workflows table (workflow definitions)
 - Workflow steps table (step configurations)
 - Jobs table (execution queue and history)
 - Job steps table (individual step execution records)
+- WASM modules table (module storage)
 - Artifacts table (persistent data storage)
+- Settings table (application configuration)
+- Memory config table (vector search configuration)
 
 ## API Specification
 
@@ -224,7 +236,7 @@ Asynchronous response:
 1. **API Layer** - HTTP server implementing OpenAI-compatible endpoints
 2. **Primitive Manager** - Database interface for all core entities
 3. **Workflow Engine** - Background job processor with worker pool
-4. **Agent Runtime** - Google ADK integration layer
+4. **Agent Runtime** - pi RPC integration layer
 5. **WASM Executor** - wazero-based module execution environment
 6. **Frontend Server** - Embedded static file server for React UI
 

@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -286,6 +287,60 @@ func (v *Validator) ValidateID(id string, fieldName string) ValidationErrors {
 		if !uuidRegex.MatchString(id) {
 			// Allow non-UUID IDs for now, but could be stricter in future
 			_ = fmt.Sprintf("ID %s is not a valid UUID format", id)
+		}
+	}
+
+	return errors
+}
+
+// ValidateSkill validates a skill
+func (v *Validator) ValidateSkill(skill *primitive.Skill) ValidationErrors {
+	var errors ValidationErrors
+
+	if strings.TrimSpace(skill.Name) == "" {
+		errors = append(errors, ValidationError{
+			Field:   "name",
+			Message: "Name is required",
+		})
+	}
+
+	if strings.TrimSpace(skill.Path) == "" {
+		errors = append(errors, ValidationError{
+			Field:   "path",
+			Message: "Path is required",
+		})
+	}
+
+	return errors
+}
+
+// ValidateSkillIDs validates that skill IDs exist in the database
+func (v *Validator) ValidateSkillIDs(ctx context.Context, store primitive.PrimitiveStore, skillIDs []string) ValidationErrors {
+	var errors ValidationErrors
+
+	for i, skillID := range skillIDs {
+		if strings.TrimSpace(skillID) == "" {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("skill_ids[%d]", i),
+				Message: "Skill ID cannot be empty",
+			})
+			continue
+		}
+
+		// Check if skill exists
+		_, err := store.GetSkill(ctx, skillID)
+		if err != nil {
+			if err == primitive.ErrNotFound {
+				errors = append(errors, ValidationError{
+					Field:   fmt.Sprintf("skill_ids[%d]", i),
+					Message: fmt.Sprintf("Skill not found: %s", skillID),
+				})
+			} else {
+				errors = append(errors, ValidationError{
+					Field:   fmt.Sprintf("skill_ids[%d]", i),
+					Message: fmt.Sprintf("Failed to validate skill: %s", skillID),
+				})
+			}
 		}
 	}
 

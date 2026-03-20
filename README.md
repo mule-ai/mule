@@ -62,7 +62,7 @@ GRANT ALL PRIVILEGES ON DATABASE mulev2 TO mule;
 
 2. Run the database migration:
 ```bash
-psql -h localhost -U mule -d mulev2 -f internal/db/migrations/0001_initial_schema.sql
+psql -h localhost -U mule -d mulev2 -f internal/database/migrations/0001_initial_schema.sql
 ```
 
 ### Building and Running
@@ -89,20 +89,22 @@ make run
 - [Software Architecture](SOFTWARE_ARCHITECTURE.md) - High-level system architecture
 - [Primitives Relationship](PRIMITIVES_RELATIONSHIP.md) - How core primitives relate to each other
 - [Component Interaction](COMPONENT_INTERACTION.md) - Detailed component interaction diagram
+- [Database Migrations](DATABASE_MIGRATIONS.md) - Database schema migration guide
+- [Skill System](SKILL.md) - Documentation for the pi agent skills system
 
 ## Overview
 
 Mule consists of a few core primitives:
-* **AI providers** - connections to models, supporting OpenAI compliant APIs
-* **Tools** - extensible tools that can be provided to agents
+* **AI providers** - connections to models, supporting OpenAI-compliant APIs
+* **Skills** - pi agent skills that can be assigned to agents for specialized capabilities
 * **WASM modules** - imperative code execution using the wazero library
-* **Agents** - combination of a model, system prompt, and tools using Google ADK
+* **Agents** - AI agents powered by pi RPC runtime with configurable skills
 * **Workflow Steps** - either a call to an Agent or execution of a WASM module
 * **Workflows** - ordered execution of workflow steps
 
 ## Technology Stack
 
-* **Backend**: Go programming language with Google ADK and wazero
+* **Backend**: Go programming language with pi RPC agent runtime and wazero
 * **Frontend**: React UI compiled into the Go binary with light/dark mode support
 * **Database**: PostgreSQL for configuration storage and job queuing
 * **API**: OpenAI-compatible API as the main interface to workflows
@@ -118,25 +120,62 @@ Mule consists of a few core primitives:
 * Light and dark UI modes
 * Docker support with multi-stage builds for minimal container size
 * Health checks and graceful shutdown
-* Built-in tools including filesystem, HTTP, database, memory, and bash command execution
+* Built-in tools via pi including filesystem, bash command execution, and more
+* Agent skills system for specialized capabilities
 * WebSocket support for real-time updates
 
 ## API Endpoints
 
 ### Core API
 - `GET /health` - Health check endpoint
-- `GET /v1/models` - List available AI models
+- `GET /v1/models` - List available AI models (agents and workflows)
 - `POST /v1/chat/completions` - OpenAI-compatible chat completions
+
+### Skills API
+- `GET /api/v1/skills` - List all skills
+- `POST /api/v1/skills` - Create a new skill
+- `GET /api/v1/skills/{id}` - Get a skill by ID
+- `PUT /api/v1/skills/{id}` - Update a skill
+- `DELETE /api/v1/skills/{id}` - Delete a skill
+
+### Agent Skills API
+- `GET /api/v1/agents/{id}/skills` - Get skills assigned to an agent
+- `PUT /api/v1/agents/{id}/skills` - Assign skills to an agent
+- `DELETE /api/v1/agents/{id}/skills/{skillId}` - Remove a skill from an agent
 
 ### Management API
 - `GET/POST/PUT/DELETE /api/v1/providers` - AI provider management
-- `GET/POST/PUT/DELETE /api/v1/tools` - Tool management
+- `GET /api/v1/providers/{id}/models` - List models from a provider
 - `GET/POST/PUT/DELETE /api/v1/agents` - Agent management
 - `GET/POST/PUT/DELETE /api/v1/workflows` - Workflow management
 - `GET /api/v1/workflows/{id}/steps` - Workflow step management
+- `POST /api/v1/workflows/{id}/steps/reorder` - Reorder workflow steps
 - `GET /api/v1/jobs` - Job listing
 - `GET /api/v1/jobs/{id}` - Job details
+- `DELETE /api/v1/jobs/{id}` - Cancel a job
 - `GET /api/v1/jobs/{id}/steps` - Job step details
+
+### Agent Tools API
+- `GET /api/v1/agents/{id}/tools` - Get tools assigned to an agent
+- `POST /api/v1/agents/{id}/tools` - Assign tools to an agent
+- `DELETE /api/v1/agents/{id}/tools/{toolId}` - Remove a tool from an agent
+
+### Tools API
+- `GET/POST/PUT/DELETE /api/v1/tools` - Tool management
+
+### Configuration API
+- `GET /api/v1/memory-config` - Get memory configuration
+- `PUT /api/v1/memory-config` - Update memory configuration
+- `GET /api/v1/settings` - List all settings
+- `GET/PUT /api/v1/settings/{key}` - Get or update a specific setting
+
+### WASM Module API
+- `GET/POST /api/v1/wasm-modules` - List and create WASM modules
+- `POST /api/v1/wasm-modules/compile` - Compile Go code to WASM
+- `POST /api/v1/wasm-modules/test` - Test a WASM module
+- `GET /api/v1/wasm-modules/example` - Get example WASM Go code
+- `GET/PUT/DELETE /api/v1/wasm-modules/{id}` - WASM module CRUD
+- `GET/PUT /api/v1/wasm-modules/{id}/source` - Get or update WASM module source code
 
 ### Real-time
 - `WS /ws` - WebSocket endpoint for real-time job updates

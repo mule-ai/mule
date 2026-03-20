@@ -222,6 +222,13 @@ func main() {
 	router.HandleFunc("/api/v1/tools/{id}", handler.updateToolHandler).Methods("PUT")
 	router.HandleFunc("/api/v1/tools/{id}", handler.deleteToolHandler).Methods("DELETE")
 
+	// Skill management APIs
+	router.HandleFunc("/api/v1/skills", handler.listSkillsHandler).Methods("GET")
+	router.HandleFunc("/api/v1/skills", handler.createSkillHandler).Methods("POST")
+	router.HandleFunc("/api/v1/skills/{id}", handler.getSkillHandler).Methods("GET")
+	router.HandleFunc("/api/v1/skills/{id}", handler.updateSkillHandler).Methods("PUT")
+	router.HandleFunc("/api/v1/skills/{id}", handler.deleteSkillHandler).Methods("DELETE")
+
 	// Memory configuration APIs
 	router.HandleFunc("/api/v1/memory-config", handler.getMemoryConfigHandler).Methods("GET")
 	router.HandleFunc("/api/v1/memory-config", handler.updateMemoryConfigHandler).Methods("PUT")
@@ -239,6 +246,11 @@ func main() {
 	router.HandleFunc("/api/v1/agents/{id}/tools", handler.getAgentToolsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/agents/{id}/tools", handler.assignToolToAgentHandler).Methods("POST")
 	router.HandleFunc("/api/v1/agents/{id}/tools/{toolId}", handler.removeToolFromAgentHandler).Methods("DELETE")
+
+	// Agent skills APIs
+	router.HandleFunc("/api/v1/agents/{id}/skills", handler.getAgentSkillsHandler).Methods("GET")
+	router.HandleFunc("/api/v1/agents/{id}/skills", handler.assignSkillsToAgentHandler).Methods("PUT")
+	router.HandleFunc("/api/v1/agents/{id}/skills/{skillId}", handler.removeSkillFromAgentHandler).Methods("DELETE")
 
 	router.HandleFunc("/api/v1/workflows", handler.listWorkflowsHandler).Methods("GET")
 	router.HandleFunc("/api/v1/workflows", handler.createWorkflowHandler).Methods("POST")

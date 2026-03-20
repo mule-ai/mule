@@ -11,12 +11,12 @@ erDiagram
         timestamp updated_at
     }
     
-    TOOLS {
+    SKILLS {
         string id PK
         string name
         string description
-        string type
-        json config
+        string path
+        boolean enabled
         timestamp created_at
         timestamp updated_at
     }
@@ -28,13 +28,14 @@ erDiagram
         string provider_id FK
         string model_id
         string system_prompt
+        json pi_config
         timestamp created_at
         timestamp updated_at
     }
     
-    AGENT_TOOLS {
+    AGENT_SKILLS {
         string agent_id FK
-        string tool_id FK
+        string skill_id FK
     }
     
     WORKFLOWS {
@@ -70,6 +71,7 @@ erDiagram
         string id PK
         string workflow_id FK
         string status "QUEUED|RUNNING|COMPLETED|FAILED"
+        string error_message
         json input_data
         json output_data
         timestamp created_at
@@ -98,8 +100,8 @@ erDiagram
     }
     
     PROVIDERS ||--o{ AGENTS : "has"
-    AGENTS ||--o{ AGENT_TOOLS : "uses"
-    TOOLS ||--o{ AGENT_TOOLS : "provided_to"
+    AGENTS ||--o{ AGENT_SKILLS : "uses"
+    SKILLS ||--o{ AGENT_SKILLS : "assigned_to"
     WORKFLOWS ||--o{ WORKFLOW_STEPS : "contains"
     WORKFLOW_STEPS ||--o{ AGENTS : "invokes"
     WORKFLOW_STEPS ||--o{ WASM_MODULES : "executes"
@@ -115,19 +117,22 @@ Stores configuration for AI providers (OpenAI-compatible APIs):
 - `api_base_url`: Base URL for the API (e.g., https://api.openai.com/v1)
 - `api_key_encrypted`: Encrypted API key for secure storage
 
-### TOOLS
-Represents available tools that can be used by agents:
-- `type`: Type of tool (e.g., "http", "database", "memory")
-- `config`: JSON configuration specific to the tool type
+### SKILLS
+Pi agent skills that can be assigned to agents:
+- `name`: Unique name for the skill
+- `description`: Human-readable description of what the skill does
+- `path`: Directory path to the skill files
+- `enabled`: Whether the skill is active and can be used
 
 ### AGENTS
-AI agents combining a model, system prompt, and tools:
+AI agents powered by pi RPC runtime:
 - `provider_id`: Reference to the AI provider
 - `model_id`: Identifier for the specific model to use
 - `system_prompt`: Instructions that define the agent's behavior
+- `pi_config`: JSON configuration for pi runtime (thinking level, session options, etc.)
 
-### AGENT_TOOLS
-Many-to-many relationship between agents and tools.
+### AGENT_SKILLS
+Many-to-many relationship between agents and skills.
 
 ### WORKFLOWS
 Definition of ordered workflow executions:
@@ -147,6 +152,7 @@ WebAssembly modules that can be executed as workflow steps:
 ### JOBS
 Instances of workflow executions:
 - `status`: Current execution status
+- `error_message`: Error message if the job failed
 - `input_data`: Data provided when starting the job
 - `output_data`: Results from the completed job
 

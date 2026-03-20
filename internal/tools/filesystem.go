@@ -2,13 +2,9 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"google.golang.org/adk/tool"
-	"google.golang.org/genai"
 )
 
 // FilesystemTool provides filesystem operations for agents
@@ -282,64 +278,4 @@ func (f *FilesystemTool) GetSchema() map[string]interface{} {
 		},
 		"required": []string{"action"},
 	}
-}
-
-// ToTool converts this to an ADK tool
-func (f *FilesystemTool) ToTool() tool.Tool {
-	return &FilesystemToolAdapter{tool: f}
-}
-
-// FilesystemToolAdapter adapts FilesystemTool to the ADK tool interface
-type FilesystemToolAdapter struct {
-	tool *FilesystemTool
-}
-
-func (a *FilesystemToolAdapter) Name() string {
-	return a.tool.Name()
-}
-
-func (a *FilesystemToolAdapter) Description() string {
-	return a.tool.Description()
-}
-
-func (a *FilesystemToolAdapter) IsLongRunning() bool {
-	return a.tool.IsLongRunning()
-}
-
-func (a *FilesystemToolAdapter) GetTool() interface{} {
-	return a.tool
-}
-
-// Declaration returns the function declaration for this tool
-func (a *FilesystemToolAdapter) Declaration() *genai.FunctionDeclaration {
-	schema := a.tool.GetSchema()
-	paramsJSON, _ := json.Marshal(schema)
-
-	return &genai.FunctionDeclaration{
-		Name:                 a.tool.Name(),
-		Description:          a.tool.Description(),
-		ParametersJsonSchema: string(paramsJSON),
-	}
-}
-
-// Run executes the tool with the provided context and arguments
-func (a *FilesystemToolAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
-	// Convert args to map[string]interface{}
-	argsMap, ok := args.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("expected map[string]any, got %T", args)
-	}
-
-	result, err := a.tool.Execute(context.Background(), argsMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert result to map[string]any
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		return map[string]any{"result": result}, nil
-	}
-
-	return resultMap, nil
 }

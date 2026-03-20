@@ -156,7 +156,9 @@ go 1.24
 	return result, nil
 }
 
-// ValidateGoSource performs basic validation on Go source code
+// ValidateGoSource performs basic validation on Go source code to ensure
+// it meets the requirements for WASM module compilation.
+// It checks for 'package main' declaration and 'func main()' definition.
 func ValidateGoSource(sourceCode string) error {
 	// Check for package main
 	if !strings.Contains(sourceCode, "package main") {
@@ -178,7 +180,9 @@ func ValidateGoSource(sourceCode string) error {
 	return nil
 }
 
-// GenerateExampleGoCode returns example Go code for WASM modules
+// GenerateExampleGoCode returns example Go code for WASM modules.
+// The example includes the required package main, input/output structures,
+// and demonstrates how to read from stdin and write to stdout.
 func GenerateExampleGoCode() string {
 	return `package main
 

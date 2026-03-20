@@ -2,12 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
-
-	"google.golang.org/adk/tool"
-	"google.golang.org/genai"
 )
 
 // InMemoryTool provides in-memory key-value storage for agents (legacy implementation)
@@ -152,62 +148,4 @@ func (m *InMemoryTool) GetSchema() map[string]interface{} {
 		},
 		"required": []string{"action"},
 	}
-}
-
-// ToTool converts this to an ADK tool
-func (m *InMemoryTool) ToTool() tool.Tool {
-	return &inMemoryToolAdapter{tool: m}
-}
-
-// inMemoryToolAdapter adapts InMemoryTool to the ADK tool interface
-type inMemoryToolAdapter struct {
-	tool *InMemoryTool
-}
-
-func (a *inMemoryToolAdapter) Name() string {
-	return a.tool.Name()
-}
-
-func (a *inMemoryToolAdapter) Description() string {
-	return a.tool.Description()
-}
-
-func (a *inMemoryToolAdapter) IsLongRunning() bool {
-	return a.tool.IsLongRunning()
-}
-
-func (a *inMemoryToolAdapter) GetTool() interface{} {
-	return a.tool
-}
-
-func (a *inMemoryToolAdapter) Declaration() *genai.FunctionDeclaration {
-	schema := a.tool.GetSchema()
-	paramsJSON, _ := json.Marshal(schema)
-
-	return &genai.FunctionDeclaration{
-		Name:                 a.tool.Name(),
-		Description:          a.tool.Description(),
-		ParametersJsonSchema: string(paramsJSON),
-	}
-}
-
-func (a *inMemoryToolAdapter) Run(ctx tool.Context, args any) (map[string]any, error) {
-	// Convert args to map[string]interface{}
-	argsMap, ok := args.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("expected map[string]any, got %T", args)
-	}
-
-	result, err := a.tool.Execute(context.Background(), argsMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert result to map[string]any
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		return map[string]any{"result": result}, nil
-	}
-
-	return resultMap, nil
 }

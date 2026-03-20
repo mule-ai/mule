@@ -19,13 +19,22 @@ export const providersAPI = {
   getModels: (id) => api.get(`/api/v1/providers/${id}/models`),
 };
 
-// Tool APIs
+// Tool APIs (deprecated - use Skills instead)
 export const toolsAPI = {
   list: () => api.get('/api/v1/tools'),
   get: (id) => api.get(`/api/v1/tools/${id}`),
   create: (data) => api.post('/api/v1/tools', data),
   update: (id, data) => api.put(`/api/v1/tools/${id}`, data),
   delete: (id) => api.delete(`/api/v1/tools/${id}`),
+};
+
+// Skill APIs (replaces Tools per spec.md)
+export const skillsAPI = {
+  list: () => api.get('/api/v1/skills'),
+  get: (id) => api.get(`/api/v1/skills/${id}`),
+  create: (data) => api.post('/api/v1/skills', data),
+  update: (id, data) => api.put(`/api/v1/skills/${id}`, data),
+  delete: (id) => api.delete(`/api/v1/skills/${id}`),
 };
 
 // Agent APIs
@@ -35,6 +44,11 @@ export const agentsAPI = {
   create: (data) => api.post('/api/v1/agents', data),
   update: (id, data) => api.put(`/api/v1/agents/${id}`, data),
   delete: (id) => api.delete(`/api/v1/agents/${id}`),
+  // Skills (replaces tools per spec.md)
+  getSkills: (id) => api.get(`/api/v1/agents/${id}/skills`),
+  assignSkill: (id, skillId) => api.put(`/api/v1/agents/${id}/skills`, { skill_ids: [skillId] }),
+  removeSkill: (id, skillId) => api.delete(`/api/v1/agents/${id}/skills/${skillId}`),
+  // Tools (deprecated, kept for backward compatibility)
   getTools: (id) => api.get(`/api/v1/agents/${id}/tools`),
   assignTool: (id, toolId) => api.post(`/api/v1/agents/${id}/tools`, { tool_id: toolId }),
   removeTool: (id, toolId) => api.delete(`/api/v1/agents/${id}/tools/${toolId}`),

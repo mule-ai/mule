@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -22,6 +23,14 @@ import (
 )
 
 func TestChatCompletionsEndpoint(t *testing.T) {
+	// This test requires a real API key to work with pi
+	// Skip if no API key is available
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	googleApiKey := os.Getenv("GOOGLE_API_KEY")
+	if apiKey == "" && googleApiKey == "" {
+		t.Skip("Skipping test: no API key available (ANTHROPIC_API_KEY or GOOGLE_API_KEY)")
+	}
+
 	mockStore := &MockPrimitiveStore{
 		Agents: []*primitive.Agent{
 			{
@@ -44,7 +53,7 @@ func TestChatCompletionsEndpoint(t *testing.T) {
 			{
 				ID:         "provider-1",
 				Name:       "Test Provider",
-				APIBaseURL: "", // Empty to route to Google ADK instead of custom LLM
+				APIBaseURL: "", // Empty - pi RPC will use provider API key
 				APIKeyEnc:  "test-api-key",
 			},
 		},
@@ -279,16 +288,19 @@ func TestPrimitiveManagementEndpointsComprehensive(t *testing.T) {
 		router.HandleFunc("/api/v1/agents", handler.listAgentsHandler).Methods("GET")
 		router.HandleFunc("/api/v1/agents", handler.createAgentHandler).Methods("POST")
 
-		// First create a provider
+		// First create a provider using the store so it gets an ID assigned
 		provider := primitive.Provider{
 			Name:       "Test Provider for Agent",
 			APIBaseURL: "https://api.openai.com/v1",
 			APIKeyEnc:  "test-api-key",
 		}
 
-		mockStore.Providers = append(mockStore.Providers, &provider)
+		// Create the provider through the store so it gets an ID
+		err := mockStore.CreateProvider(context.Background(), &provider)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, provider.ID)
 
-		// Create agent
+		// Create agent with valid provider_id
 		agentReq := primitive.Agent{
 			Name:         "Test Agent",
 			Description:  "Test Agent Description",
@@ -307,7 +319,7 @@ func TestPrimitiveManagementEndpointsComprehensive(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		var createdAgent primitive.Agent
-		err := json.Unmarshal(w.Body.Bytes(), &createdAgent)
+		err = json.Unmarshal(w.Body.Bytes(), &createdAgent)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, createdAgent.ID)
 		assert.Equal(t, agentReq.Name, createdAgent.Name)
@@ -713,6 +725,43 @@ func (m *MockPrimitiveStore) UpdateWasmModule(ctx context.Context, w *primitive.
 }
 
 func (m *MockPrimitiveStore) DeleteWasmModule(ctx context.Context, id string) error {
+	return nil
+}
+
+// Skill methods
+func (m *MockPrimitiveStore) CreateSkill(ctx context.Context, s *primitive.Skill) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) GetSkill(ctx context.Context, id string) (*primitive.Skill, error) {
+	return nil, primitive.ErrNotFound
+}
+
+func (m *MockPrimitiveStore) ListSkills(ctx context.Context) ([]*primitive.Skill, error) {
+	return nil, nil
+}
+
+func (m *MockPrimitiveStore) UpdateSkill(ctx context.Context, s *primitive.Skill) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) DeleteSkill(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) GetAgentSkills(ctx context.Context, agentID string) ([]*primitive.Skill, error) {
+	return nil, nil
+}
+
+func (m *MockPrimitiveStore) AssignSkillToAgent(ctx context.Context, agentID, skillID string) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) RemoveSkillFromAgent(ctx context.Context, agentID, skillID string) error {
+	return nil
+}
+
+func (m *MockPrimitiveStore) SetAgentSkills(ctx context.Context, agentID string, skillIDs []string) error {
 	return nil
 }
 
