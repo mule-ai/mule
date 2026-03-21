@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestServeStatic(t *testing.T) {
@@ -16,21 +18,15 @@ func TestServeStatic(t *testing.T) {
 		handler.ServeHTTP(w, req)
 
 		// Check that we get a successful response
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
-		}
+		assert.Equal(t, http.StatusOK, w.Code, "Expected status %d, got %d", http.StatusOK, w.Code)
 
 		// Check that the response contains HTML content
 		contentType := w.Header().Get("Content-Type")
-		if contentType != "text/html; charset=utf-8" {
-			t.Errorf("Expected Content-Type 'text/html; charset=utf-8', got '%s'", contentType)
-		}
+		assert.Equal(t, "text/html; charset=utf-8", contentType, "Expected Content-Type 'text/html; charset=utf-8', got '%s'", contentType)
 
 		// Check that the body contains expected HTML content
 		body := w.Body.String()
-		if len(body) == 0 {
-			t.Error("Expected non-empty response body")
-		}
+		assert.NotEmpty(t, body, "Expected non-empty response body")
 	})
 
 	t.Run("serves static assets", func(t *testing.T) {
@@ -41,8 +37,7 @@ func TestServeStatic(t *testing.T) {
 
 		// Should either serve the file or return 404 if not found
 		// The important thing is that it doesn't crash
-		if w.Code != http.StatusOK && w.Code != http.StatusNotFound {
-			t.Errorf("Expected status %d or %d, got %d", http.StatusOK, http.StatusNotFound, w.Code)
-		}
+		assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound,
+			"Expected status %d or %d, got %d", http.StatusOK, http.StatusNotFound, w.Code)
 	})
 }

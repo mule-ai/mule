@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // isPiAvailable checks if the pi executable is available in PATH
@@ -164,9 +166,7 @@ done:
 	}
 
 	// Check that we received at least some events
-	if len(messages) == 0 {
-		t.Error("Expected to receive WebSocket messages")
-	}
+	assert.NotEmpty(t, messages, "Expected to receive WebSocket messages")
 
 	// Check for text_delta or thinking_delta events (either is acceptable)
 	if !hasTextDelta {
@@ -388,9 +388,7 @@ func TestEventMappingIntegration(t *testing.T) {
 
 done:
 	// Verify we got all the expected events
-	if len(mappedEvents) != len(testEvents) {
-		t.Errorf("Expected %d mapped events, got %d", len(testEvents), len(mappedEvents))
-	}
+	assert.Equal(t, len(testEvents), len(mappedEvents), "Expected %d mapped events, got %d", len(testEvents), len(mappedEvents))
 
 	// Verify specific event types
 	expectedTypes := []MuleEventType{
@@ -407,9 +405,7 @@ done:
 			t.Errorf("Missing event at index %d", i)
 			continue
 		}
-		if mappedEvents[i].Type != expected {
-			t.Errorf("Event %d: expected type %s, got %s", i, expected, mappedEvents[i].Type)
-		}
+		assert.Equal(t, expected, mappedEvents[i].Type, "Event %d: expected type %s, got %s", i, expected, mappedEvents[i].Type)
 	}
 
 	// Verify text delta content
@@ -420,19 +416,13 @@ done:
 			t.Logf("Text delta: %s", event.Delta)
 		}
 	}
-	if textDeltas != 2 {
-		t.Errorf("Expected 2 text deltas, got %d", textDeltas)
-	}
+	assert.Equal(t, 2, textDeltas, "Expected 2 text deltas, got %d", textDeltas)
 
 	// Verify tool call details
 	for _, event := range mappedEvents {
 		if event.Type == MuleEventToolCallStart {
-			if event.ID != "call_123" {
-				t.Errorf("Expected tool call ID 'call_123', got %s", event.ID)
-			}
-			if event.Name != "bash" {
-				t.Errorf("Expected tool name 'bash', got %s", event.Name)
-			}
+			assert.Equal(t, "call_123", event.ID, "Expected tool call ID 'call_123', got %s", event.ID)
+			assert.Equal(t, "bash", event.Name, "Expected tool name 'bash', got %s", event.Name)
 		}
 	}
 }
@@ -474,33 +464,22 @@ func TestWebSocketMessageFormat(t *testing.T) {
 
 	// Verify messages
 	messages := hub.GetMessages()
-	if len(messages) != 3 {
-		t.Errorf("Expected 3 messages, got %d", len(messages))
-	}
+	assert.Equal(t, 3, len(messages), "Expected 3 messages, got %d", len(messages))
 
 	// Verify message format
 	for i, msg := range messages {
 		// Check that Type is set correctly
-		if msg.Type == "" {
-			t.Errorf("Message %d: Type is empty", i)
-		}
+		assert.NotEmpty(t, msg.Type, "Message %d: Type is empty", i)
 
 		// Check that Timestamp is set
-		if msg.Timestamp.IsZero() {
-			t.Errorf("Message %d: Timestamp is zero", i)
-		}
+		assert.False(t, msg.Timestamp.IsZero(), "Message %d: Timestamp is zero", i)
 
 		// Check that Data is a MuleEvent
 		data, ok := msg.Data.(MuleEvent)
-		if !ok {
-			t.Errorf("Message %d: Data is not MuleEvent", i)
-			continue
-		}
+		assert.True(t, ok, "Message %d: Data is not MuleEvent", i)
 
 		// Verify MuleEvent fields
-		if data.Timestamp.IsZero() {
-			t.Errorf("Message %d: MuleEvent.Timestamp is zero", i)
-		}
+		assert.False(t, data.Timestamp.IsZero(), "Message %d: MuleEvent.Timestamp is zero", i)
 
 		t.Logf("Message %d: type=%s, timestamp=%v", i, msg.Type, msg.Timestamp)
 	}

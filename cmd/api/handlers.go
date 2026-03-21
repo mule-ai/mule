@@ -59,7 +59,10 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	})
 
 	// Update WASM executor with workflow engine
-	// This is a bit of a hack, but it works because we're updating the same instance
+	// This is a circular dependency: WASMExecutor needs WorkflowEngine for nested job
+	// submissions, while WorkflowEngine needs WASMExecutor for WASM step execution.
+	// Using a setter after construction is the standard Go pattern for breaking
+	// circular dependencies and avoids needing interfaces for both directions.
 	wasmExecutor.WorkflowEngine = workflowEngine
 
 	// Set workflow engine on runtime (requires a setter method)
@@ -82,6 +85,10 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	}
 }
 
+// modelsHandler returns all available models (agents and workflows).
+// GET /v1/models
+// Response: Array of model objects with id, object, and owned_by fields
+// Error responses: 500 Internal Server Error if listing agents or workflows fails
 func (h *apiHandler) modelsHandler(w http.ResponseWriter, r *http.Request) {
 	agents, err := h.store.ListAgents(r.Context())
 	if err != nil {
@@ -132,6 +139,9 @@ func (h *apiHandler) modelsHandler(w http.ResponseWriter, r *http.Request) {
 //
 // Request body: ChatCompletionRequest with model and messages
 // Response: ChatCompletionResponse for sync execution, AsyncJobResponse for async
+// Error responses: 400 Bad Request for invalid input, 404 Not Found for unknown workflows,
+//
+//	500 Internal Server Error for execution failures
 func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1204,6 +1214,12 @@ func (h *apiHandler) updateWorkflowHandler(w http.ResponseWriter, r *http.Reques
 	}
 	workflow.ID = id
 
+	// Validate workflow fields
+	if errors := h.validator.ValidateWorkflow(&workflow); len(errors) > 0 {
+		api.HandleError(w, fmt.Errorf("%s", errors.Error()), http.StatusBadRequest)
+		return
+	}
+
 	if err := h.store.UpdateWorkflow(ctx, &workflow); err != nil {
 		if err == primitive.ErrNotFound {
 			api.HandleError(w, fmt.Errorf("workflow not found: %s", id), http.StatusNotFound)
@@ -1448,6 +1464,7 @@ func (h *apiHandler) reorderWorkflowStepsHandler(w http.ResponseWriter, r *http.
 // GET /api/v1/jobs
 // Query params: page, page_size, status, search, workflow_name
 // Response: Object with jobs array, pagination info (page, page_size, total_count, total_pages)
+// Error responses: 500 Internal Server Error if listing jobs fails
 func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	pageStr := r.URL.Query().Get("page")
@@ -1545,6 +1562,9 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/jobs
 // Request body: {workflow_id, input_data, working_directory?}
 // Response: Job object with status "queued" for workflows or "running" for direct WASM execution
+// Error responses: 400 Bad Request for invalid input or unknown workflow/WASM module IDs,
+//
+//	500 Internal Server Error if job creation fails
 func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		WorkflowID       string                 `json:"workflow_id"`
@@ -1660,6 +1680,7 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 // getJobHandler retrieves a job by ID with enriched workflow/WASM module names.
 // GET /api/v1/jobs/{id}
 // Response: EnhancedJob object with workflow_name and wasm_module_name populated
+// Error responses: 404 Not Found if job does not exist, 500 Internal Server Error for retrieval failures
 func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
@@ -1752,6 +1773,7 @@ func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request)
 // cancelJobHandler attempts to cancel a running or queued job.
 // DELETE /api/v1/jobs/{id}
 // Response: Object with message and job id on success
+// Error responses: 404 Not Found if job does not exist or cannot be cancelled, 500 Internal Server Error for cancellation failures
 func (h *apiHandler) cancelJobHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	jobID := vars["id"]

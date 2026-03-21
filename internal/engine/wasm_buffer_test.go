@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 )
@@ -48,14 +49,10 @@ func TestBufferSizeQuery(t *testing.T) {
 
 		// Should return the length of the result data (15 bytes) instead of an error code
 		expectedSize := uint32(len("test result data"))
-		if result != expectedSize {
-			t.Errorf("Expected buffer size %d, got %d", expectedSize, result)
-		}
+		assert.Equal(t, expectedSize, result, "Expected buffer size %d, got %d", expectedSize, result)
 
 		// Verify it's not an error code (error codes are >= 0xFFFFFFF0)
-		if result >= 0xFFFFFFF0 {
-			t.Errorf("Returned value is an error code: %d", result)
-		}
+		assert.True(t, result < 0xFFFFFFF0, "Returned value is an error code: %d", result)
 	})
 
 	// Test get_last_response_body with bufferSize=0
@@ -70,14 +67,10 @@ func TestBufferSizeQuery(t *testing.T) {
 
 		// Should return the length of the response body (17 bytes) instead of an error code
 		expectedSize := uint32(len("test response body"))
-		if result != expectedSize {
-			t.Errorf("Expected buffer size %d, got %d", expectedSize, result)
-		}
+		assert.Equal(t, expectedSize, result, "Expected buffer size %d, got %d", expectedSize, result)
 
 		// Verify it's not an error code (error codes are >= 0xFFFFFFF0)
-		if result >= 0xFFFFFFF0 {
-			t.Errorf("Returned value is an error code: %d", result)
-		}
+		assert.True(t, result < 0xFFFFFFF0, "Returned value is an error code: %d", result)
 	})
 }
 

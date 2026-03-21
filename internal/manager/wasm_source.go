@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mule-ai/mule/pkg/database"
+	"github.com/mule-ai/mule/internal/database"
+	pkgdatabase "github.com/mule-ai/mule/pkg/database"
 )
 
 // WasmModuleSourceManager handles WASM module source code operations
@@ -22,7 +22,7 @@ func NewWasmModuleSourceManager(db *sql.DB) *WasmModuleSourceManager {
 }
 
 // CreateSource creates a new WASM module source record
-func (wmsm *WasmModuleSourceManager) CreateSource(ctx context.Context, source *database.WasmModuleSource) error {
+func (wmsm *WasmModuleSourceManager) CreateSource(ctx context.Context, source *pkgdatabase.WasmModuleSource) error {
 	if source.ID == "" {
 		source.ID = uuid.New().String()
 	}
@@ -52,9 +52,9 @@ func (wmsm *WasmModuleSourceManager) CreateSource(ctx context.Context, source *d
 }
 
 // GetSource retrieves a WASM module source by ID
-func (wmsm *WasmModuleSourceManager) GetSource(ctx context.Context, id string) (*database.WasmModuleSource, error) {
+func (wmsm *WasmModuleSourceManager) GetSource(ctx context.Context, id string) (*pkgdatabase.WasmModuleSource, error) {
 	query := `SELECT id, wasm_module_id, language, source_code, version, compilation_status, compilation_error, compiled_at, created_at, updated_at FROM wasm_module_sources WHERE id = $1`
-	source := &database.WasmModuleSource{}
+	source := &pkgdatabase.WasmModuleSource{}
 	err := wmsm.db.QueryRowContext(ctx, query, id).Scan(
 		&source.ID,
 		&source.WasmModuleID,
@@ -78,9 +78,9 @@ func (wmsm *WasmModuleSourceManager) GetSource(ctx context.Context, id string) (
 }
 
 // GetLatestSourceByModuleID retrieves the latest source code for a WASM module
-func (wmsm *WasmModuleSourceManager) GetLatestSourceByModuleID(ctx context.Context, wasmModuleID string) (*database.WasmModuleSource, error) {
+func (wmsm *WasmModuleSourceManager) GetLatestSourceByModuleID(ctx context.Context, wasmModuleID string) (*pkgdatabase.WasmModuleSource, error) {
 	query := `SELECT id, wasm_module_id, language, source_code, version, compilation_status, compilation_error, compiled_at, created_at, updated_at FROM wasm_module_sources WHERE wasm_module_id = $1 ORDER BY version DESC, updated_at DESC LIMIT 1`
-	source := &database.WasmModuleSource{}
+	source := &pkgdatabase.WasmModuleSource{}
 	err := wmsm.db.QueryRowContext(ctx, query, wasmModuleID).Scan(
 		&source.ID,
 		&source.WasmModuleID,
@@ -104,21 +104,17 @@ func (wmsm *WasmModuleSourceManager) GetLatestSourceByModuleID(ctx context.Conte
 }
 
 // ListSourcesByModuleID lists all source code versions for a WASM module
-func (wmsm *WasmModuleSourceManager) ListSourcesByModuleID(ctx context.Context, wasmModuleID string) ([]*database.WasmModuleSource, error) {
+func (wmsm *WasmModuleSourceManager) ListSourcesByModuleID(ctx context.Context, wasmModuleID string) ([]*pkgdatabase.WasmModuleSource, error) {
 	query := `SELECT id, wasm_module_id, language, source_code, version, compilation_status, compilation_error, compiled_at, created_at, updated_at FROM wasm_module_sources WHERE wasm_module_id = $1 ORDER BY version DESC, updated_at DESC`
 	rows, err := wmsm.db.QueryContext(ctx, query, wasmModuleID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query WASM module sources: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
-	var sources []*database.WasmModuleSource
+	var sources []*pkgdatabase.WasmModuleSource
 	for rows.Next() {
-		source := &database.WasmModuleSource{}
+		source := &pkgdatabase.WasmModuleSource{}
 		err := rows.Scan(
 			&source.ID,
 			&source.WasmModuleID,
@@ -141,7 +137,7 @@ func (wmsm *WasmModuleSourceManager) ListSourcesByModuleID(ctx context.Context, 
 }
 
 // UpdateSource updates a WASM module source record
-func (wmsm *WasmModuleSourceManager) UpdateSource(ctx context.Context, source *database.WasmModuleSource) error {
+func (wmsm *WasmModuleSourceManager) UpdateSource(ctx context.Context, source *pkgdatabase.WasmModuleSource) error {
 	source.UpdatedAt = time.Now()
 
 	query := `UPDATE wasm_module_sources SET language = $1, source_code = $2, version = $3, compilation_status = $4, compilation_error = $5, compiled_at = $6, updated_at = $7 WHERE id = $8`

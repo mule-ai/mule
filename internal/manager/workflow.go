@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,11 +75,7 @@ func (wm *WorkflowManager) ListWorkflows(ctx context.Context) ([]*dbmodels.Workf
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflows: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var workflows []*dbmodels.Workflow
 	for rows.Next() {
@@ -180,11 +175,7 @@ func (wm *WorkflowManager) GetWorkflowSteps(ctx context.Context, workflowID stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflow steps: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var steps []*dbmodels.WorkflowStep
 	for rows.Next() {
@@ -350,11 +341,7 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 		return fmt.Errorf("failed to verify step IDs: %w", err)
 	}
 
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var verifiedIDs []string
 	for rows.Next() {
@@ -363,6 +350,11 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 			return fmt.Errorf("failed to scan step ID: %w", err)
 		}
 		verifiedIDs = append(verifiedIDs, id)
+	}
+
+	// Check for iteration errors
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate workflow steps: %w", err)
 	}
 
 	// Check if all provided IDs were found
@@ -393,11 +385,7 @@ func (wm *WorkflowManager) renumberWorkflowStepsTx(ctx context.Context, tx *sql.
 	if err != nil {
 		return fmt.Errorf("failed to get remaining workflow steps: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var stepIDs []string
 	for rows.Next() {
@@ -406,6 +394,11 @@ func (wm *WorkflowManager) renumberWorkflowStepsTx(ctx context.Context, tx *sql.
 			return fmt.Errorf("failed to scan step ID: %w", err)
 		}
 		stepIDs = append(stepIDs, stepID)
+	}
+
+	// Check for iteration errors
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate workflow steps: %w", err)
 	}
 
 	// Apply the new order using two-phase approach

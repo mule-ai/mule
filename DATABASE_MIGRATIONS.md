@@ -31,6 +31,7 @@ Migration files are stored in `internal/database/migrations/` and executed in or
 | `0007_add_working_directory_to_jobs.sql` | Adds `working_directory` column to jobs table |
 | `0008_add_skills_table.sql` | Creates skills system (skills, agent_skills tables, pi_config on agents) |
 | `0009_optimize_job_queries.sql` | Adds indexes for job query performance |
+| `0010_add_query_optimization_indexes.sql` | Adds composite indexes for workflow_steps, job_steps, agents, and workflows queries |
 
 ## Schema Details
 
@@ -101,6 +102,17 @@ Migration files are stored in `internal/database/migrations/` and executed in or
 15. **schema_migrations** - Migration tracking
     - Tracks which migrations have been applied
     - Created automatically by the migrator
+
+### Indexes (Migration 0010)
+
+Migration 0010 adds composite indexes to optimize common query patterns:
+
+| Index | Table | Purpose |
+|-------|-------|---------|
+| `idx_workflow_steps_workflow_id_order` | workflow_steps | Optimizes `WHERE workflow_id = X ORDER BY step_order` |
+| `idx_job_steps_job_id_created_at` | job_steps | Optimizes `WHERE job_id = X ORDER BY created_at` |
+| `idx_agents_created_at_desc` | agents | Optimizes `ORDER BY created_at DESC` |
+| `idx_workflows_created_at_desc` | workflows | Optimizes `ORDER BY created_at DESC` |
 
 ## Migration System
 

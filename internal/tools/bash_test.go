@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBashTool(t *testing.T) {
@@ -48,18 +51,12 @@ func TestBashTool(t *testing.T) {
 		return
 	}
 
-	if exitCode != 0 {
-		t.Errorf("Expected exit code 0, got %v", exitCode)
-	}
+	assert.Equal(t, int64(0), exitCode, "Expected exit code 0")
 
 	stdout, ok := resultMap["stdout"].(string)
-	if !ok {
-		t.Fatalf("Expected stdout to be string, got %T", resultMap["stdout"])
-	}
+	require.True(t, ok, "Expected stdout to be string, got %T", resultMap["stdout"])
 
-	if stdout != "hello world" {
-		t.Errorf("Expected 'hello world', got '%s'", stdout)
-	}
+	assert.Equal(t, "hello world", stdout, "Expected 'hello world'")
 }
 
 func TestBashToolError(t *testing.T) {
@@ -79,9 +76,7 @@ func TestBashToolError(t *testing.T) {
 	}
 
 	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected map[string]interface{}, got %T", result)
-	}
+	require.True(t, ok, "Expected map[string]interface{}, got %T", result)
 
 	// Check if shell execution is available (exit code -1 means shell not available)
 	if resultMap["exitCode"] == nil {
@@ -105,7 +100,5 @@ func TestBashToolError(t *testing.T) {
 		return
 	}
 
-	if exitCode == 0 {
-		t.Errorf("Expected non-zero exit code, got %v", exitCode)
-	}
+	assert.NotEqual(t, 0, exitCode, "Expected non-zero exit code")
 }

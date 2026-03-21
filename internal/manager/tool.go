@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,11 +85,7 @@ func (tm *ToolManager) ListTools(ctx context.Context) ([]*dbmodels.Tool, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tools: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var tools []*dbmodels.Tool
 	for rows.Next() {
@@ -107,6 +102,11 @@ func (tm *ToolManager) ListTools(ctx context.Context) ([]*dbmodels.Tool, error) 
 			return nil, fmt.Errorf("failed to scan tool: %w", err)
 		}
 		tools = append(tools, tool)
+	}
+
+	// Check for iteration errors
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate tools: %w", err)
 	}
 
 	return tools, nil

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // mockWebSocketHub is a mock implementation of EventBroadcaster for testing
@@ -37,21 +39,13 @@ func TestPIEventStreamer_SetEventTypes(t *testing.T) {
 
 	// Test empty (broadcast all)
 	streamer.SetEventTypes([]string{})
-	if !streamer.shouldBroadcast("text_delta") {
-		t.Error("Expected shouldBroadcast to return true for text_delta when no event types set")
-	}
+	assert.True(t, streamer.shouldBroadcast("text_delta"), "Expected shouldBroadcast to return true for text_delta when no event types set")
 
 	// Test specific event types
 	streamer.SetEventTypes([]string{"text_delta", "tool_call_start"})
-	if !streamer.shouldBroadcast("text_delta") {
-		t.Error("Expected shouldBroadcast to return true for text_delta when explicitly set")
-	}
-	if !streamer.shouldBroadcast("tool_call_start") {
-		t.Error("Expected shouldBroadcast to return true for tool_call_start when explicitly set")
-	}
-	if streamer.shouldBroadcast("thinking_delta") {
-		t.Error("Expected shouldBroadcast to return false for thinking_delta when not in list")
-	}
+	assert.True(t, streamer.shouldBroadcast("text_delta"), "Expected shouldBroadcast to return true for text_delta when explicitly set")
+	assert.True(t, streamer.shouldBroadcast("tool_call_start"), "Expected shouldBroadcast to return true for tool_call_start when explicitly set")
+	assert.False(t, streamer.shouldBroadcast("thinking_delta"), "Expected shouldBroadcast to return false for thinking_delta when not in list")
 }
 
 func TestPIEventStreamer_Stop(t *testing.T) {
@@ -101,18 +95,12 @@ func TestWebSocketMessageConversion(t *testing.T) {
 		Timestamp: event.Timestamp,
 	}
 
-	if msg.Type != string(MuleEventTextDelta) {
-		t.Errorf("Expected message type to be %s, got %s", MuleEventTextDelta, msg.Type)
-	}
+	assert.Equal(t, string(MuleEventTextDelta), msg.Type, "Expected message type to be %s, got %s", MuleEventTextDelta, msg.Type)
 
 	// Check that the data is the event itself
 	eventData, ok := msg.Data.(MuleEvent)
-	if !ok {
-		t.Error("Expected data to be MuleEvent")
-	}
-	if eventData.Delta != event.Delta {
-		t.Errorf("Expected delta %s, got %s", event.Delta, eventData.Delta)
-	}
+	assert.True(t, ok, "Expected data to be MuleEvent")
+	assert.Equal(t, event.Delta, eventData.Delta, "Expected delta %s, got %s", event.Delta, eventData.Delta)
 }
 
 func TestPIEventStreamer_BroadcastWithJobID(t *testing.T) {
@@ -120,9 +108,7 @@ func TestPIEventStreamer_BroadcastWithJobID(t *testing.T) {
 	streamer := NewPIEventStreamer(hub, "test-job-id")
 
 	// Verify jobID is stored correctly
-	if streamer.jobID != "test-job-id" {
-		t.Errorf("Expected jobID to be test-job-id, got %s", streamer.jobID)
-	}
+	assert.Equal(t, "test-job-id", streamer.jobID, "Expected jobID to be test-job-id, got %s", streamer.jobID)
 }
 
 // Test that verifies the full flow works with a mock bridge
@@ -155,9 +141,7 @@ func TestPIEventStreamer_FullFlow(t *testing.T) {
 
 	// Verify no panic and no messages (since we didn't start streaming)
 	messages := hub.GetMessages()
-	if len(messages) != 0 {
-		t.Errorf("Expected 0 messages, got %d", len(messages))
-	}
+	assert.Equal(t, 0, len(messages), "Expected 0 messages, got %d", len(messages))
 }
 
 // Test context cancellation
@@ -219,9 +203,7 @@ func TestPIEventStreamer_ConcurrentBroadcast(t *testing.T) {
 
 	// All events should be broadcast
 	messages := hub.GetMessages()
-	if len(messages) != 10 {
-		t.Errorf("Expected 10 messages, got %d", len(messages))
-	}
+	assert.Equal(t, 10, len(messages), "Expected 10 messages, got %d", len(messages))
 }
 
 // Test rapid start/stop cycling
@@ -294,18 +276,14 @@ func TestPIEventStreamer_EventOrdering(t *testing.T) {
 
 	messages := hub.GetMessages()
 	expectedTypes := []string{"agent_start", "thinking_delta", "text_delta", "text_delta", "tool_call_start", "tool_call_done", "agent_end"}
-	if len(messages) != len(expectedTypes) {
-		t.Errorf("Expected %d messages, got %d", len(expectedTypes), len(messages))
-	}
+	assert.Equal(t, len(expectedTypes), len(messages), "Expected %d messages, got %d", len(expectedTypes), len(messages))
 
 	// Verify order is preserved
 	for i, expected := range expectedTypes {
 		if i >= len(messages) {
 			break
 		}
-		if messages[i].Type != expected {
-			t.Errorf("Event %d: expected %s, got %s", i, expected, messages[i].Type)
-		}
+		assert.Equal(t, expected, messages[i].Type, "Event %d: expected %s, got %s", i, expected, messages[i].Type)
 	}
 }
 
@@ -317,18 +295,12 @@ func TestPIEventStreamer_SetEventTypesEmptyString(t *testing.T) {
 	// Setting empty slice should broadcast all events (not filter)
 	streamer.SetEventTypes([]string{})
 
-	if !streamer.shouldBroadcast("text_delta") {
-		t.Error("Expected shouldBroadcast to return true for empty filter (broadcast all)")
-	}
+	assert.True(t, streamer.shouldBroadcast("text_delta"), "Expected shouldBroadcast to return true for empty filter (broadcast all)")
 
 	// Also test with specific type
 	streamer.SetEventTypes([]string{"text_delta"})
-	if !streamer.shouldBroadcast("text_delta") {
-		t.Error("Expected shouldBroadcast to return true for text_delta when in filter")
-	}
-	if streamer.shouldBroadcast("thinking_delta") {
-		t.Error("Expected shouldBroadcast to return false for thinking_delta when not in filter")
-	}
+	assert.True(t, streamer.shouldBroadcast("text_delta"), "Expected shouldBroadcast to return true for text_delta when in filter")
+	assert.False(t, streamer.shouldBroadcast("thinking_delta"), "Expected shouldBroadcast to return false for thinking_delta when not in filter")
 }
 
 // Test channel full scenario - verify non-blocking behavior

@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 
 	"github.com/google/uuid"
+	"github.com/mule-ai/mule/internal/database"
 )
 
 // PGStore implements PrimitiveStore backed by PostgreSQL.
@@ -52,11 +52,7 @@ func (s *PGStore) ListProviders(ctx context.Context) ([]*Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	providers := []*Provider{}
 	for rows.Next() {
@@ -140,11 +136,7 @@ func (s *PGStore) ListTools(ctx context.Context) ([]*Tool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var tools []*Tool
 	for rows.Next() {
@@ -244,11 +236,7 @@ func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var agents []*Agent
 	for rows.Next() {
@@ -337,11 +325,7 @@ func (s *PGStore) ListWorkflows(ctx context.Context) ([]*Workflow, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var workflows []*Workflow
 	for rows.Next() {
@@ -406,11 +390,7 @@ func (s *PGStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var steps []*WorkflowStep
 	for rows.Next() {
@@ -460,11 +440,7 @@ func (s *PGStore) GetAgentTools(ctx context.Context, agentID string) ([]*Tool, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent tools: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var tools []*Tool
 	for rows.Next() {
@@ -610,11 +586,7 @@ func (s *PGStore) ListSettings(ctx context.Context) ([]*Setting, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list settings: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var settings []*Setting
 	for rows.Next() {
@@ -704,11 +676,7 @@ func (s *PGStore) ListWasmModules(ctx context.Context) ([]*WasmModuleListItem, e
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var modules []*WasmModuleListItem
 	for rows.Next() {
@@ -811,11 +779,7 @@ func (s *PGStore) ListSkills(ctx context.Context) ([]*Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var skills []*Skill
 	for rows.Next() {
@@ -878,11 +842,7 @@ func (s *PGStore) GetAgentSkills(ctx context.Context, agentID string) ([]*Skill,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent skills: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var skills []*Skill
 	for rows.Next() {
