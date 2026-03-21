@@ -16,32 +16,6 @@ import (
 )
 
 // =============================================================================
-// Test helper: wrap sqlmock to provide the database.DB interface
-// =============================================================================
-
-// testDB wraps sqlmock to provide a compatible interface for managers
-type testDB struct {
-	*sql.DB
-	mock sqlmock.Sqlmock
-}
-
-func (m *testDB) BeginTx(ctx context.Context, opts interface{}) (*sql.Tx, error) {
-	return m.Begin()
-}
-
-func (m *testDB) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-	return m.DB.ExecContext(ctx, query, args...)
-}
-
-func (m *testDB) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-	return m.DB.QueryContext(ctx, query, args...)
-}
-
-func (m *testDB) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
-	return m.DB.QueryRowContext(ctx, query, args...)
-}
-
-// =============================================================================
 // Test Setup
 // =============================================================================
 
