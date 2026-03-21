@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/mule-ai/mule/internal/primitive"
@@ -41,37 +40,49 @@ func NewValidator() *Validator {
 	return &Validator{}
 }
 
+// addRequiredStringError adds a validation error if the string is empty or whitespace-only
+func addRequiredStringError(errors *ValidationErrors, fieldName string, value string) {
+	if strings.TrimSpace(value) == "" {
+		*errors = append(*errors, ValidationError{
+			Field:   fieldName,
+			Message: fmt.Sprintf("%s is required", fieldName),
+		})
+	}
+}
+
+// addInvalidStringError adds a validation error for invalid string values
+func addInvalidStringError(errors *ValidationErrors, fieldName string, message string) {
+	*errors = append(*errors, ValidationError{
+		Field:   fieldName,
+		Message: message,
+	})
+}
+
+// isValidEnum checks if a value is in a list of valid values
+func isValidEnum(value string, validValues []string) bool {
+	for _, v := range validValues {
+		if value == v {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateProvider validates a provider
 func (v *Validator) ValidateProvider(provider *primitive.Provider) ValidationErrors {
 	var errors ValidationErrors
 
-	if strings.TrimSpace(provider.Name) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "name",
-			Message: "Name is required",
-		})
-	}
+	addRequiredStringError(&errors, "name", provider.Name)
+	addRequiredStringError(&errors, "api_base_url", provider.APIBaseURL)
 
-	if strings.TrimSpace(provider.APIBaseURL) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "api_base_url",
-			Message: "API base URL is required",
-		})
-	} else {
+	// Validate URL format if provided
+	if strings.TrimSpace(provider.APIBaseURL) != "" {
 		if _, err := url.Parse(provider.APIBaseURL); err != nil {
-			errors = append(errors, ValidationError{
-				Field:   "api_base_url",
-				Message: "API base URL must be a valid URL",
-			})
+			addInvalidStringError(&errors, "api_base_url", "API base URL must be a valid URL")
 		}
 	}
 
-	if strings.TrimSpace(provider.APIKeyEnc) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "api_key_encrypted",
-			Message: "API key is required",
-		})
-	}
+	addRequiredStringError(&errors, "api_key_encrypted", provider.APIKeyEnc)
 
 	return errors
 }
@@ -80,12 +91,7 @@ func (v *Validator) ValidateProvider(provider *primitive.Provider) ValidationErr
 func (v *Validator) ValidateTool(tool *primitive.Tool) ValidationErrors {
 	var errors ValidationErrors
 
-	if strings.TrimSpace(tool.Name) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "name",
-			Message: "Name is required",
-		})
-	}
+	addRequiredStringError(&errors, "name", tool.Name)
 
 	if tool.Metadata == nil {
 		errors = append(errors, ValidationError{
@@ -102,14 +108,7 @@ func (v *Validator) ValidateTool(tool *primitive.Tool) ValidationErrors {
 			})
 		} else {
 			validTypes := []string{"http", "database", "memory", "filesystem"}
-			isValid := false
-			for _, validType := range validTypes {
-				if toolType == validType {
-					isValid = true
-					break
-				}
-			}
-			if !isValid {
+			if !isValidEnum(toolType, validTypes) {
 				errors = append(errors, ValidationError{
 					Field:   "metadata.tool_type",
 					Message: "Tool type must be one of: http, database, memory, filesystem",
@@ -125,33 +124,10 @@ func (v *Validator) ValidateTool(tool *primitive.Tool) ValidationErrors {
 func (v *Validator) ValidateAgent(agent *primitive.Agent) ValidationErrors {
 	var errors ValidationErrors
 
-	if strings.TrimSpace(agent.Name) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "name",
-			Message: "Name is required",
-		})
-	}
-
-	if strings.TrimSpace(agent.ProviderID) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "provider_id",
-			Message: "Provider ID is required",
-		})
-	}
-
-	if strings.TrimSpace(agent.ModelID) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "model_id",
-			Message: "Model ID is required",
-		})
-	}
-
-	if strings.TrimSpace(agent.SystemPrompt) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "system_prompt",
-			Message: "System prompt is required",
-		})
-	}
+	addRequiredStringError(&errors, "name", agent.Name)
+	addRequiredStringError(&errors, "provider_id", agent.ProviderID)
+	addRequiredStringError(&errors, "model_id", agent.ModelID)
+	addRequiredStringError(&errors, "system_prompt", agent.SystemPrompt)
 
 	return errors
 }
@@ -160,12 +136,7 @@ func (v *Validator) ValidateAgent(agent *primitive.Agent) ValidationErrors {
 func (v *Validator) ValidateWorkflow(workflow *primitive.Workflow) ValidationErrors {
 	var errors ValidationErrors
 
-	if strings.TrimSpace(workflow.Name) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "name",
-			Message: "Name is required",
-		})
-	}
+	addRequiredStringError(&errors, "name", workflow.Name)
 
 	return errors
 }
@@ -195,14 +166,7 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 		})
 	} else {
 		validTypes := []string{"agent", "wasm_module"}
-		isValid := false
-		for _, validType := range validTypes {
-			if step.StepType == validType {
-				isValid = true
-				break
-			}
-		}
-		if !isValid {
+		if !isValidEnum(step.StepType, validTypes) {
 			errors = append(errors, ValidationError{
 				Field:   "type",
 				Message: "Step type must be either agent or wasm_module",
@@ -276,19 +240,10 @@ func (v *Validator) ValidateChatCompletionRequest(model string, messages []map[s
 func (v *Validator) ValidateID(id string, fieldName string) ValidationErrors {
 	var errors ValidationErrors
 
-	if strings.TrimSpace(id) == "" {
-		errors = append(errors, ValidationError{
-			Field:   fieldName,
-			Message: "ID is required",
-		})
-	} else {
-		// Basic UUID format validation (simplified)
-		uuidRegex := regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
-		if !uuidRegex.MatchString(id) {
-			// Allow non-UUID IDs for now, but could be stricter in future
-			_ = fmt.Sprintf("ID %s is not a valid UUID format", id)
-		}
-	}
+	addRequiredStringError(&errors, fieldName, id)
+
+	// Note: UUID format validation is intentionally lenient - we allow non-UUID IDs
+	// since the database may use other ID formats in some cases
 
 	return errors
 }
@@ -297,19 +252,8 @@ func (v *Validator) ValidateID(id string, fieldName string) ValidationErrors {
 func (v *Validator) ValidateSkill(skill *primitive.Skill) ValidationErrors {
 	var errors ValidationErrors
 
-	if strings.TrimSpace(skill.Name) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "name",
-			Message: "Name is required",
-		})
-	}
-
-	if strings.TrimSpace(skill.Path) == "" {
-		errors = append(errors, ValidationError{
-			Field:   "path",
-			Message: "Path is required",
-		})
-	}
+	addRequiredStringError(&errors, "name", skill.Name)
+	addRequiredStringError(&errors, "path", skill.Path)
 
 	return errors
 }
