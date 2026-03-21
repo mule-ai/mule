@@ -174,6 +174,13 @@ cd "$TARGET_DIR"
 echo "📂 Working in: $(pwd)"
 echo ""
 
+# Pull latest main
+echo "📥 Pulling latest changes from main..."
+git fetch origin
+git checkout main
+git pull origin main
+echo ""
+
 # Display initial task info
 echo "=========================================="
 echo "  Agent Identity: Mule"
