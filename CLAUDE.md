@@ -116,12 +116,15 @@ The system is built around six core primitives stored in PostgreSQL:
     - `websocket_integration.go`: Streams pi events to WebSocket clients
     - `pibridge_test.go`, `event_mapper_test.go`, `e2e_streaming_test.go`, `websocket_integration_test.go`, `performance_test.go`: Tests and benchmarks
   - `api/`: HTTP middleware and WebSocket handling
+  - `config/`: Application configuration
   - `database/`: PostgreSQL connection, migrations, and data access
   - `engine/`: Workflow engine orchestrating job execution
+  - `initialization/`: Application initialization logic
   - `manager/`: Primitive management (providers, skills, agents, workflows)
   - `primitive/`: Core primitive types and validation
-  - `provider/`: AI provider implementations
+  - `tools/`: Tool registry and implementations (bash, filesystem, http, database)
   - `validation/`: Input validation logic
+  - `wasmcompiler/`: WASM module compilation utilities
 
 - **pkg/**: Reusable packages
   - `database/`: Shared database models (Provider, Agent, Workflow, Job, etc.)
@@ -151,16 +154,43 @@ The `pirc` package provides the core infrastructure for pi integration:
   - `PUT /api/v1/skills/{id}` - Update a skill
   - `DELETE /api/v1/skills/{id}` - Delete a skill
 
+- **Tools API** (`/api/v1/tools`) - Tool registry management
+  - `GET /api/v1/tools` - List all tools in registry
+  - `POST /api/v1/tools` - Register a new tool
+  - `GET /api/v1/tools/{id}` - Get a tool
+  - `PUT /api/v1/tools/{id}` - Update a tool
+  - `DELETE /api/v1/tools/{id}` - Delete a tool
+
+- **Agent Tools API** (`/api/v1/agents/{id}/tools`) - Manage tools on agents
+  - `GET /api/v1/agents/{id}/tools` - List tools assigned to an agent
+  - `POST /api/v1/agents/{id}/tools` - Assign a tool to an agent
+  - `DELETE /api/v1/agents/{id}/tools/{toolId}` - Remove a tool from an agent
+
 - **Agent Skills API** (`/api/v1/agents/{id}/skills`) - Manage skills on agents
   - `GET /api/v1/agents/{id}/skills` - List skills assigned to an agent
   - `PUT /api/v1/agents/{id}/skills` - Assign skills to an agent
   - `DELETE /api/v1/agents/{id}/skills/{skillId}` - Remove skill from agent
 
+- **Settings API** (`/api/v1/settings`) - Application settings management
+  - `GET /api/v1/settings` - List all settings
+  - `GET /api/v1/settings/{key}` - Get a specific setting
+  - `PUT /api/v1/settings/{key}` - Update a setting
+
+- **Memory Config API** (`/api/v1/memory-config`) - Memory vector search configuration
+  - `GET /api/v1/memory-config` - Get memory configuration
+  - `PUT /api/v1/memory-config` - Update memory configuration
+
 - **Management API** (`/api/v1`):
-  - `/providers`, `/agents`, `/workflows` - CRUD operations
-  - `/jobs`, `/jobs/{id}`, `/jobs/{id}/steps` - Job monitoring
-  - `/workflows/{id}/steps` - Workflow step management
-  - `/wasm-modules` - WASM module management
+  - `/providers`, `/providers/{id}`, `/providers/{id}/models` - Provider management
+  - `/tools`, `/tools/{id}` - Tool registry management
+  - `/agents`, `/agents/{id}`, `/agents/{id}/skills`, `/agents/{id}/tools` - Agent management
+  - `/skills`, `/skills/{id}` - Skill management
+  - `/workflows`, `/workflows/{id}`, `/workflows/{id}/steps` - Workflow management
+  - `/jobs`, `/jobs/{id}`, `/jobs/{id}/steps` - Job monitoring and cancellation
+  - `/wasm-modules`, `/wasm-modules/{id}`, `/wasm-modules/{id}/source` - WASM module management
+  - `/wasm-modules/compile`, `/wasm-modules/test`, `/wasm-modules/example` - WASM compilation and testing
+  - `/memory-config` - Memory vector search configuration
+  - `/settings`, `/settings/{key}` - Application settings
 
 - **Real-time**: `WS /ws` - WebSocket for job and agent execution updates
 
@@ -178,6 +208,7 @@ The `pirc` package provides the core infrastructure for pi integration:
   - `0007_add_working_directory_to_jobs.sql` - Job working directory
   - `0008_add_skills_table.sql` - Skills and agent_skills tables, pi_config on agents
   - `0009_optimize_job_queries.sql` - Job query performance optimization
+  - `0010_add_query_optimization_indexes.sql` - Additional query optimization indexes
 - **Connection**: Use `DB_CONN_STRING` environment variable or `-db` flag
 - **Job Queue**: PostgreSQL-based with worker pool processing
 
@@ -194,6 +225,65 @@ The `pirc` package provides the core infrastructure for pi integration:
 - Database operations return structured errors
 - Workflow steps track individual failures in `job_steps` table
 - Jobs have `status` field: QUEUED, RUNNING, COMPLETED, FAILED
+
+### Database Resource Management
+The project uses helper functions in `internal/database/rows.go` to safely clean up database resources:
+
+```go
+// Safe resource cleanup with logging
+rows, err := db.QueryContext(ctx, query)
+if err != nil {
+    return err
+}
+defer database.CloseRows(rows)
+```
+
+**Available Helpers:**
+- `CloseRows(rows *sql.Rows)` - Safely closes sql.Rows, logs any errors
+- `CloseDB(db *sql.DB)` - Safely closes sql.DB connection
+- `CloseStmt(stmt *sql.Stmt)` - Safely closes sql.Stmt
+
+**Usage Pattern:**
+```go
+// All database operations should use these helpers
+rows, err := store.db.QueryContext(ctx, query)
+if err != nil {
+    return err
+}
+defer database.CloseRows(rows)
+
+for rows.Next() {
+    // Process rows...
+}
+if err := rows.Err(); err != nil {
+    return err
+}
+```
+
+These helpers handle nil pointers safely and log errors rather than returning them, since Close() errors typically indicate non-critical issues (connection already closed, etc.).
+
+### Goroutine and Request Lifecycle
+The project uses proper goroutine cleanup to prevent resource leaks:
+
+**Timeout Middleware:**
+```go
+// TimeoutMiddleware waits for handler goroutines to complete after timeout
+// This prevents orphaned goroutines consuming resources
+go func() {
+    select {
+    case <-done:
+        return
+    case <-timeout:
+        waitForHandler() // Wait up to 5s for handler completion
+        return
+    }
+}()
+```
+
+**Best Practices:**
+- Always use `defer` to clean up resources (database connections, goroutines)
+- Use `sync.WaitGroup` when waiting for multiple goroutines
+- Check for goroutine leaks with `go test -race`
 
 ### Testing
 - Unit tests alongside implementation files (`*_test.go`)

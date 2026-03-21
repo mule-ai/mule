@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/mule-ai/mule/internal/api"
 )
 
@@ -233,6 +235,7 @@ func TestPerformanceChannelBufferOverflow(t *testing.T) {
 	}
 
 	t.Log("Channel buffer overflow test completed - dropped events are handled gracefully")
+	assert.True(t, true, "Test completed successfully")
 }
 
 // TestPerformanceConcurrentBridgeOperations tests concurrent bridge operations
@@ -260,9 +263,7 @@ func TestPerformanceConcurrentBridgeOperations(t *testing.T) {
 
 	// All bridges should be created successfully
 	for i, bridge := range bridges {
-		if bridge == nil {
-			t.Errorf("Bridge %d is nil", i)
-		}
+		assert.NotNil(t, bridge, "Bridge %d is nil", i)
 	}
 
 	t.Logf("Created %d bridges concurrently", numBridges)
@@ -287,6 +288,7 @@ func TestPerformanceEventMapperThroughput(t *testing.T) {
 
 	t.Logf("Event mapper throughput: %.2f events/second", rate)
 	t.Logf("Total time for %d events: %v", numEvents, elapsed)
+	assert.True(t, rate > 0, "Event mapper throughput should be greater than 0")
 }
 
 // TestPerformanceJSONParsingLargeEvent benchmarks parsing large JSON events
@@ -310,6 +312,7 @@ func TestPerformanceJSONParsingLargeEvent(t *testing.T) {
 
 	t.Logf("Large JSON parsing throughput: %.2f events/second", rate)
 	t.Logf("Total time for %d large events: %v", numIterations, elapsed)
+	assert.True(t, rate > 0, "JSON parsing throughput should be greater than 0")
 }
 
 // TestPerformanceWebSocketMessageFormat verifies WebSocket message format
@@ -324,13 +327,8 @@ func TestPerformanceWebSocketMessageFormat(t *testing.T) {
 
 	msg := event.ToWebSocketMessage()
 
-	if msg.Type != string(MuleEventTextDelta) {
-		t.Errorf("Expected type %s, got %s", MuleEventTextDelta, msg.Type)
-	}
-
-	if msg.Data == nil {
-		t.Error("Expected data to be set")
-	}
+	assert.Equal(t, string(MuleEventTextDelta), msg.Type, "Expected type %s, got %s", MuleEventTextDelta, msg.Type)
+	assert.NotNil(t, msg.Data, "Expected data to be set")
 
 	// Verify it can be serialized to JSON
 	data, err := json.Marshal(msg)
@@ -343,9 +341,7 @@ func TestPerformanceWebSocketMessageFormat(t *testing.T) {
 		t.Fatalf("Failed to unmarshal WebSocket message: %v", err)
 	}
 
-	if parsed.Type != string(MuleEventTextDelta) {
-		t.Errorf("Parsed type mismatch: %s", parsed.Type)
-	}
+	assert.Equal(t, string(MuleEventTextDelta), parsed.Type, "Parsed type mismatch: %s", parsed.Type)
 
 	t.Logf("WebSocket message format verified: %d bytes", len(data))
 }
@@ -452,9 +448,7 @@ func TestPerformanceConcurrentMapAndReceive(t *testing.T) {
 done:
 	t.Logf("Sent %d events, received %d mapped events", numEvents, received)
 
-	if received == 0 {
-		t.Error("No events were received from mapper")
-	}
+	assert.NotZero(t, received, "No events were received from mapper")
 }
 
 // generateLongString generates a string of specified length

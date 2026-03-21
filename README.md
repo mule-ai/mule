@@ -148,9 +148,12 @@ Mule consists of a few core primitives:
 - `GET /api/v1/providers/{id}/models` - List models from a provider
 - `GET/POST/PUT/DELETE /api/v1/agents` - Agent management
 - `GET/POST/PUT/DELETE /api/v1/workflows` - Workflow management
-- `GET /api/v1/workflows/{id}/steps` - Workflow step management
+- `GET /api/v1/workflows/{id}/steps` - List workflow steps
+- `POST /api/v1/workflows/{id}/steps` - Create workflow step
 - `POST /api/v1/workflows/{id}/steps/reorder` - Reorder workflow steps
-- `GET /api/v1/jobs` - Job listing
+- `PUT /api/v1/workflows/{workflow_id}/steps/{step_id}` - Update workflow step
+- `DELETE /api/v1/workflows/{workflow_id}/steps/{step_id}` - Delete workflow step
+- `GET/POST /api/v1/jobs` - List or create jobs
 - `GET /api/v1/jobs/{id}` - Job details
 - `DELETE /api/v1/jobs/{id}` - Cancel a job
 - `GET /api/v1/jobs/{id}/steps` - Job step details

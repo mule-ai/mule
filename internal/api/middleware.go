@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
 )
 
@@ -107,6 +110,18 @@ func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) h
 				panic(p)
 			case <-ctx.Done():
 				// Request timed out
+				// Wait for the handler goroutine to complete to prevent goroutine leak
+				// Use a short timeout to avoid blocking forever if the handler is stuck
+				go func() {
+					select {
+					case <-done:
+						// Handler finished
+					case <-time.After(5 * time.Second):
+						// Handler still running after 5 seconds, log warning
+						log.Printf("Handler goroutine still running after timeout (5s), possible resource leak")
+					}
+				}()
+
 				if rw.headerWritten {
 					// Headers already written - we can't change the status code
 					// The client will receive an incomplete response, but we can't prevent it
@@ -275,5 +290,87 @@ func HandleValidationError(w http.ResponseWriter, errors validation.ValidationEr
 		"details": errors,
 	}); err != nil {
 		log.Printf("Warning: failed to encode validation error response: %v", err)
+	}
+}
+
+// IsNotFoundError checks if an error is a "not found" error.
+// It checks both primitive.ErrNotFound and error messages containing "not found".
+func IsNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for the standard not found error
+	if err == primitive.ErrNotFound {
+		return true
+	}
+	// Check for common "not found" patterns in error messages
+	// This handles errors returned from managers that use fmt.Errorf("... not found: ...")
+	return strings.Contains(err.Error(), "not found")
+}
+
+// HandleNotFoundOrError handles errors by returning 404 for not found errors
+// and 500 for other errors. Returns true if the error was handled, false otherwise.
+func HandleNotFoundOrError(w http.ResponseWriter, err error, resourceType string) bool {
+	if err == nil {
+		return false
+	}
+
+	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+		// Headers already written, can't send error response
+		return true
+	}
+
+	if IsNotFoundError(err) {
+		HandleError(w, err, http.StatusNotFound)
+		return true
+	}
+
+	// Log the error with context for internal errors
+	log.Printf("Failed to %s %s: %v", getResourceAction(resourceType), resourceType, err)
+	HandleError(w, err, http.StatusInternalServerError)
+	return true
+}
+
+// HandleNotFoundOrErrorf is like HandleNotFoundOrError but allows formatting the error message.
+func HandleNotFoundOrErrorf(w http.ResponseWriter, err error, resourceType string, format string, args ...interface{}) bool {
+	if err == nil {
+		return false
+	}
+
+	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+		// Headers already written, can't send error response
+		return true
+	}
+
+	if IsNotFoundError(err) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{
+			Error:   "not_found",
+			Message: fmt.Sprintf("%s not found", resourceType),
+		})
+		return true
+	}
+
+	// Log the error with context for internal errors
+	log.Printf("Failed to %s %s: %v", getResourceAction(resourceType), resourceType, err)
+	HandleError(w, err, http.StatusInternalServerError)
+	return true
+}
+
+// getResourceAction returns the appropriate action verb for a resource type
+func getResourceAction(resourceType string) string {
+	switch strings.ToLower(resourceType) {
+	case "provider", "providers":
+		return "get/create/update/delete"
+	case "agent", "agents":
+		return "get/create/update/delete"
+	case "workflow", "workflows":
+		return "get/create/update/delete"
+	case "skill", "skills":
+		return "get/create/update/delete"
+	case "tool", "tools":
+		return "get/create/update/delete"
+	default:
+		return "get"
 	}
 }

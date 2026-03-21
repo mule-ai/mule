@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,11 +75,7 @@ func (sm *SkillManager) ListSkills(ctx context.Context) ([]*dbmodels.Skill, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to query skills: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var skills []*dbmodels.Skill
 	for rows.Next() {
@@ -98,6 +93,11 @@ func (sm *SkillManager) ListSkills(ctx context.Context) ([]*dbmodels.Skill, erro
 			return nil, fmt.Errorf("failed to scan skill: %w", err)
 		}
 		skills = append(skills, skill)
+	}
+
+	// Check for iteration errors
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate skills: %w", err)
 	}
 
 	return skills, nil
@@ -181,11 +181,7 @@ func (sm *SkillManager) GetAgentSkills(ctx context.Context, agentID string) ([]*
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent skills: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("Error closing rows: %v", closeErr)
-		}
-	}()
+	defer database.CloseRows(rows)
 
 	var skills []*dbmodels.Skill
 	for rows.Next() {
@@ -203,6 +199,11 @@ func (sm *SkillManager) GetAgentSkills(ctx context.Context, agentID string) ([]*
 			return nil, fmt.Errorf("failed to scan skill: %w", err)
 		}
 		skills = append(skills, skill)
+	}
+
+	// Check for iteration errors
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate agent skills: %w", err)
 	}
 
 	return skills, nil

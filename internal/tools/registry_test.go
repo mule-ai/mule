@@ -2,6 +2,8 @@ package tools
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBashToolRegistration(t *testing.T) {
@@ -15,14 +17,10 @@ func TestBashToolRegistration(t *testing.T) {
 		}
 	}
 
-	if !found {
-		t.Errorf("bash tool not found in built-in tools list")
-	}
+	assert.True(t, found, "bash tool not found in built-in tools list")
 
 	// Test that bash tool can be created and registered
 	registry := NewRegistry()
 	_, err := registry.Get("bash")
-	if err != nil {
-		t.Errorf("Failed to get bash tool from registry: %v", err)
-	}
+	assert.NoError(t, err, "Failed to get bash tool from registry")
 }

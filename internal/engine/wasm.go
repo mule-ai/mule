@@ -338,7 +338,33 @@ func (e *WASMExecutor) SetURLAllowList(allowed []string) {
 	e.urlAllowed = allowed
 }
 
-// Execute executes a WASM module with the given input data and working directory
+// Execute executes a WASM module with the given input data and working directory.
+// It handles the complete lifecycle of WASM module execution:
+//
+// Input Processing:
+//   - Merges module configuration with runtime input data (input overrides config)
+//   - Serializes merged data to JSON for passing to WASM via stdin
+//
+// WASM Runtime Setup:
+//   - Creates a fresh wazero runtime for each execution (avoids "randinit twice" error)
+//   - Instantiates WASI preview1 for system functions (clock, random, etc.)
+//   - Instantiates custom WASM executor with host functions
+//
+// Host Functions Provided to WASM:
+//   - get_current_branch: Get current git branch from working directory
+//   - workflow_trigger: Trigger another workflow and get results
+//   - agent_call: Call an agent and get response
+//   - http_request: Make HTTP requests with configurable allowlist
+//   - network_check: Check network connectivity
+//   - git_operation: Execute git commands
+//
+// Output Processing:
+//   - Reads stdout from WASM module as JSON
+//   - Returns deserialized output as map[string]interface{}
+//
+// Error Handling:
+//   - Recoverable panics are caught and logged
+//   - Detailed error messages for common failure modes
 func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
 	// Store the working directory for use by triggerWorkflow
 	e.workingDir = workingDir
