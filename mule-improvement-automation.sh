@@ -176,11 +176,12 @@ if git diff --quiet && git diff --cached --quiet && [[ -z $(git ls-files --other
 else
     echo "Changes detected. Creating PR..."
     
-    # Clean up any automation files that shouldn't be committed
+    # Clean up automation metadata files (but NEVER delete the automation scripts!)
     git restore SUMMARY.md progress.md plan.md spec.md 2>/dev/null || true
     rm -f SUMMARY.md progress.md plan.md spec.md
     rm -f improvement-plan.md improvement-progress.md improvement-spec.md
-    rm -f mule-blog-automation.sh mule-improvement-automation.sh
+    # NOTE: mule-blog-automation.sh and mule-improvement-automation.sh are
+    # intentionally preserved - they are the automation infrastructure
     
     # Check if there's already a branch with improvements
     EXISTING_BRANCH=$(git branch -a | grep "improvement/phase-" | head -1 | sed 's/^[ *]*//' || true)
