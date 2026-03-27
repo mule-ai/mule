@@ -68,3 +68,7 @@ internal/frontend/build/
 # local scripts
 setup-dev.sh
 rebuild-local.sh
+
+# Automation scripts (protected from automated cleanup)
+mule-blog-automation.sh
+mule-improvement-automation.sh
