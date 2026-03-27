@@ -180,8 +180,8 @@ else
     git restore SUMMARY.md progress.md plan.md spec.md 2>/dev/null || true
     rm -f SUMMARY.md progress.md plan.md spec.md
     rm -f improvement-plan.md improvement-progress.md improvement-spec.md
-    # NOTE: mule-blog-automation.sh and mule-improvement-automation.sh are
-    # intentionally preserved - they are the automation infrastructure
+    # NOTE: mule-blog-automation.sh, mule-improvement-automation.sh, spec.md,
+    # and plan.md are intentionally preserved - they are the automation infrastructure
     
     # Check if there's already a branch with improvements
     EXISTING_BRANCH=$(git branch -a | grep "improvement/phase-" | head -1 | sed 's/^[ *]*//' || true)
@@ -198,7 +198,7 @@ else
     
     # Stage all changes (excluding automation files)
     git add -A
-    git reset HEAD mule-blog-automation.sh mule-improvement-automation.sh SKILL.md api improvement-plan.md improvement-progress.md improvement-spec.md 2>/dev/null || true
+    git reset HEAD mule-blog-automation.sh mule-improvement-automation.sh spec.md plan.md SKILL.md api improvement-plan.md improvement-progress.md improvement-spec.md 2>/dev/null || true
     
     # Create a commit
     if git diff --cached --quiet; then
