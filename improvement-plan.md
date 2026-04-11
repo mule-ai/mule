@@ -112,6 +112,15 @@
 - [ ] If auto-merge fails, leave PR for manual review
 - [ ] Clean up branch if merge successful (N/A - PR #108 not merged; main was updated with PR #107 after branch creation, requiring rebase or manual merge)
 
+### Additional Tasks Completed (2026-04-11)
+
+- [x] Add checkbox reset functionality to automation script
+- [x] Add comprehensive job tests (EnhancedJob, ListJobsOptions, Job, JobStep, Status transitions)
+
+### Blockers
+
+- **gh CLI Authentication Required**: Cannot create PR without gh CLI authentication. Interactive device flow not available in automation environment.
+
 ---
 
 ## Phase 7: Summary Generation
