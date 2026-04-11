@@ -381,3 +381,297 @@ func TestCancelJob(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, ErrJobNotFound, err)
 }
+
+// TestEnhancedJob tests the EnhancedJob struct
+func TestEnhancedJob(t *testing.T) {
+	now := time.Now()
+	job := &Job{
+		ID:         "test-job",
+		WorkflowID: "test-workflow",
+		Status:     StatusRunning,
+		InputData:  map[string]interface{}{"key": "value"},
+		OutputData: map[string]interface{}{},
+		CreatedAt:  now,
+		StartedAt:  &now,
+	}
+
+	enhanced := &EnhancedJob{
+		Job:            job,
+		WorkflowName:   "Test Workflow",
+		WasmModuleName: "Test Module",
+	}
+
+	assert.Equal(t, "test-job", enhanced.ID)
+	assert.Equal(t, "test-workflow", enhanced.WorkflowID)
+	assert.Equal(t, StatusRunning, enhanced.Status)
+	assert.Equal(t, "Test Workflow", enhanced.WorkflowName)
+	assert.Equal(t, "Test Module", enhanced.WasmModuleName)
+	assert.NotNil(t, enhanced.StartedAt)
+}
+
+// TestEnhancedJobWithNilPointers tests EnhancedJob with nil pointer fields
+func TestEnhancedJobWithNilPointers(t *testing.T) {
+	job := &Job{
+		ID:         "test-job-nil",
+		WorkflowID: "test-workflow",
+		Status:     StatusQueued,
+		CreatedAt:  time.Now(),
+	}
+
+	enhanced := &EnhancedJob{
+		Job: job,
+		// WorkflowName and WasmModuleName are empty
+	}
+
+	assert.Equal(t, "test-job-nil", enhanced.ID)
+	assert.Empty(t, enhanced.WorkflowName)
+	assert.Empty(t, enhanced.WasmModuleName)
+}
+
+// TestListJobsOptions tests ListJobsOptions struct
+func TestListJobsOptions(t *testing.T) {
+	opts := ListJobsOptions{
+		Page:         2,
+		PageSize:     50,
+		Status:       ptrStatus(StatusRunning),
+		Search:       "test",
+		WorkflowName: "My Workflow",
+	}
+
+	assert.Equal(t, 2, opts.Page)
+	assert.Equal(t, 50, opts.PageSize)
+	assert.NotNil(t, opts.Status)
+	assert.Equal(t, StatusRunning, *opts.Status)
+	assert.Equal(t, "test", opts.Search)
+	assert.Equal(t, "My Workflow", opts.WorkflowName)
+}
+
+// TestListJobsOptionsDefaults tests default values for ListJobsOptions
+func TestListJobsOptionsDefaults(t *testing.T) {
+	opts := ListJobsOptions{}
+
+	assert.Equal(t, 0, opts.Page)
+	assert.Equal(t, 0, opts.PageSize)
+	assert.Nil(t, opts.Status)
+	assert.Empty(t, opts.Search)
+	assert.Empty(t, opts.WorkflowName)
+}
+
+// TestJobWithAllFields tests Job struct with all fields populated
+func TestJobWithAllFields(t *testing.T) {
+	now := time.Now()
+	jobID := "test-job-full"
+	workflowID := "test-workflow-full"
+	wasmModuleID := "test-wasm-full"
+	workingDir := "/tmp/test"
+
+	job := &Job{
+		ID:               jobID,
+		WorkflowID:       workflowID,
+		WasmModuleID:     &wasmModuleID,
+		Status:           StatusRunning,
+		InputData:        map[string]interface{}{"prompt": "test prompt"},
+		OutputData:       map[string]interface{}{"result": "success"},
+		WorkingDirectory: workingDir,
+		CreatedAt:        now,
+		StartedAt:        &now,
+		CompletedAt:      nil,
+	}
+
+	assert.Equal(t, jobID, job.ID)
+	assert.Equal(t, workflowID, job.WorkflowID)
+	assert.NotNil(t, job.WasmModuleID)
+	assert.Equal(t, wasmModuleID, *job.WasmModuleID)
+	assert.Equal(t, StatusRunning, job.Status)
+	assert.Equal(t, "test prompt", job.InputData["prompt"])
+	assert.Equal(t, "success", job.OutputData["result"])
+	assert.Equal(t, workingDir, job.WorkingDirectory)
+	assert.Equal(t, now, job.CreatedAt)
+	assert.NotNil(t, job.StartedAt)
+	assert.Nil(t, job.CompletedAt)
+}
+
+// TestJobStepWithAllFields tests JobStep struct with all fields populated
+func TestJobStepWithAllFields(t *testing.T) {
+	now := time.Now()
+	step := &JobStep{
+		ID:             "test-step-full",
+		JobID:          "test-job-full",
+		WorkflowStepID: "workflow-step-1",
+		StepOrder:      5,
+		Status:         StatusCompleted,
+		InputData:      map[string]interface{}{"data": "input"},
+		OutputData:     map[string]interface{}{"result": "output"},
+		StartedAt:      &now,
+		CompletedAt:    &now,
+		ErrorMessage:   "",
+	}
+
+	assert.Equal(t, "test-step-full", step.ID)
+	assert.Equal(t, "test-job-full", step.JobID)
+	assert.Equal(t, "workflow-step-1", step.WorkflowStepID)
+	assert.Equal(t, 5, step.StepOrder)
+	assert.Equal(t, StatusCompleted, step.Status)
+	assert.Equal(t, "input", step.InputData["data"])
+	assert.Equal(t, "output", step.OutputData["result"])
+	assert.NotNil(t, step.StartedAt)
+	assert.NotNil(t, step.CompletedAt)
+	assert.Empty(t, step.ErrorMessage)
+}
+
+// TestJobStepWithError tests JobStep struct with error
+func TestJobStepWithError(t *testing.T) {
+	now := time.Now()
+	step := &JobStep{
+		ID:             "test-step-error",
+		JobID:          "test-job-error",
+		WorkflowStepID: "workflow-step-error",
+		StepOrder:      1,
+		Status:         StatusFailed,
+		StartedAt:      &now,
+		CompletedAt:    &now,
+		ErrorMessage:   "step execution failed",
+	}
+
+	assert.Equal(t, StatusFailed, step.Status)
+	assert.Equal(t, "step execution failed", step.ErrorMessage)
+	assert.NotNil(t, step.StartedAt)
+	assert.NotNil(t, step.CompletedAt)
+}
+
+// TestStatusConstants tests all status constants
+func TestStatusConstants(t *testing.T) {
+	assert.Equal(t, Status("queued"), StatusQueued)
+	assert.Equal(t, Status("running"), StatusRunning)
+	assert.Equal(t, Status("completed"), StatusCompleted)
+	assert.Equal(t, Status("failed"), StatusFailed)
+	assert.Equal(t, Status("cancelled"), StatusCancelled)
+}
+
+// TestStatusString tests Status.String() method
+func TestStatusString(t *testing.T) {
+	tests := []struct {
+		status   Status
+		expected string
+	}{
+		{StatusQueued, "queued"},
+		{StatusRunning, "running"},
+		{StatusCompleted, "completed"},
+		{StatusFailed, "failed"},
+		{StatusCancelled, "cancelled"},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, tt.status.String())
+	}
+}
+
+// TestStatusCanTransitionToAllCases tests all CanTransitionTo cases
+func TestStatusCanTransitionToAllCases(t *testing.T) {
+	// Test from StatusQueued
+	queued := StatusQueued
+	assert.True(t, queued.CanTransitionTo(StatusRunning))
+	assert.True(t, queued.CanTransitionTo(StatusFailed))
+	assert.True(t, queued.CanTransitionTo(StatusCancelled))
+	assert.False(t, queued.CanTransitionTo(StatusCompleted))
+	assert.False(t, queued.CanTransitionTo(StatusQueued))
+
+	// Test from StatusRunning
+	running := StatusRunning
+	assert.True(t, running.CanTransitionTo(StatusCompleted))
+	assert.True(t, running.CanTransitionTo(StatusFailed))
+	assert.True(t, running.CanTransitionTo(StatusCancelled))
+	assert.False(t, running.CanTransitionTo(StatusQueued))
+	assert.False(t, running.CanTransitionTo(StatusRunning))
+
+	// Test from StatusCompleted (terminal)
+	completed := StatusCompleted
+	assert.False(t, completed.CanTransitionTo(StatusQueued))
+	assert.False(t, completed.CanTransitionTo(StatusRunning))
+	assert.False(t, completed.CanTransitionTo(StatusFailed))
+	assert.False(t, completed.CanTransitionTo(StatusCancelled))
+	assert.False(t, completed.CanTransitionTo(StatusCompleted))
+
+	// Test from StatusFailed (terminal)
+	failed := StatusFailed
+	assert.False(t, failed.CanTransitionTo(StatusQueued))
+	assert.False(t, failed.CanTransitionTo(StatusRunning))
+	assert.False(t, failed.CanTransitionTo(StatusCompleted))
+	assert.False(t, failed.CanTransitionTo(StatusCancelled))
+	assert.False(t, failed.CanTransitionTo(StatusFailed))
+
+	// Test from StatusCancelled (terminal)
+	cancelled := StatusCancelled
+	assert.False(t, cancelled.CanTransitionTo(StatusQueued))
+	assert.False(t, cancelled.CanTransitionTo(StatusRunning))
+	assert.False(t, cancelled.CanTransitionTo(StatusCompleted))
+	assert.False(t, cancelled.CanTransitionTo(StatusFailed))
+	assert.False(t, cancelled.CanTransitionTo(StatusCancelled))
+
+	// Test from invalid status
+	invalid := Status("invalid")
+	assert.False(t, invalid.CanTransitionTo(StatusQueued))
+	assert.False(t, invalid.CanTransitionTo(StatusRunning))
+}
+
+// TestJobInputOutputData tests Job with various input/output data types
+func TestJobInputOutputData(t *testing.T) {
+	job := &Job{
+		ID:         "test-job-data",
+		WorkflowID: "test-workflow",
+		Status:     StatusQueued,
+		InputData: map[string]interface{}{
+			"string": "value",
+			"number": 42,
+			"float":  3.14,
+			"bool":   true,
+			"null":   nil,
+			"array":  []interface{}{1, 2, 3},
+			"nested": map[string]interface{}{"key": "value"},
+		},
+		OutputData: map[string]interface{}{
+			"result": "success",
+			"data":   []interface{}{"a", "b", "c"},
+		},
+		CreatedAt: time.Now(),
+	}
+
+	assert.Equal(t, "value", job.InputData["string"])
+	assert.Equal(t, 42, job.InputData["number"])
+	assert.Equal(t, 3.14, job.InputData["float"])
+	assert.Equal(t, true, job.InputData["bool"])
+	assert.Nil(t, job.InputData["null"])
+	assert.NotNil(t, job.InputData["array"])
+	assert.NotNil(t, job.InputData["nested"])
+	assert.Equal(t, "success", job.OutputData["result"])
+}
+
+// TestJobStatusTransitionSequence tests a typical job status sequence
+func TestJobStatusTransitionSequence(t *testing.T) {
+	job := &Job{
+		ID:         "test-sequence",
+		WorkflowID: "test-workflow",
+		Status:     StatusQueued,
+		CreatedAt:  time.Now(),
+	}
+
+	// Initial state
+	assert.Equal(t, StatusQueued, job.Status)
+	assert.True(t, job.Status.CanTransitionTo(StatusRunning))
+
+	// Transition to running
+	job.Status = StatusRunning
+	assert.True(t, job.Status.CanTransitionTo(StatusCompleted))
+	assert.True(t, job.Status.CanTransitionTo(StatusFailed))
+	assert.True(t, job.Status.CanTransitionTo(StatusCancelled))
+
+	// Transition to completed
+	job.Status = StatusCompleted
+	assert.False(t, job.Status.CanTransitionTo(StatusRunning))
+	assert.False(t, job.Status.CanTransitionTo(StatusQueued))
+}
+
+// Helper function to create a pointer to Status
+func ptrStatus(s Status) *Status {
+	return &s
+}

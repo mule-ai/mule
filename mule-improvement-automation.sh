@@ -170,6 +170,12 @@ echo "  Improvement Automation Complete!"
 echo "=========================================="
 echo ""
 
+# Reset checkboxes for next run
+# This ensures the next execution has tasks to work on
+echo "🔄 Resetting checkboxes in $PLAN_FILE for next run..."
+sed -i 's/\[[ x]\]/[ ]/g' "$PLAN_FILE" 2>/dev/null || true
+echo ""
+
 # Check if there are changes to commit (only staged/tracked files, ignore untracked automation files)
 if git diff --quiet && git diff --cached --quiet && [[ -z $(git ls-files --others --exclude-standard | grep -v -E "(improvement-|mule-.*automation|SUMMARY\.md|progress\.md|SKILL\.md|api/)") ]]; then
     echo "No changes to commit."
