@@ -156,21 +156,26 @@ make security-check
 ```
 mule/
 ├── cmd/               # Command-line tools
-│   ├── mule/         # Main application
-│   └── memory-cli/   # Memory management CLI
+│   └── api/          # Main application entry point
 ├── internal/         # Private packages
-│   ├── config/      # Configuration management
-│   ├── handlers/    # HTTP handlers
-│   └── scheduler/   # Workflow scheduling
+│   ├── agent/       # Agent runtime with pi RPC integration
+│   ├── api/         # HTTP middleware and WebSocket handling
+│   ├── config/      # Application configuration
+│   ├── database/    # PostgreSQL connection, migrations, and data access
+│   ├── engine/      # Workflow engine orchestrating job execution
+│   ├── frontend/    # Embedded React frontend assets
+│   ├── initialization/ # Application initialization logic
+│   ├── manager/     # Primitive management (providers, skills, agents, workflows)
+│   ├── primitive/   # Core primitive types and validation
+│   ├── tools/       # Tool registry and implementations (bash, filesystem, http, database)
+│   ├── validation/  # Input validation logic
+│   └── wasmcompiler/ # WASM module compilation utilities
 ├── pkg/             # Public packages
-│   ├── agent/       # AI agent implementation
-│   ├── integration/ # External integrations
-│   ├── rag/        # Retrieval-augmented generation
-│   ├── remote/     # Remote providers (GitHub, etc.)
-│   └── validation/ # Validation framework
-├── wiki/           # Technical documentation
-├── examples/       # Usage examples
-└── api/           # gRPC/Protocol Buffer definitions
+│   ├── database/    # Shared database models
+│   └── job/         # Job queue management, job store, and job execution logic
+├── frontend/        # React UI source code
+├── examples/        # Usage examples (WASM modules, workflows)
+└── docs/            # Technical documentation
 ```
 
 ## 🔍 Code Review Process
