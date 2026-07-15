@@ -44,5 +44,12 @@
       "last 1 safari version"
     ]
   },
-  "proxy": "http://localhost:8080"
+  "proxy": "http://localhost:8080",
+  "overrides": {
+    "dompurify": "^3.4.12",
+    "yaml": "^1.10.3",
+    "underscore": "^1.13.8",
+    "@tootallnate/once": "^2.0.1",
+    "serialize-javascript": "^7.0.5"
+  }
 }
