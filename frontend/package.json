@@ -20,7 +20,7 @@
     "react-bootstrap": "^2.4.0",
     "react-dom": "^18.2.0",
     "react-flow-renderer": "^10.3.17",
-    "react-router-dom": "^6.3.0"
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^5.16.4",
