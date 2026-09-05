@@ -1,4 +1,4 @@
--- Initial database schema for Mule v2 AI workflow platform
+-- Initial database schema for Mule AI workflow platform
 -- This creates the complete schema with VARCHAR UUID primary keys matching the Go models
 
 -- Providers table

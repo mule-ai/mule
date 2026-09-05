@@ -2,7 +2,7 @@
 
 # Build using standard Go
 build:
-	GOOS=js GOARCH=wasm go build -o text-processor.wasm main.go
+	GOOS=wasip1 GOARCH=wasm go build -o text-processor.wasm main.go
 
 # Build using TinyGo (smaller binary)
 build-tinygo:

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mule-ai/mule/internal/primitive"
@@ -33,7 +34,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %d %v", r.Method, r.URL.Path, wrapped.statusCode, duration)
+		_, code := wrapped.status()
+		log.Printf("%s %s %d %v", r.Method, r.URL.Path, code, duration)
 	})
 }
 
@@ -122,16 +124,17 @@ func TimeoutMiddleware(getTimeoutFunc func() time.Duration) func(http.Handler) h
 					}
 				}()
 
-				if rw.headerWritten {
-					// Headers already written - we can't change the status code
-					// The client will receive an incomplete response, but we can't prevent it
-					log.Printf("Request timeout after %v, but headers already written (status: %d)", timeout, rw.statusCode)
+				if written, code := rw.status(); written {
+					// Headers already sent - we can no longer change the status code
+					log.Printf("Request timeout after %v, but headers already written (status: %d)", timeout, code)
 					return
 				}
 
-				// Headers not written yet, we can send a timeout response
-				w.WriteHeader(http.StatusRequestTimeout)
-				if err := json.NewEncoder(w).Encode(ErrorResponse{
+				// Headers not written yet, we can send a timeout response.
+				// Write through the wrapper so it is serialized with any
+				// in-flight handler writes on the underlying ResponseWriter.
+				rw.WriteHeader(http.StatusRequestTimeout)
+				if err := json.NewEncoder(rw).Encode(ErrorResponse{
 					Error:   "request_timeout",
 					Message: "Request took too long to process",
 				}); err != nil {
@@ -150,8 +153,7 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 			if err := recover(); err != nil {
 				log.Printf("Panic recovered: %v", err)
 
-				// Check if headers have already been written
-				if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+				if headersWritten(w) {
 					// Headers already written, can't send error response
 					return
 				}
@@ -208,55 +210,82 @@ func ValidationMiddleware(validator *validation.Validator, validationFunc func(*
 	}
 }
 
-// responseWriter is a wrapper around http.ResponseWriter that captures the status code
+// responseWriter wraps http.ResponseWriter to capture the status code and
+// track whether headers have been written. State is mutex-guarded because
+// TimeoutMiddleware may read it while the handler goroutine still runs.
 type responseWriter struct {
 	http.ResponseWriter
+	mu            sync.Mutex
 	statusCode    int
 	headerWritten bool
 }
 
-// Check if the underlying ResponseWriter implements http.Hijacker
+// status reports whether headers have been written and the captured status code.
+func (rw *responseWriter) status() (headerWritten bool, statusCode int) {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	return rw.headerWritten, rw.statusCode
+}
+
 func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	// Check if the underlying ResponseWriter implements Hijacker
 	hj, ok := rw.ResponseWriter.(http.Hijacker)
 	if !ok {
 		return nil, nil, http.ErrNotSupported
 	}
 
-	// Delegate to the underlying Hijacker
 	conn, buf, err := hj.Hijack()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Mark that headers have been written since we're hijacking the connection
+	// The connection is now owned by the hijacked handler
+	rw.mu.Lock()
 	rw.headerWritten = true
+	rw.mu.Unlock()
 
 	return conn, buf, nil
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
+	rw.mu.Lock()
 	if rw.headerWritten {
+		rw.mu.Unlock()
 		return
 	}
 	rw.headerWritten = true
 	rw.statusCode = code
+	rw.mu.Unlock()
+
 	rw.ResponseWriter.WriteHeader(code)
 }
 
 func (rw *responseWriter) Write(b []byte) (int, error) {
+	// Hold the lock across the underlying write so the timeout path's
+	// response and the handler's writes are serialized on the same mutex.
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
 	if !rw.headerWritten {
-		rw.WriteHeader(http.StatusOK)
+		rw.headerWritten = true
+		rw.statusCode = http.StatusOK
+		rw.ResponseWriter.WriteHeader(http.StatusOK)
 	}
 	return rw.ResponseWriter.Write(b)
+}
+
+// headersWritten reports whether the given writer has already sent response headers.
+func headersWritten(w http.ResponseWriter) bool {
+	if rw, ok := w.(*responseWriter); ok {
+		written, _ := rw.status()
+		return written
+	}
+	return false
 }
 
 // HandleError handles errors in a consistent way
 func HandleError(w http.ResponseWriter, err error, statusCode int) {
 	log.Printf("Error: %v", err)
 
-	// Check if headers have already been written
-	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+	if headersWritten(w) {
 		// Headers already written, can't send error response
 		return
 	}
@@ -277,8 +306,7 @@ func HandleError(w http.ResponseWriter, err error, statusCode int) {
 
 // HandleValidationError handles validation errors
 func HandleValidationError(w http.ResponseWriter, errors validation.ValidationErrors) {
-	// Check if headers have already been written
-	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+	if headersWritten(w) {
 		// Headers already written, can't send error response
 		return
 	}
@@ -315,7 +343,7 @@ func HandleNotFoundOrError(w http.ResponseWriter, err error, resourceType string
 		return false
 	}
 
-	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+	if headersWritten(w) {
 		// Headers already written, can't send error response
 		return true
 	}
@@ -337,7 +365,7 @@ func HandleNotFoundOrErrorf(w http.ResponseWriter, err error, resourceType strin
 		return false
 	}
 
-	if rw, ok := w.(*responseWriter); ok && rw.headerWritten {
+	if headersWritten(w) {
 		// Headers already written, can't send error response
 		return true
 	}

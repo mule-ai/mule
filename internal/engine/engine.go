@@ -154,11 +154,7 @@ func (e *Engine) jobPoller(ctx context.Context) {
 	}
 }
 
-// worker processes jobs from the queue. Each worker:
-// 1. Waits for a job ID to be available in the jobQueue channel
-// 2. Processes the job by calling processJob
-// 3. Logs any errors that occur during processing
-// 4. Continues waiting for more jobs until stopped
+// worker pulls job IDs from jobQueue and processes each via processJob.
 func (e *Engine) worker(ctx context.Context, workerID int) {
 	defer e.wg.Done()
 
@@ -179,25 +175,9 @@ func (e *Engine) worker(ctx context.Context, workerID int) {
 	}
 }
 
-// processJob processes a single job. The job execution follows these steps:
-//  1. Mark the job as RUNNING in the database
-//  2. Retrieve the job and associated workflow from the database
-//  3. Load job timeout setting (default: 1 hour)
-//  4. Create a context with timeout for the job execution
-//  5. Retrieve workflow steps ordered by step_order
-//  6. For each step:
-//     - Check if job was cancelled or timed out
-//     - Create a job step record to track step execution
-//     - Execute the step (AGENT or WASM_MODULE type)
-//     - Capture step output to pass to the next step
-//     - Update job step with results
-//  7. Mark job as COMPLETED with aggregated output from all steps
-//     OR mark as FAILED if any step fails
-//
-// The function handles:
-// - Job cancellation (checks during each step iteration)
-// - Job timeout (enforced via context deadline)
-// - Graceful cleanup (defers context cancellation)
+// processJob executes one job: marks it RUNNING, runs the workflow steps
+// sequentially (AGENT or WASM_MODULE) within the job timeout, and marks the
+// job COMPLETED or FAILED. Cancellation is checked between steps.
 func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	// Mark job as running
 	if err := e.jobStore.MarkJobRunning(jobID); err != nil {
@@ -429,6 +409,9 @@ func (e *Engine) processAgentStepWithWorkingDir(ctx context.Context, step *primi
 	resp, err := e.agentRuntime.ExecuteAgentWithWorkingDir(ctx, req, workingDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute agent: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("agent %s returned no choices", agentModel.Name)
 	}
 
 	// Return response as prompt for next step

@@ -17,7 +17,7 @@ import (
 
 func main() {
 	// Connect to database (adjust connection string as needed)
-	db, err := database.NewDB("postgres://mule:mule@localhost:5432/mulev2?sslmode=disable")
+	db, err := database.NewDB("postgres://mule:mule@localhost:5432/mule?sslmode=disable")
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

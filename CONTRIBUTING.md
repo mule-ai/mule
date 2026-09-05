@@ -231,9 +231,9 @@ mule/
 
 ### Documentation
 
-- [Architecture Guide](./wiki/architecture.md)
-- [API Documentation](./API.md)
-- [Package Documentation](./wiki/)
+- [Software Architecture](./docs/SOFTWARE_ARCHITECTURE.md)
+- [Data Model](./docs/DATA_MODEL.md)
+- [WASM Module Interface](./docs/WASM_MODULE_INTERFACE.md)
 
 ### Learning Resources
 
@@ -267,6 +267,6 @@ If you have questions about contributing, please:
 1. Check existing [GitHub Discussions](https://github.com/mule-ai/mule/discussions)
 2. Open a new discussion for general questions
 3. Create an issue for specific bugs or features
-4. Review our [documentation](./wiki/) for technical details
+4. Review our [documentation](./docs/) for technical details
 
 Thank you for helping make Mule better! 🚀

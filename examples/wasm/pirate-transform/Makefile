@@ -2,7 +2,7 @@
 
 # Build using standard Go
 build:
-	GOOS=js GOARCH=wasm go build -o pirate-transform.wasm main.go
+	GOOS=wasip1 GOARCH=wasm go build -o pirate-transform.wasm main.go
 
 # Build using TinyGo (recommended for smaller binaries)
 build-tinygo:

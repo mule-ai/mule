@@ -5,10 +5,10 @@
 
 set -e
 
-echo "=== Mule v2 Database Migration Test ==="
+echo "=== Mule Database Migration Test ==="
 
 # Database connection string
-DB_CONN="postgres://postgres:postgres@localhost:5432/mulev2?sslmode=disable"
+DB_CONN="postgres://postgres:postgres@localhost:5432/mule?sslmode=disable"
 
 # Check if database is running
 if ! pg_isready -h localhost -p 5432 -U postgres; then
@@ -21,7 +21,7 @@ echo "✅ PostgreSQL is running"
 
 # Create database if it doesn't exist
 echo "📋 Creating database if it doesn't exist..."
-createdb -h localhost -p 5432 -U postgres mulev2 2>/dev/null || echo "Database already exists"
+createdb -h localhost -p 5432 -U postgres mule 2>/dev/null || echo "Database already exists"
 
 # Build the application
 echo "🔨 Building the application..."

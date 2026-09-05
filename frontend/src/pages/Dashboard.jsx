@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, Row, Col, Alert, Button, Form, Tabs, Tab, Badge, ListGroup } from 'react-bootstrap';
 import { chatAPI, wasmModulesAPI, jobsAPI } from '../services/api';
 
@@ -16,10 +16,16 @@ function Dashboard() {
   const [wasmLoading, setWasmLoading] = useState(false);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('agents');
+  const monitorTimer = useRef(null); // pending job-status poll
 
   useEffect(() => {
     loadModels();
     loadWasmModules();
+  }, []);
+
+  // Clear any pending job poll when the component unmounts
+  useEffect(() => () => {
+    if (monitorTimer.current) clearTimeout(monitorTimer.current);
   }, []);
 
   const loadModels = async () => {
@@ -205,7 +211,7 @@ function Dashboard() {
 
         // Continue monitoring if job is not completed
         if (job.status.toLowerCase() !== 'completed' && job.status.toLowerCase() !== 'failed') {
-          setTimeout(checkJobStatus, 2000); // Check every 2 seconds
+          monitorTimer.current = setTimeout(checkJobStatus, 2000); // Check every 2 seconds
         }
       } catch (err) {
         console.error('Failed to monitor job:', err);
@@ -213,7 +219,7 @@ function Dashboard() {
     };
 
     // Start monitoring
-    setTimeout(checkJobStatus, 2000);
+    monitorTimer.current = setTimeout(checkJobStatus, 2000);
   };
 
   const getStatusVariant = (status) => {

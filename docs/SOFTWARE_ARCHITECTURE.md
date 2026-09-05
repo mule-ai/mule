@@ -1,4 +1,4 @@
-# Mule v2 - High-Level Software Architecture
+# Mule - High-Level Software Architecture
 
 ```mermaid
 graph TD

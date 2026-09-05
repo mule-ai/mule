@@ -79,7 +79,7 @@ func main() {
 		listenAddr string
 	)
 
-	flag.StringVar(&dbConnStr, "db", "postgres://user:pass@localhost:5432/mulev2?sslmode=disable", "PostgreSQL connection string")
+	flag.StringVar(&dbConnStr, "db", "postgres://user:pass@localhost:5432/mule?sslmode=disable", "PostgreSQL connection string")
 	flag.StringVar(&listenAddr, "listen", ":8080", "HTTP listen address")
 	flag.Parse()
 
@@ -110,10 +110,18 @@ func main() {
 	}
 	log.Println("Database schema initialized successfully")
 
-	// Ensure default primitives exist
-	// Generate a simple secret for encryption (in production, this should be from a secure source)
-	secret := []byte("mule-default-secret-key-12345678")
-	providerMgr := manager.NewProviderManager(db, secret)
+	// Encryption secret for provider API keys. Set MULE_ENCRYPTION_SECRET to a
+	// 16/24/32-byte value; without it we fall back to a built-in default so
+	// local development works, but the key provides no real secrecy then.
+	secret := os.Getenv("MULE_ENCRYPTION_SECRET")
+	if secret == "" {
+		secret = "mule-default-secret-key-12345678"
+		log.Printf("WARNING: MULE_ENCRYPTION_SECRET not set - provider API keys are encrypted with a public default. Set it in any real deployment.")
+	}
+	if k := len(secret); k != 16 && k != 24 && k != 32 {
+		log.Fatalf("MULE_ENCRYPTION_SECRET must be 16, 24 or 32 bytes (AES key size), got %d", k)
+	}
+	providerMgr := manager.NewProviderManager(db, []byte(secret))
 	agentMgr := manager.NewAgentManager(db)
 	workflowMgr := manager.NewWorkflowManager(db)
 

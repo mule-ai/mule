@@ -13,12 +13,12 @@ import (
 func TestGetLastOperationResult(t *testing.T) {
 	// This is a mock implementation for testing purposes
 	// In a real scenario, this would call the actual WASM host functions
-	
+
 	// Simulate the fixed getLastOperationResult function
 	getLastOperationResult := func() ([]byte, error) {
 		// Simulate getting the length (should return 22 for "Hello from workflow!")
 		length := uint32(22)
-		
+
 		// Simulate the case where length is an error code
 		if length >= 0xFFFFFFF0 {
 			return nil, fmt.Errorf("failed to get result length: %d", length)
@@ -29,7 +29,7 @@ func TestGetLastOperationResult(t *testing.T) {
 
 		// Simulate reading the actual data
 		copy(buffer, "Hello from workflow!")
-		
+
 		// Simulate successful read
 		actualLength := uint32(len("Hello from workflow!"))
 		if actualLength >= 0xFFFFFFF0 {
@@ -50,7 +50,7 @@ func TestGetLastOperationResult(t *testing.T) {
 	if string(result) != expected {
 		t.Errorf("Expected result '%s', got '%s'", expected, string(result))
 	}
-	
+
 	fmt.Printf("Test passed! Result: %s\n", string(result))
 }
 
@@ -60,7 +60,7 @@ func ExampleMainFlow() {
 	inputData := map[string]interface{}{
 		"prompt": "Hello, process this text",
 	}
-	
+
 	// Extract the prompt from input
 	message := ""
 	if msg, ok := inputData["prompt"].(string); ok {
@@ -68,39 +68,39 @@ func ExampleMainFlow() {
 	} else {
 		message = "Hello, world!"
 	}
-	
+
 	// Prepare parameters for the workflow
 	params := map[string]interface{}{
 		"prompt": message,
 	}
-	
+
 	// Convert params to JSON
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling params: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Input message: %s\n", message)
 	fmt.Printf("Params JSON: %s\n", string(paramsJSON))
-	
+
 	// Simulate calling execute_target (would return 0 for success)
 	errorCode := uint32(0)
 	if errorCode != 0 {
 		fmt.Fprintf(os.Stderr, "Error executing workflow: %d\n", errorCode)
 		return
 	}
-	
+
 	// Simulate getting status (would return 0 for success)
 	status := int32(0)
 	if status != 0 {
 		fmt.Fprintf(os.Stderr, "Workflow execution failed with status: %d\n", status)
 		return
 	}
-	
+
 	// Simulate getting result
 	result := []byte(`{"response": "Workflow executed successfully!"}`)
-	
+
 	// Try to parse the result as JSON
 	var resultData map[string]interface{}
 	if err := json.Unmarshal(result, &resultData); err != nil {
@@ -109,22 +109,22 @@ func ExampleMainFlow() {
 			"result": string(result),
 		}
 	}
-	
+
 	// Output the result as JSON
 	output := map[string]interface{}{
 		"success": true,
 		"data":    resultData,
 		"status":  status,
 	}
-	
+
 	outputJSON, err := json.Marshal(output)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling output: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Output: %s\n", string(outputJSON))
-	
+
 	// Output:
 	// Input message: Hello, process this text
 	// Params JSON: {"prompt":"Hello, process this text"}

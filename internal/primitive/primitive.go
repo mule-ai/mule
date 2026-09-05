@@ -117,12 +117,8 @@ type WasmModuleListItem struct {
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
-// PrimitiveStore defines the interface for primitive data management.
-// Implementations provide CRUD operations for all core primitives:
-// Providers, Tools, Agents, Skills, Workflows, Workflow Steps, WASM Modules,
-// Memory Config, and Settings.
-// This interface enables dependency injection for testability and allows
-// for different storage backends (e.g., PostgreSQL, mock stores for testing).
+// PrimitiveStore provides CRUD for all core primitives. Mock implementations
+// enable testing without a live database.
 type PrimitiveStore interface {
 	CreateProvider(ctx context.Context, p *Provider) error
 	GetProvider(ctx context.Context, id string) (*Provider, error)

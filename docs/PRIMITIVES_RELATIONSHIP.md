@@ -1,4 +1,4 @@
-# Mule v2 - Core Primitives Relationship Diagram
+# Mule - Core Primitives Relationship Diagram
 
 ```mermaid
 graph LR

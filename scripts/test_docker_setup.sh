@@ -5,7 +5,7 @@
 
 set -e
 
-echo "=== Mule v2 Docker Setup Test ==="
+echo "=== Mule Docker Setup Test ==="
 
 # Check if required files exist
 echo "📋 Checking required files..."
@@ -54,7 +54,7 @@ else
 fi
 
 # Check if database connection is correct
-if grep -q "postgres://mule:mule@postgres:5432/mulev2" docker-compose.yml; then
+if grep -q "postgres://mule:mule@postgres:5432/mule" docker-compose.yml; then
     echo "✅ Database connection string correct"
 else
     echo "❌ Database connection string incorrect"

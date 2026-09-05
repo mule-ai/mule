@@ -36,7 +36,7 @@ function App() {
       <div className="App" data-theme={theme}>
         <Navbar bg={theme === 'dark' ? 'dark' : 'light'} variant={theme === 'dark' ? 'dark' : 'light'} expand="lg" className="theme-aware-navbar">
           <Container>
-            <Navbar.Brand href="/">Mule v2</Navbar.Brand>
+            <Navbar.Brand href="/">Mule</Navbar.Brand>
             <Navbar.Toggle aria-controls="basic-navbar-nav" />
             <Navbar.Collapse id="basic-navbar-nav">
               <Nav className="me-auto">

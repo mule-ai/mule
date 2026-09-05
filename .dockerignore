@@ -1,0 +1,24 @@
+# VCS
+.git
+
+# Build artifacts
+bin/
+cmd/api/bin/
+*.wasm
+
+# Dependencies (rebuilt in the frontend stage)
+frontend/node_modules/
+frontend/build/
+
+# Dev tooling
+.air.toml
+bin/golangci-lint
+.log
+
+# Docs not needed in the image
+docs/
+*.md
+
+# Local test data
+tmp/
+testdata/

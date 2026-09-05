@@ -17,7 +17,7 @@ make build
 # or manually: cd cmd/api && CGO_ENABLED=1 GOOS=linux go build -o bin/mule
 
 # Run the server (requires PostgreSQL)
-./cmd/api/bin/mule -db "postgres://mule:mule@localhost:5432/mulev2?sslmode=disable"
+./cmd/api/bin/mule -db "postgres://mule:mule@localhost:5432/mule?sslmode=disable"
 
 # Run with hot reload during development
 make air
@@ -307,7 +307,7 @@ go func() {
   ```
 
 ### WASM Execution
-- WASM modules compiled from Go: `GOOS=js GOARCH=wasm go build -o module.wasm`
+- WASM modules compiled from Go: `GOOS=wasip1 GOARCH=wasm go build -o module.wasm`
 - Example: `hello.wasm` compiled from `hello_wasm.go`
 - Host functions enable Go-WASM communication
 
@@ -427,7 +427,7 @@ if os.Getenv("ANTHROPIC_API_KEY") == "" {
 
 ### Adding a WASM Module
 1. Write Go code with `//go:build js && wasm`
-2. Compile: `GOOS=js GOARCH=wasm go build -o module.wasm`
+2. Compile: `GOOS=wasip1 GOARCH=wasm go build -o module.wasm`
 3. Upload via `/api/v1/wasm-modules` endpoint
 4. Reference in workflow steps
 

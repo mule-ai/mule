@@ -24,7 +24,7 @@ type WorktreeInput struct {
 // Output represents the output structure
 type Output struct {
 	Success bool   `json:"success"`
-	Issue any `json:"issue"`
+	Issue   any    `json:"issue"`
 	Path    string `json:"path,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
@@ -131,7 +131,7 @@ func main() {
 	// Success - the host function has already set the working directory
 	outputResult := Output{
 		Success: true,
-		Issue: input.Prompt,
+		Issue:   input.Prompt,
 	}
 
 	encoder := json.NewEncoder(os.Stdout)

@@ -54,22 +54,3 @@ build:
 run: all
 	./cmd/api/bin/mule
 
-# WASM Inspector - Simple inspection
-.PHONY: wasm-inspect
-wasm-inspect:
-	@echo "Usage: make wasm-inspect WASM_FILE=path/to/file.wasm"
-	@if [ -z "$(WASM_FILE)" ]; then \
-		echo "Error: WASM_FILE not specified"; \
-		exit 1; \
-	fi
-	go run wasm_inspector.go $(WASM_FILE)
-
-# WASM Inspector - Detailed inspection
-.PHONY: wasm-inspect-detailed
-wasm-inspect-detailed:
-	@echo "Usage: make wasm-inspect-detailed WASM_FILE=path/to/file.wasm"
-	@if [ -z "$(WASM_FILE)" ]; then \
-		echo "Error: WASM_FILE not specified"; \
-		exit 1; \
-	fi
-	go run wasm_detailed_inspector.go $(WASM_FILE)

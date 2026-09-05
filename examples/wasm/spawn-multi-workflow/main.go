@@ -78,9 +78,9 @@ func getLastOperationResult() ([]byte, error) {
 
 // WorkflowResult represents the result of executing a workflow
 type WorkflowResult struct {
-	Name    string      `json:"name"`
-	Success bool        `json:"success"`
-	Error   string      `json:"error,omitempty"`
+	Name    string `json:"name"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
 }
 
 // executeWorkflow executes a single workflow with the given parameters

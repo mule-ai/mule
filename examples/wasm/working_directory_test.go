@@ -19,7 +19,7 @@ func main() {
 		Port:     5432,
 		User:     "mule",
 		Password: "mule",
-		DBName:   "mulev2",
+		DBName:   "mule",
 		SSLMode:  "disable",
 	})
 	if err != nil {

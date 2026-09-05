@@ -405,11 +405,9 @@ func (wm *WorkflowManager) renumberWorkflowStepsTx(ctx context.Context, tx *sql.
 	return wm.applyStepOrderTx(ctx, tx, stepIDs)
 }
 
-// applyStepOrderTx applies a new order to steps using a two-phase approach.
-// This avoids unique constraint violations on step_order when reordering.
-// Phase 1: Set all step_orders to negative temporary values.
-// Phase 2: Set the final step_orders to positive values.
-// The transaction must already be started; this function does not commit.
+// applyStepOrderTx reorders steps in two phases (negative temp values, then
+// final values) to avoid unique-constraint violations on step_order.
+// The caller must hold the transaction; this function does not commit.
 func (wm *WorkflowManager) applyStepOrderTx(ctx context.Context, tx *sql.Tx, stepIDs []string) error {
 	// Phase 1: Set temporary negative values
 	for i, stepID := range stepIDs {

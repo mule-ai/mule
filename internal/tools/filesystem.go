@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // FilesystemTool provides filesystem operations for agents
@@ -253,8 +254,15 @@ func (f *FilesystemTool) isPathAllowed(path string) bool {
 		return false
 	}
 
-	// Check if the path starts with the root directory
-	return len(absPath) >= len(absRoot) && absPath[:len(absRoot)] == absRoot
+	// Check if the path is exactly the root or is a subdirectory/file within root
+	// Using filepath.Rel to properly handle path separators and avoid partial matches
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return false
+	}
+
+	// If the relative path starts with .., it's outside the root directory
+	return !strings.HasPrefix(rel, "..")
 }
 
 // GetSchema returns the JSON schema for this tool

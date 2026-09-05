@@ -8,27 +8,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mule-ai/mule/internal/api"
 	"github.com/stretchr/testify/assert"
 )
 
 // mockWebSocketHub is a mock implementation of EventBroadcaster for testing
 type mockWebSocketHub struct {
-	messages []WebSocketMessage
+	messages []api.WebSocketMessage
 	mu       sync.Mutex
 }
 
 func (m *mockWebSocketHub) BroadcastAgentEvent(eventType string, data interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if msg, ok := data.(WebSocketMessage); ok {
-		m.messages = append(m.messages, msg)
-	}
+	// Mirror the real hub: wrap the payload in a WebSocketMessage.
+	m.messages = append(m.messages, api.WebSocketMessage{Type: eventType, Data: data, Timestamp: time.Now()})
 }
 
-func (m *mockWebSocketHub) GetMessages() []WebSocketMessage {
+func (m *mockWebSocketHub) GetMessages() []api.WebSocketMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	result := make([]WebSocketMessage, len(m.messages))
+	result := make([]api.WebSocketMessage, len(m.messages))
 	copy(result, m.messages)
 	return result
 }
@@ -82,24 +82,21 @@ func TestPIEventStreamer_StartWithoutMapper(t *testing.T) {
 }
 
 func TestWebSocketMessageConversion(t *testing.T) {
-	// Test that MuleEvent can be converted to WebSocketMessage
+	// Test that MuleEvent converts to api.WebSocketMessage
 	event := MuleEvent{
 		Type:      MuleEventTextDelta,
 		Delta:     "Hello, world!",
 		Timestamp: time.Now(),
 	}
 
-	msg := WebSocketMessage{
-		Type:      string(event.Type),
-		Data:      event,
-		Timestamp: event.Timestamp,
-	}
+	msg := event.ToWebSocketMessage()
 
 	assert.Equal(t, string(MuleEventTextDelta), msg.Type, "Expected message type to be %s, got %s", MuleEventTextDelta, msg.Type)
 
-	// Check that the data is the event itself
-	eventData, ok := msg.Data.(MuleEvent)
-	assert.True(t, ok, "Expected data to be MuleEvent")
+	// Data carries the MuleEvent as a pointer (ToWebSocketMessage uses a
+	// pointer receiver); the JSON wire shape is identical either way.
+	eventData, ok := msg.Data.(*MuleEvent)
+	assert.True(t, ok, "Expected data to be *MuleEvent")
 	assert.Equal(t, event.Delta, eventData.Delta, "Expected delta %s, got %s", event.Delta, eventData.Delta)
 }
 

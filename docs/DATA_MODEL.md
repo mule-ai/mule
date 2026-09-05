@@ -1,4 +1,4 @@
-# Mule v2 - Data Model Diagram
+# Mule - Data Model Diagram
 
 ```mermaid
 erDiagram
