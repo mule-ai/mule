@@ -76,4 +76,4 @@ EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/mule"]
 
 # Default command with flags
-CMD ["-db", "postgres://mule:mule@postgres:5432/mulev2?sslmode=disable", "-listen", ":8080"]
+CMD ["-db", "postgres://mule:mule@postgres:5432/mule?sslmode=disable", "-listen", ":8080"]

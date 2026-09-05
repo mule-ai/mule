@@ -1,4 +1,4 @@
--- Database initialization script for Mule v2
+-- Database initialization script for Mule
 -- This script is automatically executed when the PostgreSQL container starts
 
 -- Create the initial schema

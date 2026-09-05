@@ -12,11 +12,11 @@ import (
 
 func main() {
 	// Connect to database - use host.docker.internal when running in Docker, otherwise localhost
-	connStr := "postgres://mule:mule@host.docker.internal:5432/mulev2?sslmode=disable"
+	connStr := "postgres://mule:mule@host.docker.internal:5432/mule?sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		// Fallback to localhost if host.docker.internal doesn't work
-		connStr = "postgres://mule:mule@localhost:5432/mulev2?sslmode=disable"
+		connStr = "postgres://mule:mule@localhost:5432/mule?sslmode=disable"
 		db, err = sql.Open("postgres", connStr)
 		if err != nil {
 			log.Fatal(err)

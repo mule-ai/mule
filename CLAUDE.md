@@ -17,7 +17,7 @@ make build
 # or manually: cd cmd/api && CGO_ENABLED=1 GOOS=linux go build -o bin/mule
 
 # Run the server (requires PostgreSQL)
-./cmd/api/bin/mule -db "postgres://mule:mule@localhost:5432/mulev2?sslmode=disable"
+./cmd/api/bin/mule -db "postgres://mule:mule@localhost:5432/mule?sslmode=disable"
 
 # Run with hot reload during development
 make air

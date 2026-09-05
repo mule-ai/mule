@@ -85,10 +85,10 @@ func createFallbackHandler() http.Handler {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mule v2 - Frontend Not Built</title>
+    <title>Mule - Frontend Not Built</title>
 </head>
 <body>
-    <h1>Mule v2 API Server</h1>
+    <h1>Mule API Server</h1>
     <p>The React frontend has not been built yet.</p>
     <p>To build the frontend:</p>
     <pre>

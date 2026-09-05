@@ -16,5 +16,5 @@ CREATE INDEX IF NOT EXISTS idx_memory_config_updated_at ON memory_config (update
 
 -- Insert default configuration
 INSERT INTO memory_config (id, database_url, embedding_provider, embedding_model, embedding_dims, default_ttl_seconds, default_top_k)
-VALUES ('default', 'postgres://mule:mule@localhost:5432/mulev2?sslmode=disable', 'openai', 'text-embedding-ada-002', 1536, 0, 5)
+VALUES ('default', 'postgres://mule:mule@localhost:5432/mule?sslmode=disable', 'openai', 'text-embedding-ada-002', 1536, 0, 5)
 ON CONFLICT (id) DO NOTHING;

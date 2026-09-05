@@ -1,4 +1,4 @@
-# Mule v2 - Component Interaction Diagram
+# Mule - Component Interaction Diagram
 
 ```mermaid
 graph TD

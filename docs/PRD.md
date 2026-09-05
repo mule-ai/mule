@@ -1,4 +1,4 @@
-# Mule v2 - AI Workflow Platform PRD
+# Mule - AI Workflow Platform PRD
 
 ## Overview
 

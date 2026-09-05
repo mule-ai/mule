@@ -1,6 +1,6 @@
 # Database Migrations
 
-This document describes the database migration system for Mule v2.
+This document describes the database migration system for Mule.
 
 ## Overview
 
@@ -140,7 +140,7 @@ Migration 0010 adds composite indexes to optimize common query patterns:
 Migrations run automatically when the application starts:
 
 ```bash
-./api -db "postgres://user:pass@localhost:5432/mulev2?sslmode=disable"
+./api -db "postgres://user:pass@localhost:5432/mule?sslmode=disable"
 ```
 
 The migrations are embedded in the binary, so no external files are needed.
@@ -272,7 +272,7 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: mulev2
+      POSTGRES_DB: mule
       POSTGRES_USER: mule
       POSTGRES_PASSWORD: mule
     # No migration mounts needed - handled by application!
@@ -310,7 +310,7 @@ When distributing the binary, no additional files are needed:
 
 ```bash
 # Just the binary is enough
-./api -db "postgres://...:5432/mulev2?sslmode=disable"
+./api -db "postgres://...:5432/mule?sslmode=disable"
 ```
 
 ## Testing
@@ -334,7 +334,7 @@ go test ./internal/database -v
 # Start PostgreSQL with Docker
 docker run -d --name postgres \
   -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=mulev2 \
+  -e POSTGRES_DB=mule \
   -p 5432:5432 \
   postgres:15
 

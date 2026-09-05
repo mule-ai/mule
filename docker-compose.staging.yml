@@ -6,7 +6,7 @@ services:
     image: postgres:16-alpine
     container_name: mule-staging-postgres
     environment:
-      POSTGRES_DB: mulev2
+      POSTGRES_DB: mule
       POSTGRES_USER: mule
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mule_staging_pass}
     ports:
@@ -15,7 +15,7 @@ services:
       - staging_postgres_data:/var/lib/postgresql/data
       - ./internal/database/migrations:/docker-entrypoint-initdb.d/migrations
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mule -d mulev2"]
+      test: ["CMD-SHELL", "pg_isready -U mule -d mule"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,11 +31,11 @@ services:
     ports:
       - "8141:8080"
     environment:
-      - DB_CONN_STRING=postgres://mule:${POSTGRES_PASSWORD:-mule_staging_pass}@postgres:5432/mulev2?sslmode=disable
+      - DB_CONN_STRING=postgres://mule:${POSTGRES_PASSWORD:-mule_staging_pass}@postgres:5432/mule?sslmode=disable
       - LOG_LEVEL=debug
       - PI_PROVIDER=${PI_PROVIDER:-anthropic}
       - PI_MODEL=${PI_MODEL:-claude-3-5-sonnet-20241022}
-    command: ["-db", "postgres://mule:${POSTGRES_PASSWORD:-mule_staging_pass}@postgres:5432/mulev2?sslmode=disable", "-listen", ":8080"]
+    command: ["-db", "postgres://mule:${POSTGRES_PASSWORD:-mule_staging_pass}@postgres:5432/mule?sslmode=disable", "-listen", ":8080"]
     depends_on:
       postgres:
         condition: service_healthy

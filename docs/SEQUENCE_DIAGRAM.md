@@ -1,4 +1,4 @@
-# Mule v2 - Workflow Execution Sequence Diagram
+# Mule - Workflow Execution Sequence Diagram
 
 ```mermaid
 sequenceDiagram

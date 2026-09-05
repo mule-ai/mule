@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: mule-postgres
     environment:
-      POSTGRES_DB: mulev2
+      POSTGRES_DB: mule
       POSTGRES_USER: mule
       POSTGRES_PASSWORD: mule
     expose:
@@ -13,7 +13,7 @@ services:
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
       - ./internal/database/migrations/0001_initial_schema.sql:/docker-entrypoint-initdb.d/0001_initial_schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mule -d mulev2"]
+      test: ["CMD-SHELL", "pg_isready -U mule -d mule"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,7 +29,7 @@ services:
       - "8140:8080"
     volumes:
       - /root/.pi/agent:/home/mule/.pi/agent:ro
-    command: ["-db", "postgres://mule:mule@postgres:5432/mulev2?sslmode=disable", "-listen", ":8080"]
+    command: ["-db", "postgres://mule:mule@postgres:5432/mule?sslmode=disable", "-listen", ":8080"]
     depends_on:
       postgres:
         condition: service_healthy

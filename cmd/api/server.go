@@ -79,7 +79,7 @@ func main() {
 		listenAddr string
 	)
 
-	flag.StringVar(&dbConnStr, "db", "postgres://user:pass@localhost:5432/mulev2?sslmode=disable", "PostgreSQL connection string")
+	flag.StringVar(&dbConnStr, "db", "postgres://user:pass@localhost:5432/mule?sslmode=disable", "PostgreSQL connection string")
 	flag.StringVar(&listenAddr, "listen", ":8080", "HTTP listen address")
 	flag.Parse()
 

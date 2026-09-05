@@ -54,14 +54,14 @@ docker-compose logs -f postgres
 
 1. Create a PostgreSQL database:
 ```sql
-CREATE DATABASE mulev2;
+CREATE DATABASE mule;
 CREATE USER mule WITH PASSWORD 'mule';
-GRANT ALL PRIVILEGES ON DATABASE mulev2 TO mule;
+GRANT ALL PRIVILEGES ON DATABASE mule TO mule;
 ```
 
 2. (Optional) Apply migrations manually — or just start the server, which applies pending embedded migrations at startup:
 ```bash
-psql -h localhost -U mule -d mulev2 -f internal/database/migrations/0001_initial_schema.sql
+psql -h localhost -U mule -d mule -f internal/database/migrations/0001_initial_schema.sql
 ```
 
 ### Building and Running
@@ -74,7 +74,7 @@ go mod tidy
 make build
 
 # Run the server
-./cmd/api/bin/mule -db "postgres://mule:mule@localhost:5432/mulev2?sslmode=disable"
+./cmd/api/bin/mule -db "postgres://mule:mule@localhost:5432/mule?sslmode=disable"
 
 # Or use the Makefile
 make run
@@ -82,7 +82,7 @@ make run
 
 ## Documentation
 
-- [Product Requirements Document](docs/MULE-V2.md) - Complete specification of Mule v2
+- [Product Requirements Document](docs/PRD.md) - Complete specification of Mule
 - [Data Model Diagram](docs/DATA_MODEL.md) - Entity relationship diagram showing database schema
 - [Sequence Diagram](docs/SEQUENCE_DIAGRAM.md) - Workflow execution flow and component interactions
 - [Software Architecture](docs/SOFTWARE_ARCHITECTURE.md) - High-level system architecture
@@ -190,7 +190,7 @@ The application can be configured via command-line flags:
 ./mule -db "postgres://user:pass@host:5432/dbname?sslmode=disable" -listen ":8080"
 ```
 
-- `-db`: PostgreSQL connection string (default: `postgres://user:pass@localhost:5432/mulev2?sslmode=disable`)
+- `-db`: PostgreSQL connection string (default: `postgres://user:pass@localhost:5432/mule?sslmode=disable`)
 - `-listen`: HTTP listen address (default: `:8080`)
 
 Environment variables:
@@ -232,4 +232,4 @@ make build
 docker build -t mule:latest .
 ```
 
-For detailed technical specifications, see the [Product Requirements Document](docs/MULE-V2.md).
+For detailed technical specifications, see the [Product Requirements Document](docs/PRD.md).

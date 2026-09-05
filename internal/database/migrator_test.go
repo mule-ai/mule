@@ -45,7 +45,7 @@ func TestMigrator(t *testing.T) {
 		Port:     5432,
 		User:     "postgres",
 		Password: "postgres",
-		DBName:   "mulev2_test",
+		DBName:   "mule_test",
 		SSLMode:  "disable",
 	}
 
@@ -140,7 +140,7 @@ func TestMigratorErrorHandling(t *testing.T) {
 		Port:     5432,
 		User:     "postgres",
 		Password: "postgres",
-		DBName:   "mulev2_test",
+		DBName:   "mule_test",
 		SSLMode:  "disable",
 	}
 
