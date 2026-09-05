@@ -58,11 +58,8 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 		Workers: 5, // Default to 5 workers
 	})
 
-	// Update WASM executor with workflow engine
-	// This is a circular dependency: WASMExecutor needs WorkflowEngine for nested job
-	// submissions, while WorkflowEngine needs WASMExecutor for WASM step execution.
-	// Using a setter after construction is the standard Go pattern for breaking
-	// circular dependencies and avoids needing interfaces for both directions.
+	// Wire the circular engine<->executor dependency after construction
+	// (WASM steps need the engine; nested jobs need the executor).
 	wasmExecutor.WorkflowEngine = workflowEngine
 
 	// Set workflow engine on runtime (requires a setter method)
@@ -85,10 +82,8 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	}
 }
 
-// modelsHandler returns all available models (agents and workflows).
+// modelsHandler lists all agents and workflows as /v1/models entries.
 // GET /v1/models
-// Response: Array of model objects with id, object, and owned_by fields
-// Error responses: 500 Internal Server Error if listing agents or workflows fails
 func (h *apiHandler) modelsHandler(w http.ResponseWriter, r *http.Request) {
 	agents, err := h.store.ListAgents(r.Context())
 	if err != nil {
@@ -133,15 +128,8 @@ func (h *apiHandler) modelsHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// chatCompletionsHandler handles OpenAI-compatible chat completions API requests.
-// Supports agent execution (model starting with "agent/") and workflow execution
-// (model starting with "workflow/" or "async/workflow/").
-//
-// Request body: ChatCompletionRequest with model and messages
-// Response: ChatCompletionResponse for sync execution, AsyncJobResponse for async
-// Error responses: 400 Bad Request for invalid input, 404 Not Found for unknown workflows,
-//
-//	500 Internal Server Error for execution failures
+// chatCompletionsHandler handles POST /v1/chat/completions: agent execution
+// ("agent/..." models) and workflow execution ("workflow/...", "async/workflow/...").
 func (h *apiHandler) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -357,9 +345,7 @@ func (h *apiHandler) listProvidersHandler(w http.ResponseWriter, r *http.Request
 }
 
 // createProviderHandler creates a new AI provider configuration.
-// POST /api/v1/providers
-// Request body: Provider object with name, type, api_base_url, api_key
-// Response: Created Provider object with generated ID
+// POST /api/v1/providers - body: {name, api_base_url, api_key_encrypted}
 func (h *apiHandler) createProviderHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var provider primitive.Provider
@@ -411,8 +397,6 @@ func (h *apiHandler) getProviderHandler(w http.ResponseWriter, r *http.Request) 
 
 // updateProviderHandler updates an existing provider.
 // PUT /api/v1/providers/{id}
-// Request body: Provider object with updated fields
-// Response: Updated Provider object
 func (h *apiHandler) updateProviderHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -548,9 +532,7 @@ func (h *apiHandler) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // createToolHandler creates a new tool.
-// POST /api/v1/tools
-// Request body: Tool object with name, description, and config
-// Response: Created Tool object with generated ID
+// POST /api/v1/tools - body: {name, description, metadata}
 func (h *apiHandler) createToolHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var tool primitive.Tool
@@ -597,8 +579,6 @@ func (h *apiHandler) getToolHandler(w http.ResponseWriter, r *http.Request) {
 
 // updateToolHandler updates an existing tool.
 // PUT /api/v1/tools/{id}
-// Request body: Tool object with updated fields
-// Response: Updated Tool object
 func (h *apiHandler) updateToolHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -668,9 +648,7 @@ func (h *apiHandler) listSkillsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // createSkillHandler creates a new skill for pi agents.
-// POST /api/v1/skills
-// Request body: {name, description, path, enabled}
-// Response: Created Skill object with generated ID
+// POST /api/v1/skills - body: {name, description, path, enabled}
 func (h *apiHandler) createSkillHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var req struct {
@@ -729,9 +707,7 @@ func (h *apiHandler) getSkillHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateSkillHandler updates an existing skill.
-// PUT /api/v1/skills/{id}
-// Request body: {name, description, path, enabled}
-// Response: Updated Skill object
+// PUT /api/v1/skills/{id} - body: {name, description, path, enabled}
 func (h *apiHandler) updateSkillHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -811,9 +787,7 @@ func (h *apiHandler) listAgentsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // createAgentHandler creates a new agent configuration.
-// POST /api/v1/agents
-// Request body: Agent object with optional skill_ids array
-// Response: Created Agent object with generated ID
+// POST /api/v1/agents - body: agent fields, optional skill_ids array
 func (h *apiHandler) createAgentHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -890,9 +864,7 @@ func (h *apiHandler) getAgentHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateAgentHandler updates an existing agent.
-// PUT /api/v1/agents/{id}
-// Request body: Agent object with optional skill_ids array
-// Response: Updated Agent object
+// PUT /api/v1/agents/{id} - body: agent fields, optional skill_ids array
 func (h *apiHandler) updateAgentHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -922,13 +894,8 @@ func (h *apiHandler) updateAgentHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Update skills if skill_ids were provided
-	// Note: We only update skills if skill_ids is explicitly provided in the request.
-	// An empty array means "remove all skills", while not including the field means "keep existing skills"
-	// To detect if the field was included, we check if JSON had the field.
-	// However, for simplicity, we'll always update if skill_ids is present in the request struct
-	// (even if empty) to allow explicit skill management via update.
-	// The only way to know if skill_ids was "not provided" is to check if the decoder actually set it.
-	// Since we can't easily detect that with json.Decoder, we'll check the raw request body.
+	// skill_ids is applied only when explicitly present in the JSON body;
+	// an empty array clears all skills, omitting the field keeps them.
 	if r.ContentLength > 0 {
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err == nil {
@@ -985,9 +952,7 @@ func (h *apiHandler) getAgentToolsHandler(w http.ResponseWriter, r *http.Request
 }
 
 // assignToolToAgentHandler assigns a tool to an agent.
-// POST /api/v1/agents/{id}/tools
-// Request body: {tool_id}
-// Response: 201 Created on success
+// POST /api/v1/agents/{id}/tools - body: {tool_id}
 func (h *apiHandler) assignToolToAgentHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -1064,10 +1029,8 @@ func (h *apiHandler) getAgentSkillsHandler(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// assignSkillsToAgentHandler assigns skills to an agent.
-// PUT /api/v1/agents/{id}/skills
-// Request body: {skill_ids: ["id1", "id2", ...]}
-// Response: Updated list of skills assigned to the agent
+// assignSkillsToAgentHandler assigns skills to an agent (full replacement).
+// PUT /api/v1/agents/{id}/skills - body: {skill_ids: [...]}
 func (h *apiHandler) assignSkillsToAgentHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -1151,9 +1114,7 @@ func (h *apiHandler) listWorkflowsHandler(w http.ResponseWriter, r *http.Request
 }
 
 // createWorkflowHandler creates a new workflow.
-// POST /api/v1/workflows
-// Request body: Workflow object with name, description, is_async flag
-// Response: Created Workflow object with generated ID
+// POST /api/v1/workflows - body: {name, description, is_async}
 func (h *apiHandler) createWorkflowHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var workflow primitive.Workflow
@@ -1200,8 +1161,6 @@ func (h *apiHandler) getWorkflowHandler(w http.ResponseWriter, r *http.Request) 
 
 // updateWorkflowHandler updates an existing workflow.
 // PUT /api/v1/workflows/{id}
-// Request body: Workflow object with updated fields
-// Response: Updated Workflow object
 func (h *apiHandler) updateWorkflowHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -1271,9 +1230,7 @@ func (h *apiHandler) listWorkflowStepsHandler(w http.ResponseWriter, r *http.Req
 }
 
 // createWorkflowStepHandler creates a new step in a workflow.
-// POST /api/v1/workflows/{id}/steps
-// Request body: WorkflowStep object with step_type, agent_id or wasm_module_id, config
-// Response: Created WorkflowStep object with generated ID and auto-assigned step_order
+// POST /api/v1/workflows/{id}/steps - body: {step_type, agent_id or wasm_module_id}
 func (h *apiHandler) createWorkflowStepHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -1322,8 +1279,6 @@ func (h *apiHandler) createWorkflowStepHandler(w http.ResponseWriter, r *http.Re
 
 // updateWorkflowStepHandler updates an existing workflow step.
 // PUT /api/v1/workflows/{workflow_id}/steps/{step_id}
-// Request body: WorkflowStep object with updated fields
-// Response: Updated WorkflowStep object
 func (h *apiHandler) updateWorkflowStepHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -1406,9 +1361,7 @@ func (h *apiHandler) deleteWorkflowStepHandler(w http.ResponseWriter, r *http.Re
 }
 
 // reorderWorkflowStepsHandler reorders steps in a workflow.
-// POST /api/v1/workflows/{id}/reorder
-// Request body: {step_ids: ["id1", "id2", ...]} in desired execution order
-// Response: Updated list of WorkflowStep objects
+// POST /api/v1/workflows/{id}/reorder - body: {step_ids: [...]} in execution order
 func (h *apiHandler) reorderWorkflowStepsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -1460,11 +1413,8 @@ func (h *apiHandler) reorderWorkflowStepsHandler(w http.ResponseWriter, r *http.
 
 // Job management handlers
 
-// listJobsHandler returns paginated list of jobs with optional filtering.
-// GET /api/v1/jobs
-// Query params: page, page_size, status, search, workflow_name
-// Response: Object with jobs array, pagination info (page, page_size, total_count, total_pages)
-// Error responses: 500 Internal Server Error if listing jobs fails
+// listJobsHandler returns a paginated, optionally filtered job list
+// (GET /api/v1/jobs; query: page, page_size, status, search, workflow_name).
 func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	pageStr := r.URL.Query().Get("page")
@@ -1558,13 +1508,7 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// createJobHandler creates a new job for workflow or WASM execution.
-// POST /api/v1/jobs
-// Request body: {workflow_id, input_data, working_directory?}
-// Response: Job object with status "queued" for workflows or "running" for direct WASM execution
-// Error responses: 400 Bad Request for invalid input or unknown workflow/WASM module IDs,
-//
-//	500 Internal Server Error if job creation fails
+// createJobHandler creates a job for workflow execution (POST /api/v1/jobs).
 func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		WorkflowID       string                 `json:"workflow_id"`
@@ -1677,10 +1621,8 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// getJobHandler retrieves a job by ID with enriched workflow/WASM module names.
+// getJobHandler retrieves a job by ID, with workflow_name / wasm_module_name populated.
 // GET /api/v1/jobs/{id}
-// Response: EnhancedJob object with workflow_name and wasm_module_name populated
-// Error responses: 404 Not Found if job does not exist, 500 Internal Server Error for retrieval failures
 func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
@@ -1822,11 +1764,8 @@ func (h *apiHandler) listWasmModulesHandler(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// createWasmModuleHandler uploads a new WASM module.
-// POST /api/v1/wasm-modules
-// Content-Type: multipart/form-data
-// Form fields: name (required), description, config (JSON), module_data (file, required)
-// Response: Created WasmModule object with generated ID
+// createWasmModuleHandler uploads a new WASM module
+// (POST /api/v1/wasm-modules, multipart: name, description, config, module_data).
 func (h *apiHandler) createWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1920,11 +1859,8 @@ func (h *apiHandler) getWasmModuleHandler(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(module)
 }
 
-// updateWasmModuleHandler updates an existing WASM module.
-// PUT /api/v1/wasm-modules/{id}
-// Content-Type: multipart/form-data
-// Form fields: name, description, config (JSON), module_data (file, optional)
-// Response: Updated WasmModule object
+// updateWasmModuleHandler updates a WASM module
+// (PUT /api/v1/wasm-modules/{id}, multipart; module_data optional).
 func (h *apiHandler) updateWasmModuleHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
@@ -2055,10 +1991,8 @@ func (h *apiHandler) getSettingHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(setting)
 }
 
-// updateSettingHandler updates or creates a setting.
+// updateSettingHandler creates or updates a setting.
 // PUT /api/v1/settings/{key}
-// Request body: Setting object with matching key
-// Response: Updated Setting object
 func (h *apiHandler) updateSettingHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)

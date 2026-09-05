@@ -35,8 +35,7 @@ docker build -t mule:latest .
 
 # Run with custom database connection
 docker run -p 8080:8080 \
-  -e DB_CONN_STRING="postgres://user:pass@host:5432/dbname?sslmode=disable" \
-  mule:latest
+  mule:latest -db "postgres://user:pass@host:5432/dbname?sslmode=disable"
 
 # View logs
 docker-compose logs -f mule
@@ -47,7 +46,7 @@ docker-compose logs -f postgres
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.26 or later
 - PostgreSQL 12 or later
 - Node.js 18+ (for frontend development)
 
@@ -60,7 +59,7 @@ CREATE USER mule WITH PASSWORD 'mule';
 GRANT ALL PRIVILEGES ON DATABASE mulev2 TO mule;
 ```
 
-2. Run the database migration:
+2. (Optional) Apply migrations manually — or just start the server, which applies pending embedded migrations at startup:
 ```bash
 psql -h localhost -U mule -d mulev2 -f internal/database/migrations/0001_initial_schema.sql
 ```
@@ -83,14 +82,14 @@ make run
 
 ## Documentation
 
-- [Product Requirements Document](MULE-V2.md) - Complete specification of Mule v2
-- [Data Model Diagram](DATA_MODEL.md) - Entity relationship diagram showing database schema
-- [Sequence Diagram](SEQUENCE_DIAGRAM.md) - Workflow execution flow and component interactions
-- [Software Architecture](SOFTWARE_ARCHITECTURE.md) - High-level system architecture
-- [Primitives Relationship](PRIMITIVES_RELATIONSHIP.md) - How core primitives relate to each other
-- [Component Interaction](COMPONENT_INTERACTION.md) - Detailed component interaction diagram
-- [Database Migrations](DATABASE_MIGRATIONS.md) - Database schema migration guide
-- [Skill System](SKILL.md) - Documentation for the pi agent skills system
+- [Product Requirements Document](docs/MULE-V2.md) - Complete specification of Mule v2
+- [Data Model Diagram](docs/DATA_MODEL.md) - Entity relationship diagram showing database schema
+- [Sequence Diagram](docs/SEQUENCE_DIAGRAM.md) - Workflow execution flow and component interactions
+- [Software Architecture](docs/SOFTWARE_ARCHITECTURE.md) - High-level system architecture
+- [Primitives Relationship](docs/PRIMITIVES_RELATIONSHIP.md) - How core primitives relate to each other
+- [Component Interaction](docs/COMPONENT_INTERACTION.md) - Detailed component interaction diagram
+- [Database Migrations](docs/DATABASE_MIGRATIONS.md) - Database schema migration guide
+- [Skill System](docs/SKILL.md) - Documentation for the pi agent skills system
 
 ## Overview
 
@@ -108,7 +107,7 @@ Mule consists of a few core primitives:
 * **Frontend**: React UI compiled into the Go binary with light/dark mode support
 * **Database**: PostgreSQL for configuration storage and job queuing
 * **API**: OpenAI-compatible API as the main interface to workflows
-* **Containerization**: Multi-stage Docker builds with scratch final stage
+* **Containerization**: Multi-stage Docker builds with an alpine final stage
 
 ## Key Features
 
@@ -194,6 +193,12 @@ The application can be configured via command-line flags:
 - `-db`: PostgreSQL connection string (default: `postgres://user:pass@localhost:5432/mulev2?sslmode=disable`)
 - `-listen`: HTTP listen address (default: `:8080`)
 
+Environment variables:
+
+- `MULE_ENCRYPTION_SECRET`: 16/24/32-byte secret used to encrypt provider API
+  keys (AES-GCM). Set it in any real deployment; without it the server warns
+  and falls back to a built-in default that provides no real secrecy.
+
 ## Development
 
 ### Frontend Development
@@ -201,7 +206,7 @@ The application can be configured via command-line flags:
 ```bash
 cd frontend
 npm install
-npm start
+npm run dev
 ```
 
 ### Testing
@@ -227,4 +232,4 @@ make build
 docker build -t mule:latest .
 ```
 
-For detailed technical specifications, see the [Product Requirements Document](MULE-V2.md).
+For detailed technical specifications, see the [Product Requirements Document](docs/MULE-V2.md).

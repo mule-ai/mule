@@ -2,7 +2,7 @@ package pirc
 
 import (
 	"encoding/json"
-	"fmt"
+	"log"
 	"time"
 
 	"github.com/mule-ai/mule/internal/api"
@@ -128,11 +128,7 @@ func (m *EventMapper) MapEvent(event AgentEvent) {
 
 	case "error", "agent_error":
 		muleEvent.Type = MuleEventAgentError
-		if event.IsError {
-			muleEvent.Error = extractErrorMessage(event)
-		} else {
-			muleEvent.Error = extractErrorMessage(event)
-		}
+		muleEvent.Error = extractErrorMessage(event)
 
 	case "message_start":
 		muleEvent.Type = MuleEventMessageStart
@@ -204,7 +200,7 @@ func (m *EventMapper) MapEvent(event AgentEvent) {
 	select {
 	case m.eventChan <- muleEvent:
 	default:
-		fmt.Printf("Event mapper: channel full, dropping event: %s\n", event.Type)
+		log.Printf("Event mapper: channel full, dropping event: %s", event.Type)
 	}
 }
 

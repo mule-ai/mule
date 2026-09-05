@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mule-ai/mule/internal/api"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,22 +20,21 @@ func isPiAvailable() bool {
 
 // mockHub implements EventBroadcaster for testing end-to-end streaming
 type mockHub struct {
-	messages []WebSocketMessage
+	messages []api.WebSocketMessage
 	mu       sync.Mutex
 }
 
 func (m *mockHub) BroadcastAgentEvent(eventType string, data interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if msg, ok := data.(WebSocketMessage); ok {
-		m.messages = append(m.messages, msg)
-	}
+	// Mirror the real hub: wrap the payload in a WebSocketMessage.
+	m.messages = append(m.messages, api.WebSocketMessage{Type: eventType, Data: data, Timestamp: time.Now()})
 }
 
-func (m *mockHub) GetMessages() []WebSocketMessage {
+func (m *mockHub) GetMessages() []api.WebSocketMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	result := make([]WebSocketMessage, len(m.messages))
+	result := make([]api.WebSocketMessage, len(m.messages))
 	copy(result, m.messages)
 	return result
 }
@@ -474,8 +474,8 @@ func TestWebSocketMessageFormat(t *testing.T) {
 		// Check that Timestamp is set
 		assert.False(t, msg.Timestamp.IsZero(), "Message %d: Timestamp is zero", i)
 
-		// Check that Data is a MuleEvent
-		data, ok := msg.Data.(MuleEvent)
+		// Check that Data is a *MuleEvent (ToWebSocketMessage wraps the pointer)
+		data, ok := msg.Data.(*MuleEvent)
 		assert.True(t, ok, "Message %d: Data is not MuleEvent", i)
 
 		// Verify MuleEvent fields

@@ -9,8 +9,8 @@ WORKDIR /app
 # Copy frontend package files
 COPY frontend/package*.json ./
 
-# Install frontend dependencies
-RUN npm install
+# Install frontend dependencies (npm ci for reproducible builds from lockfile)
+RUN npm ci
 
 # Copy frontend source code
 COPY frontend/ .
@@ -19,7 +19,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Backend build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install build dependencies (including nodejs for pi during testing)
 RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev nodejs npm

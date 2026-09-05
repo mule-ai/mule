@@ -307,7 +307,7 @@ go func() {
   ```
 
 ### WASM Execution
-- WASM modules compiled from Go: `GOOS=js GOARCH=wasm go build -o module.wasm`
+- WASM modules compiled from Go: `GOOS=wasip1 GOARCH=wasm go build -o module.wasm`
 - Example: `hello.wasm` compiled from `hello_wasm.go`
 - Host functions enable Go-WASM communication
 
@@ -427,7 +427,7 @@ if os.Getenv("ANTHROPIC_API_KEY") == "" {
 
 ### Adding a WASM Module
 1. Write Go code with `//go:build js && wasm`
-2. Compile: `GOOS=js GOARCH=wasm go build -o module.wasm`
+2. Compile: `GOOS=wasip1 GOARCH=wasm go build -o module.wasm`
 3. Upload via `/api/v1/wasm-modules` endpoint
 4. Reference in workflow steps
 

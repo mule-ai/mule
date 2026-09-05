@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -23,6 +25,12 @@ type WebSocketClient struct {
 	conn      *websocket.Conn
 	closeOnce sync.Once
 	closed    chan struct{}
+}
+
+// closeNoise reports whether a close error is an expected consequence of the
+// hub closing an already-dead connection.
+func closeNoise(err error) bool {
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, websocket.ErrCloseSent)
 }
 
 // NewWebSocketClient creates a new WebSocket client wrapper
@@ -74,47 +82,36 @@ func (h *WebSocketHub) Run() {
 		case client := <-h.register:
 			h.mutex.Lock()
 			h.clients[client] = true
+			n := len(h.clients)
 			h.mutex.Unlock()
-			log.Printf("WebSocket client connected. Total clients: %d", len(h.clients))
+			log.Printf("WebSocket client connected. Total clients: %d", n)
 
 		case client := <-h.unregister:
 			h.mutex.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				if closeErr := client.Close(); closeErr != nil {
-					// Don't log "use of closed network connection" errors as they're expected
-					if closeErr.Error() != "use of closed network connection" {
-						log.Printf("Error closing WebSocket client: %v", closeErr)
-					}
+				if closeErr := client.Close(); !closeNoise(closeErr) {
+					log.Printf("Error closing WebSocket client: %v", closeErr)
 				}
 			}
+			n := len(h.clients)
 			h.mutex.Unlock()
-			log.Printf("WebSocket client disconnected. Total clients: %d", len(h.clients))
+			log.Printf("WebSocket client disconnected. Total clients: %d", n)
 
 		case message := <-h.broadcast:
 			h.mutex.RLock()
 			for client := range h.clients {
-				select {
-				case <-time.After(time.Second * 10):
-					// Write timeout, remove client
+				// Bound each write so one stuck client can't stall the
+				// broadcast loop for everyone else.
+				if err := client.Conn().SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 					delete(h.clients, client)
-					if closeErr := client.Close(); closeErr != nil {
-						// Don't log "use of closed network connection" errors as they're expected
-						if closeErr.Error() != "use of closed network connection" {
-							log.Printf("Error closing WebSocket client: %v", closeErr)
-						}
-					}
-				default:
-					if err := client.Conn().WriteJSON(message); err != nil {
-						log.Printf("Error writing to WebSocket client: %v", err)
-						delete(h.clients, client)
-						if closeErr := client.Close(); closeErr != nil {
-							// Don't log "use of closed network connection" errors as they're expected
-							if closeErr.Error() != "use of closed network connection" {
-								log.Printf("Error closing WebSocket client: %v", closeErr)
-							}
-						}
-					}
+					_ = client.Close()
+					continue
+				}
+				if err := client.Conn().WriteJSON(message); err != nil {
+					log.Printf("Error writing to WebSocket client: %v", err)
+					delete(h.clients, client)
+					_ = client.Close()
 				}
 			}
 			h.mutex.RUnlock()
@@ -286,31 +283,39 @@ func (s *JobStreamer) Stop() {
 	s.cancel()
 }
 
-// monitorJobs monitors job changes and broadcasts updates
+// monitorJobs polls the job list and broadcasts updates for jobs whose
+// status changed since the last poll.
 func (s *JobStreamer) monitorJobs() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	var lastJobStates = make(map[string]string)
+	lastJobStates := make(map[string]string)
 
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			// Get all jobs for monitoring (no pagination/filtering needed)
-			jobs, _, err := s.jobStore.ListJobs(job.ListJobsOptions{})
+			// Request a wide page so recently created jobs aren't missed
+			// between polls, and prune state for jobs that fell off the list.
+			jobs, _, err := s.jobStore.ListJobs(job.ListJobsOptions{PageSize: 1000})
 			if err != nil {
 				log.Printf("Error listing jobs for monitoring: %v", err)
 				continue
 			}
 
-			for _, job := range jobs {
-				lastState, exists := lastJobStates[job.ID]
-				if !exists || lastState != string(job.Status) {
-					// Job status changed, broadcast update
-					s.hub.BroadcastJobUpdate(job)
-					lastJobStates[job.ID] = string(job.Status)
+			seen := make(map[string]bool, len(jobs))
+			for _, j := range jobs {
+				seen[j.ID] = true
+				lastState, exists := lastJobStates[j.ID]
+				if !exists || lastState != string(j.Status) {
+					s.hub.BroadcastJobUpdate(j)
+					lastJobStates[j.ID] = string(j.Status)
+				}
+			}
+			for id := range lastJobStates {
+				if !seen[id] {
+					delete(lastJobStates, id)
 				}
 			}
 		}

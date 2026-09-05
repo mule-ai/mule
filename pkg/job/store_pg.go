@@ -464,10 +464,11 @@ func (s *PGStore) GetNextQueuedJob() (*Job, error) {
 	return job, nil
 }
 
-// MarkJobRunning marks a job as running
+// MarkJobRunning marks a job as running (only if it is still queued,
+// so a re-queued or cancelled job can't be double-started).
 func (s *PGStore) MarkJobRunning(jobID string) error {
 	now := time.Now()
-	query := `UPDATE jobs SET status = 'running', started_at = $1 WHERE id = $2`
+	query := `UPDATE jobs SET status = 'running', started_at = $1 WHERE id = $2 AND status = 'queued'`
 
 	result, err := s.db.Exec(query, now, jobID)
 	if err != nil {

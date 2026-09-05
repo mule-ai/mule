@@ -11,13 +11,6 @@ type EventBroadcaster interface {
 	BroadcastAgentEvent(eventType string, data interface{})
 }
 
-// WebSocketMessage represents a message sent over WebSocket
-type WebSocketMessage struct {
-	Type      string      `json:"type"`
-	Data      interface{} `json:"data"`
-	Timestamp time.Time   `json:"timestamp"`
-}
-
 // PIEventStreamer handles streaming pi events to WebSocket clients
 type PIEventStreamer struct {
 	hub        EventBroadcaster
@@ -103,17 +96,11 @@ func (s *PIEventStreamer) shouldBroadcast(eventType MuleEventType) bool {
 	return false
 }
 
-// broadcastEvent sends an event to all WebSocket clients
+// broadcastEvent sends an event to all WebSocket clients. The hub wraps it in
+// a WebSocketMessage (Data = *MuleEvent), consistent with job/step updates.
 func (s *PIEventStreamer) broadcastEvent(event MuleEvent) {
-	// Use the hub to broadcast the event
 	if s.hub != nil {
-		// Convert MuleEvent to WebSocket message
-		msg := WebSocketMessage{
-			Type:      string(event.Type),
-			Data:      event,
-			Timestamp: event.Timestamp,
-		}
-		s.hub.BroadcastAgentEvent(string(event.Type), msg)
+		s.hub.BroadcastAgentEvent(string(event.Type), &event)
 	}
 }
 

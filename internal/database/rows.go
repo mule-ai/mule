@@ -5,22 +5,8 @@ import (
 	"log"
 )
 
-// CloseRows safely closes sql.Rows and logs any error.
-// This is a helper function to consolidate the repeated pattern:
-//
-//	defer func() {
-//		if closeErr := rows.Close(); closeErr != nil {
-//			log.Printf("Error closing rows: %v", closeErr)
-//		}
-//	}()
-//
-// Usage:
-//
-//	rows, err := db.QueryContext(ctx, query)
-//	if err != nil {
-//		return err
-//	}
-//	defer CloseRows(rows)
+// CloseRows closes sql.Rows, logging any close error. Close errors are
+// typically non-critical (e.g. connection already closed).
 func CloseRows(rows *sql.Rows) {
 	if rows != nil {
 		if closeErr := rows.Close(); closeErr != nil {
@@ -29,8 +15,7 @@ func CloseRows(rows *sql.Rows) {
 	}
 }
 
-// CloseDB safely closes sql.DB and logs any error.
-// Similar helper for database connection cleanup.
+// CloseDB closes sql.DB, logging any close error.
 func CloseDB(db *sql.DB) {
 	if db != nil {
 		if closeErr := db.Close(); closeErr != nil {
@@ -39,8 +24,7 @@ func CloseDB(db *sql.DB) {
 	}
 }
 
-// CloseStmt safely closes sql.Stmt and logs any error.
-// Similar helper for statement cleanup.
+// CloseStmt closes sql.Stmt, logging any close error.
 func CloseStmt(stmt *sql.Stmt) {
 	if stmt != nil {
 		if closeErr := stmt.Close(); closeErr != nil {

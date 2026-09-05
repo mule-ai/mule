@@ -58,12 +58,6 @@ func (m *Migrator) RunMigrations() error {
 	return nil
 }
 
-// RunMigrationsFromRoot runs migrations from the root directory
-// Deprecated: Use RunMigrations() instead which uses embedded migrations
-func (m *Migrator) RunMigrationsFromRoot() error {
-	return m.RunMigrations()
-}
-
 // createMigrationsTable creates the table to track migrations
 func (m *Migrator) createMigrationsTable() error {
 	query := `

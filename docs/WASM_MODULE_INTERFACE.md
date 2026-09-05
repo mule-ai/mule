@@ -116,7 +116,7 @@ To compile a Go program to WASM:
 
 ```bash
 # Build for WebAssembly
-GOOS=js GOARCH=wasm go build -o module.wasm main.go
+GOOS=wasip1 GOARCH=wasm go build -o module.wasm main.go
 
 # Or use tinygo for smaller binaries
 tinygo build -o module.wasm -target wasm main.go

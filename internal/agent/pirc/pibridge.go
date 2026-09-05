@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -188,7 +189,7 @@ func (b *Bridge) Start() error {
 	// Always use --no-session for Mule integration (ephemeral mode)
 	args = append(args, "--no-session")
 
-	fmt.Printf("Starting PI with args: %v\n", args)
+	log.Printf("Starting pi: provider=%s model=%s thinking=%s skills=%d", b.cfg.Provider, b.cfg.ModelID, b.cfg.ThinkingLevel, len(b.cfg.Skills))
 
 	b.cmd = exec.Command("pi", args...)
 	b.cmd.Env = os.Environ()
@@ -209,6 +210,9 @@ func (b *Bridge) Start() error {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 	b.stdout = bufio.NewScanner(stdout)
+	// Event lines can exceed the scanner's default 64KB token limit
+	// (large tool results), so raise it.
+	b.stdout.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 
 	stderr, err := b.cmd.StderrPipe()
 	if err != nil {
@@ -297,7 +301,7 @@ func (b *Bridge) readEvents() {
 
 		var event AgentEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			fmt.Printf("Failed to parse event: %v, line: %s\n", err, line)
+			log.Printf("Failed to parse event: %v, line: %s", err, line)
 			continue
 		}
 
@@ -307,7 +311,7 @@ func (b *Bridge) readEvents() {
 			select {
 			case b.eventChan <- event:
 			default:
-				fmt.Printf("Event channel full, dropping extension UI request: %s\n", event.Type)
+				log.Printf("Event channel full, dropping extension UI request: %s", event.Type)
 			}
 			continue
 		}
@@ -315,7 +319,7 @@ func (b *Bridge) readEvents() {
 		select {
 		case b.eventChan <- event:
 		default:
-			fmt.Printf("Event channel full, dropping event: %s\n", event.Type)
+			log.Printf("Event channel full, dropping event: %s", event.Type)
 		}
 	}
 
@@ -330,7 +334,7 @@ func (b *Bridge) readStderr() {
 	for {
 		n, err := b.stderr.Read(buf)
 		if n > 0 {
-			fmt.Printf("PI stderr: %s\n", string(buf[:n]))
+			log.Printf("PI stderr: %s", string(buf[:n]))
 		}
 		if err != nil {
 			break

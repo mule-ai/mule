@@ -12,17 +12,17 @@ import (
 // InputData represents the input structure for WASM modules
 // Configuration values (like URL) are automatically merged with input data
 type InputData struct {
-	Prompt string                 `json:"prompt"`           // Main input from previous workflow step or user input
-	Data   map[string]interface{} `json:"data,omitempty"`    // Additional data
-	URL    string                 `json:"url,omitempty"`     // Service URL (from configuration or input)
+	Prompt string                 `json:"prompt"`         // Main input from previous workflow step or user input
+	Data   map[string]interface{} `json:"data,omitempty"` // Additional data
+	URL    string                 `json:"url,omitempty"`  // Service URL (from configuration or input)
 }
 
 // OutputData represents the output structure from the WASM module
 type OutputData struct {
-	Result     string                 `json:"result"`              // Result message
-	Data       map[string]interface{} `json:"data,omitempty"`       // Response data
+	Result     string                 `json:"result"`                // Result message
+	Data       map[string]interface{} `json:"data,omitempty"`        // Response data
 	StatusCode int                    `json:"status_code,omitempty"` // HTTP status code
-	Success    bool                   `json:"success"`             // Success flag
+	Success    bool                   `json:"success"`               // Success flag
 }
 
 // http_request_with_headers is the enhanced host function for making HTTP requests with headers
@@ -33,11 +33,13 @@ type OutputData struct {
 func http_request_with_headers(methodPtr, methodSize, urlPtr, urlSize, bodyPtr, bodySize, headersPtr, headersSize uintptr) uint32
 
 // get_last_response_body gets the last response body
+//
 //go:wasmimport env get_last_response_body
 //nolint:unused
 func get_last_response_body(bufferPtr, bufferSize uintptr) uint32
 
 // get_last_response_status gets the last response status code
+//
 //go:wasmimport env get_last_response_status
 //nolint:unused
 func get_last_response_status() uint32

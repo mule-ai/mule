@@ -19,9 +19,9 @@ type InputData struct {
 
 // OutputData represents the output structure from the WASM module
 type OutputData struct {
-	Result  string                 `json:"result"`            // Result message
-	Data    map[string]interface{} `json:"data,omitempty"`    // Response data
-	Success bool                   `json:"success"`           // Success flag
+	Result  string                 `json:"result"`         // Result message
+	Data    map[string]interface{} `json:"data,omitempty"` // Response data
+	Success bool                   `json:"success"`        // Success flag
 }
 
 // http_request_with_headers is the enhanced host function for making HTTP requests with headers

@@ -4,7 +4,7 @@
 
 # Step 1: Build the WASM module
 echo "Building jq-filter WASM module..."
-cd /data/jbutler/git/mule-ai/mule/examples/wasm/jq-filter
+cd "$(dirname "$0")"
 GOOS=wasip1 GOARCH=wasm go build -o jq-filter.wasm main.go
 
 # Step 2: Encode the WASM module in base64

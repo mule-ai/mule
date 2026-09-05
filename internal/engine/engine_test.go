@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -348,24 +349,33 @@ func (m *MockPrimitiveStore) SetAgentSkills(ctx context.Context, agentID string,
 	return nil
 }
 
-// MockJobStore implements job.JobStore for testing
+// MockJobStore implements job.JobStore for testing.
+// mu guards Jobs: the engine's poller/worker goroutines call into the mock
+// concurrently with the test's main goroutine.
 type MockJobStore struct {
+	mu   sync.Mutex
 	Jobs map[string]*job.Job
 }
 
 func (m *MockJobStore) CreateJob(j *job.Job) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Jobs[j.ID] = j
 	return nil
 }
 
 func (m *MockJobStore) GetJob(id string) (*job.Job, error) {
-	if job, exists := m.Jobs[id]; exists {
-		return job, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if j, exists := m.Jobs[id]; exists {
+		return j, nil
 	}
 	return nil, job.ErrJobNotFound
 }
 
 func (m *MockJobStore) ListJobs(opts job.ListJobsOptions) ([]*job.Job, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var jobs []*job.Job
 	for _, j := range m.Jobs {
 		// Apply status filter if provided
@@ -419,6 +429,8 @@ func (m *MockJobStore) ListJobs(opts job.ListJobsOptions) ([]*job.Job, int, erro
 }
 
 func (m *MockJobStore) UpdateJob(j *job.Job) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.Jobs[j.ID]; exists {
 		m.Jobs[j.ID] = j
 		return nil
@@ -427,6 +439,8 @@ func (m *MockJobStore) UpdateJob(j *job.Job) error {
 }
 
 func (m *MockJobStore) DeleteJob(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.Jobs[id]; exists {
 		delete(m.Jobs, id)
 		return nil
@@ -455,6 +469,8 @@ func (m *MockJobStore) DeleteJobStep(id string) error {
 }
 
 func (m *MockJobStore) ListJobsByStatus(status job.Status) ([]*job.Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var jobs []*job.Job
 	for _, j := range m.Jobs {
 		if j.Status == status {
@@ -465,6 +481,8 @@ func (m *MockJobStore) ListJobsByStatus(status job.Status) ([]*job.Job, error) {
 }
 
 func (m *MockJobStore) GetNextQueuedJob() (*job.Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, j := range m.Jobs {
 		if j.Status == job.StatusQueued {
 			return j, nil
@@ -474,6 +492,8 @@ func (m *MockJobStore) GetNextQueuedJob() (*job.Job, error) {
 }
 
 func (m *MockJobStore) MarkJobRunning(jobID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if jobItem, exists := m.Jobs[jobID]; exists {
 		jobItem.Status = job.StatusRunning
 		return nil
@@ -482,6 +502,8 @@ func (m *MockJobStore) MarkJobRunning(jobID string) error {
 }
 
 func (m *MockJobStore) MarkJobCompleted(jobID string, outputData map[string]interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if jobItem, exists := m.Jobs[jobID]; exists {
 		jobItem.Status = job.StatusCompleted
 		jobItem.OutputData = outputData
@@ -491,6 +513,8 @@ func (m *MockJobStore) MarkJobCompleted(jobID string, outputData map[string]inte
 }
 
 func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if jobItem, exists := m.Jobs[jobID]; exists {
 		jobItem.Status = job.StatusFailed
 		return nil
@@ -499,6 +523,8 @@ func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
 }
 
 func (m *MockJobStore) CancelJob(jobID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if jobItem, exists := m.Jobs[jobID]; exists {
 		jobItem.Status = job.StatusCancelled
 		return nil
