@@ -205,16 +205,20 @@ func (s *PGStore) CreateAgent(ctx context.Context, a *Agent) error {
 	} else {
 		piConfigJSON = []byte("null")
 	}
-	query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`
-	_, err := s.db.ExecContext(ctx, query, a.ID, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON)
+	query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, pi_config, external_ref, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`
+	_, err := s.db.ExecContext(ctx, query, a.ID, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ExternalRef)
 	return err
 }
 
 func (s *PGStore) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	a := &Agent{}
 	var piConfigJSON []byte
-	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at FROM agents WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &a.CreatedAt, &a.UpdatedAt)
+	var externalRef sql.NullString
+	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, external_ref, created_at, updated_at FROM agents WHERE id = $1`
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &externalRef, &a.CreatedAt, &a.UpdatedAt)
+	if externalRef.Valid {
+		a.ExternalRef = externalRef.String
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -231,7 +235,7 @@ func (s *PGStore) GetAgent(ctx context.Context, id string) (*Agent, error) {
 }
 
 func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
-	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at FROM agents ORDER BY name`
+	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, external_ref, created_at, updated_at FROM agents ORDER BY name`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -242,7 +246,11 @@ func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	for rows.Next() {
 		a := &Agent{}
 		var piConfigJSON []byte
-		err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &a.CreatedAt, &a.UpdatedAt)
+		var externalRef sql.NullString
+		err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &externalRef, &a.CreatedAt, &a.UpdatedAt)
+		if externalRef.Valid {
+			a.ExternalRef = externalRef.String
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -269,8 +277,8 @@ func (s *PGStore) UpdateAgent(ctx context.Context, a *Agent) error {
 	} else {
 		piConfigJSON = []byte("null")
 	}
-	query := `UPDATE agents SET name = $1, description = $2, provider_id = $3, model_id = $4, system_prompt = $5, pi_config = $6, updated_at = NOW() WHERE id = $7`
-	res, err := s.db.ExecContext(ctx, query, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ID)
+	query := `UPDATE agents SET name = $1, description = $2, provider_id = $3, model_id = $4, system_prompt = $5, pi_config = $6, external_ref = $7, updated_at = NOW() WHERE id = $8`
+	res, err := s.db.ExecContext(ctx, query, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ExternalRef, a.ID)
 	if err != nil {
 		return err
 	}

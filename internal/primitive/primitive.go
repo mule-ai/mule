@@ -34,7 +34,8 @@ type Agent struct {
 	ProviderID   string                 `json:"provider_id"`
 	ModelID      string                 `json:"model_id"`
 	SystemPrompt string                 `json:"system_prompt"`
-	PIConfig     map[string]interface{} `json:"pi_config"` // PI-specific configuration
+	PIConfig     map[string]interface{} `json:"pi_config"`    // PI-specific configuration
+	ExternalRef  string                 `json:"external_ref"` // External system agent id (e.g. forge agent UUID)
 	CreatedAt    time.Time              `json:"created_at"`
 	UpdatedAt    time.Time              `json:"updated_at"`
 }
