@@ -132,6 +132,7 @@ func tenancyRouter(t *testing.T, db *internaldb.DB) http.Handler {
 	router.HandleFunc("/api/v1/policies", handler.listPoliciesHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/policies", handler.createPoliciesHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/v1/policies/evaluate", handler.evaluatePolicyHandler).Methods(http.MethodPost)
+	router.HandleFunc("/api/v1/policies/memo", handler.memoPolicyHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/v1/policies/proposals", handler.createProposalHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/v1/policies/proposals/{id}/approve", handler.approveProposalHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/v1/policies/{id}", handler.getPolicyHandler).Methods(http.MethodGet)

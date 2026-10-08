@@ -167,7 +167,11 @@
    `policy_audit` row in the same txn; audit `policy_id` is
    ON DELETE SET NULL so 'deleted' rows survive),
    `POST /policies/evaluate` (open to restricted keys — the agent's
-   own control-plane query), `POST /policies/proposals` (open to
+   own control-plane query), `POST /policies/memo` (record a decided
+   verdict for an action — the "human said yes/no" half of an ask
+   round-trip; HashAction + the shared upsertMemo path so it can't
+   drift from the evaluator; allow/deny only; open to restricted keys
+   — recording a decision, not writing policy), `POST /policies/proposals` (open to
    restricted keys — agent drafts) and
    `POST /policies/proposals/{id}/approve` (restricted-class write —
    human materializes the policy, owned by the approver, audit row
@@ -177,7 +181,8 @@
    an untyped nil → SQL NULL. Tests: `internal/policy/policy_test.go`
    (deterministic matrix, memo semantics, hash stability, owner
    scoping) + `cmd/api/policy_tenancy_test.go` (version/audit, owner
-   isolation on evaluate, restricted-key carve-out, proposal→approve
+   isolation on evaluate, ask→memo→memoized-allow round-trip,
+   restricted-key carve-out incl. memo, proposal→approve
    flow, 400 validation, MULE_NO_AUTH path). Spec: spec.md
    "Policy Engine".
 

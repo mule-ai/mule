@@ -655,6 +655,17 @@ and evaluate stays a synchronous p99 < 50 ms decision query.
   it existed and who removed it.
 - `POST /api/v1/policies/evaluate {agent_id, tool, input?}` — the
   forge `before_tool` hook's synchronous surface.
+- `POST /api/v1/policies/memo {agent_id, tool, input?, verdict:
+  allow|deny, rule_id?, reason?}` → `{recorded: true, verdict}` —
+  record a DECIDED verdict for an action: the "human said yes/no"
+  half of an `ask` round-trip (H3.5 part 2). The action hash is the
+  evaluator's `HashAction`, so the endpoint can't drift from what
+  `evaluate` keys on; the upsert goes through the same shared SQL
+  path. Only `allow`/`deny` are accepted (an `ask` is a pending
+  question; the no-match default is not a decision — 400 otherwise).
+  Open to ANY valid key, restricted agent keys included: writing a
+  memo row is recording a decision about the caller's own agent, not
+  writing policy (same carve-out as `evaluate`).
 - `POST /api/v1/policies/proposals {draft: {scope, agent_id?,
   rules}}` → `{proposal_id}` — an agent (restricted keys included)
   DRAFTS a new policy: a `policy_audit` row with `change='proposal'`
@@ -667,10 +678,12 @@ and evaluate stays a synchronous p99 < 50 ms decision query.
 
 Auth choice (deliberate, the H3.1 restricted-class carve-out): CRUD
 and approve stay RESTRICTED CLASS — a restricted (agent) key may
-read but not write. **`evaluate` and `proposals` stay open to any
+read but not write. **`evaluate`, `memo`, and `proposals` stay open to any
 valid key, including restricted agent keys**: evaluate is the
 agent's own control-plane query ("may I do this?" — it only writes
-its own agent's memo row) and proposals are agent DRAFTS; neither
+its own agent's memo row), memo is recording a decided verdict about
+the caller's own agent (the H3.5 part-2 ask round-trip; recording a
+decision, not writing policy), and proposals are agent DRAFTS; none
 materializes a policy. The loop is thus: agent proposes → human
 (non-restricted key) approves → policy takes effect. (Implemented as
 `restrictedWriteExemptPaths` in `internal/api/auth.go`; everything
@@ -686,7 +699,10 @@ rule ids, ask + default never memoized; action-hash stability
 (key-order independent, nil → `"null"`); API — version bump + audit
 rows (POST v1, PATCH v2, `rules changed v1→v2`, no-op no-bump,
 `disabled v3`), owner isolation on evaluate, restricted key 403 on
-CRUD + approve but 200 on evaluate/proposals, proposal → approve
+CRUD + approve but 200 on evaluate/memo/proposals, ask → memo
+allow → second evaluate `memoized: true` (a different action under
+the same rule still asks), 400 on 'ask' verdict memo / missing
+fields, proposal → approve
 flow (`approved-proposal` audit row, approver-owned), 400 on bad
 disposition / sensitivity / agent-scope-without-agent_id, and the
 MULE_NO_AUTH=1 synthetic-admin path.

@@ -241,13 +241,8 @@ func (e *Evaluator) Evaluate(ctx context.Context, agentID, tool string, input ma
 
 	// Memo writes: allow + deny only; ask and the default stay live.
 	if v.Verdict == validation.DispositionAllow || v.Verdict == validation.DispositionDeny {
-		if _, err := e.db.ExecContext(ctx,
-			`INSERT INTO policy_memo (rule_id, agent_id, action_hash, verdict, reason)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (rule_id, agent_id, action_hash)
-			 DO UPDATE SET verdict = EXCLUDED.verdict, reason = EXCLUDED.reason`,
-			v.RuleID, agentID, hash, v.Verdict, v.Reason); err != nil {
-			return Verdict{}, fmt.Errorf("memo write: %w", err)
+		if err := upsertMemo(ctx, e.db, agentID, v.RuleID, hash, v.Verdict, v.Reason); err != nil {
+			return Verdict{}, err
 		}
 	}
 	return v, nil
@@ -291,6 +286,25 @@ func (e *Evaluator) activePolicies(ctx context.Context, agentID string) ([]Polic
 		return nil, fmt.Errorf("policy scan: %w", err)
 	}
 	return out, nil
+}
+
+// upsertMemo writes/refreshes one policy_memo row for
+// (rule_id, agent_id, action_hash). ON CONFLICT DO UPDATE makes it
+// idempotent; the most recent write wins. This is the single SQL path
+// for memo rows: the deterministic evaluator (above) and the
+// public RecordMemo / POST /policies/memo endpoint both call it, so
+// the two can't drift.
+func upsertMemo(ctx context.Context, db *sql.DB, agentID, ruleID, hash, verdict, reason string) error {
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO policy_memo (rule_id, agent_id, action_hash, verdict, reason)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (rule_id, agent_id, action_hash)
+		 DO UPDATE SET verdict = EXCLUDED.verdict, reason = EXCLUDED.reason`,
+		ruleID, agentID, hash, verdict, reason)
+	if err != nil {
+		return fmt.Errorf("memo write: %w", err)
+	}
+	return nil
 }
 
 // ruleReason builds the transcript-ready reason for a winning rule:

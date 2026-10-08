@@ -384,6 +384,95 @@ func TestPoliciesValidation(t *testing.T) {
 		"bad proposal draft must 400")
 }
 
+// TestPoliciesMemo: the H3.5 part-2 round-trip — a policy with
+// disposition 'ask' evaluates to ask; POST /policies/memo {verdict:
+// allow} records the human's yes; a second evaluate returns
+// memoized:true / allow (retry of the same action doesn't re-ask).
+// Also: memo writes are owner-independent (like evaluate), 'ask'
+// verdicts are rejected (400), and restricted keys may write memos.
+func TestPoliciesMemo(t *testing.T) {
+	requireAuthMode(t)
+	db := tenancyDB(t)
+	adminKey := policyAdminBoot(t)
+	_, err := api.BootstrapAdmin(context.Background(), db.DB)
+	require.NoError(t, err)
+	router := tenancyRouter(t, db)
+
+	// An ask policy on write to /etc/**.
+	w := tenancyRequest(t, router, http.MethodPost, "/api/v1/policies", adminKey,
+		[]byte(`{"scope":"global","rules":[
+			{"id":"etc-guard","action":{"tool":"write","match":"path=/etc/*"},
+			 "sensitivity":"sensitive","disposition":"ask",
+			 "reason":"writing to /etc needs approval"}]}`))
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+	eval := []byte(`{"agent_id":"agent-memo","tool":"write","input":{"path":"/etc/hosts","content":"127.0.0.1"}}`)
+
+	// First evaluate: ask, not memoized.
+	w = tenancyRequest(t, router, http.MethodPost, "/api/v1/policies/evaluate", adminKey, eval)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var v1 struct {
+		Verdict  string `json:"verdict"`
+		RuleID   string `json:"rule_id"`
+		Memoized bool   `json:"memoized"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &v1))
+	assert.Equal(t, "ask", v1.Verdict)
+	assert.Equal(t, "etc-guard", v1.RuleID)
+	assert.False(t, v1.Memoized, "an ask must not be memoized")
+
+	// Record the human's yes.
+	w = tenancyRequest(t, router, http.MethodPost, "/api/v1/policies/memo", adminKey,
+		[]byte(`{"agent_id":"agent-memo","tool":"write",`+
+			`"input":{"path":"/etc/hosts","content":"127.0.0.1"},`+
+			`"verdict":"allow","rule_id":"etc-guard","reason":"approved by operator"}`))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"recorded":true`)
+
+	// Second evaluate: memoized allow — retry of the same action
+	// doesn't re-ask.
+	w = tenancyRequest(t, router, http.MethodPost, "/api/v1/policies/evaluate", adminKey, eval)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var v2 struct {
+		Verdict  string `json:"verdict"`
+		RuleID   string `json:"rule_id"`
+		Reason   string `json:"reason"`
+		Memoized bool   `json:"memoized"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &v2))
+	assert.Equal(t, "allow", v2.Verdict)
+	assert.True(t, v2.Memoized, "the approved action must be memoized")
+	assert.Equal(t, "etc-guard", v2.RuleID)
+	assert.Equal(t, "approved by operator", v2.Reason)
+
+	// A DIFFERENT action under the same rule still asks (the memo is
+	// keyed on the action hash, not the rule).
+	w = tenancyRequest(t, router, http.MethodPost, "/api/v1/policies/evaluate", adminKey,
+		[]byte(`{"agent_id":"agent-memo","tool":"write","input":{"path":"/etc/passwd","content":"x"}}`))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"verdict":"ask"`)
+	assert.Contains(t, w.Body.String(), `"memoized":false`)
+
+	// Validation: 'ask' is not a recordable decision; missing fields 400.
+	assert.Equal(t, http.StatusBadRequest,
+		tenancyRequest(t, router, http.MethodPost, "/api/v1/policies/memo", adminKey,
+			[]byte(`{"agent_id":"a","tool":"write","verdict":"ask"}`)).Code,
+		"an 'ask' verdict is a pending question, not a decision")
+	assert.Equal(t, http.StatusBadRequest,
+		tenancyRequest(t, router, http.MethodPost, "/api/v1/policies/memo", adminKey,
+			[]byte(`{"verdict":"allow"}`)).Code, "agent_id and tool are required")
+
+	// Restricted keys may write memos (documented carve-out, like
+	// evaluate).
+	restricted := insertTestUser(t, db, "pol-user-memo", "polm@example.com", true, time.Time{})
+	w = tenancyRequest(t, router, http.MethodPost, "/api/v1/policies/memo", restricted,
+		[]byte(`{"agent_id":"agent-memo","tool":"write",`+
+			`"input":{"path":"/etc/hostname","content":"h"},`+
+			`"verdict":"deny","rule_id":"etc-guard","reason":"denied"}`))
+	require.Equal(t, http.StatusOK, w.Code,
+		"restricted key must be able to record memos: %s", w.Body.String())
+}
+
 // TestPoliciesNoAuthMode: MULE_NO_AUTH=1 — the synthetic admin owns
 // created policies and the full surface works without a key
 // (regression gate, same contract as the other primitive routes).

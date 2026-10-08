@@ -316,6 +316,7 @@ func main() {
 	router.HandleFunc("/api/v1/policies", handler.listPoliciesHandler).Methods("GET")
 	router.HandleFunc("/api/v1/policies", handler.createPoliciesHandler).Methods("POST")
 	router.HandleFunc("/api/v1/policies/evaluate", handler.evaluatePolicyHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/memo", handler.memoPolicyHandler).Methods("POST")
 	router.HandleFunc("/api/v1/policies/proposals", handler.createProposalHandler).Methods("POST")
 	router.HandleFunc("/api/v1/policies/proposals/{id}/approve", handler.approveProposalHandler).Methods("POST")
 	router.HandleFunc("/api/v1/policies/{id}", handler.getPolicyHandler).Methods("GET")

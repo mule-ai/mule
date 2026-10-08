@@ -82,12 +82,16 @@ func isProtectedPath(path string) bool {
 // workflows via the /v1/* surface (submission is restricted only
 // under /api/v1/jobs* — see docs/TENANCY.md for the chosen semantics).
 //
-// H3.5 carve-out: two POST routes UNDER /api/v1/policies stay open to
+// H3.5 carve-out: three POST routes UNDER /api/v1/policies stay open to
 // restricted (agent) keys (restrictedWriteExemptPaths) —
 //   - /api/v1/policies/evaluate: the forge before_tool hook's query
 //     surface; the agent's own key must be able to ask the control
 //     plane about its actions. It is a decision query, not a policy
 //     mutation (it only writes its own agent's memo row).
+//   - /api/v1/policies/memo: recording a decided verdict (the human
+//     approved/denied an ask). Writing a memo row is recording a
+//     decision, not writing policy — the agent's own key recording
+//     decisions about its own agent is the documented choice.
 //   - /api/v1/policies/proposals: agents DRAFT rules here; the policy
 //     itself only exists after a non-restricted key posts to
 //     /policies/proposals/{id}/approve (restricted, as before).
@@ -109,6 +113,7 @@ var restrictedWritePrefixes = []string{
 // they sit under a restricted class (H3.5, documented above).
 var restrictedWriteExemptPaths = map[string]bool{
 	"/api/v1/policies/evaluate":  true,
+	"/api/v1/policies/memo":      true,
 	"/api/v1/policies/proposals": true,
 }
 

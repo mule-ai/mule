@@ -14,6 +14,11 @@ package main
 //     surface: the agent's own key must be able to ask the control
 //     plane about its actions. (Exception carved into the H3.1
 //     restricted-write check in internal/api/auth.go.)
+//   - POST /api/v1/policies/memo also stays OPEN to any valid key
+//     (incl. restricted agent keys): writing a memo row records a
+//     decided verdict about the caller's own agent (the "human said
+//     yes/no" half of an ask round-trip) — recording a decision, not
+//     writing policy. (Same carve-out.)
 //   - POST /api/v1/policies/proposals also stays OPEN to restricted
 //     keys: agents DRAFT rules here. Materializing a draft requires
 //     POST /api/v1/policies/proposals/{id}/approve, which is a
@@ -349,6 +354,50 @@ func (h *apiHandler) approveProposalHandler(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(toPolicyAPI(p))
+}
+
+// memoPolicyHandler: POST /api/v1/policies/memo — record a decided
+// verdict (the "human said yes/no" half of an ask round-trip) so a
+// retry of the exact same action is memoized instead of re-asked.
+// Open to ANY valid key, restricted agent keys included: writing a
+// memo row is recording a decision about the caller's own agent, not
+// writing policy (documented in the package doc + auth.go carve-out,
+// next to /policies/evaluate).
+//
+//	body: {agent_id, tool, input?, verdict: allow|deny, rule_id?, reason?}
+//
+// Only allow/deny are accepted: an 'ask' is a pending question, not a
+// decision, and the no-matching-policy default is not a decision
+// either (400 otherwise). The action hash is the evaluator's
+// HashAction, so the endpoint cannot drift from what evaluate() keys
+// on.
+func (h *apiHandler) memoPolicyHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AgentID string                 `json:"agent_id"`
+		Tool    string                 `json:"tool"`
+		Input   map[string]interface{} `json:"input"`
+		Verdict string                 `json:"verdict"`
+		RuleID  string                 `json:"rule_id"`
+		Reason  string                 `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.HandleError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+	if req.AgentID == "" || req.Tool == "" {
+		api.HandleError(w, fmt.Errorf("agent_id and tool are required"), http.StatusBadRequest)
+		return
+	}
+	if req.Verdict != validation.DispositionAllow && req.Verdict != validation.DispositionDeny {
+		api.HandleError(w, fmt.Errorf("verdict must be 'allow' or 'deny'"), http.StatusBadRequest)
+		return
+	}
+	if err := h.policyStore.RecordMemo(r.Context(), req.AgentID, req.Tool, req.Input, req.Verdict, req.RuleID, req.Reason); err != nil {
+		api.HandleError(w, fmt.Errorf("failed to record policy memo: %w", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"recorded": true, "verdict": req.Verdict})
 }
 
 // mustString renders a decoded-JSON patch value back to bytes for

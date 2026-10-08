@@ -406,6 +406,19 @@ func (s *Store) ApproveProposal(ctx context.Context, proposalID string) (*Policy
 	}, nil
 }
 
+// RecordMemo records a DECIDED verdict for an action in policy_memo:
+// the "human said yes/no" half of the ask round-trip (H3.5 part 2).
+// The action hash is computed with HashAction — the same function the
+// evaluator uses — so the endpoint and the evaluator can't drift; the
+// upsert goes through the shared upsertMemo SQL path.
+//
+// Only allow/deny are recorded (the caller validates): an 'ask' is a
+// pending question, not a decision, and the no-matching-policy default
+// is not a decision either.
+func (s *Store) RecordMemo(ctx context.Context, agentID, tool string, input map[string]any, verdict, ruleID, reason string) error {
+	return upsertMemo(ctx, s.db, agentID, ruleID, HashAction(tool, input), verdict, reason)
+}
+
 // queryPolicies runs a policies SELECT and decodes the rows.
 func (s *Store) queryPolicies(ctx context.Context, query string, args ...interface{}) ([]*Policy, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
