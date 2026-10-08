@@ -298,6 +298,9 @@ func (m *MockPrimitiveStore) GetWasmModule(ctx context.Context, id string) (*pri
 				ID:   w.ID,
 				Name: w.Name,
 			}
+			if w.Config != nil {
+				mod.Config = w.Config
+			}
 			if data, ok := m.WasmModuleData[id]; ok {
 				mod.ModuleData = data
 			}

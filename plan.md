@@ -185,6 +185,31 @@
    restricted-key carve-out incl. memo, proposal→approve
    flow, 400 validation, MULE_NO_AUTH path). Spec: spec.md
    "Policy Engine".
+10. **Reflection workflow (H4.4)**: the learning loop ships as a real
+   mule workflow in `examples/reflection/` (seeded idempotently by
+   `seed.sh`; annotated manifest `reflection.json`):
+   pull(wasm, forge memory recall search + active beliefs) → agent
+   step (cheap model, STRICT-JSON belief diffs; a plain agent step,
+   NOT forge_conversation — one-shot inference, not a conversation
+   with the subject) → check(wasm, deterministic gate in
+   `internal/reflection/gate`: normalized-string duplicate vs
+   pending+active + batch-local, v1 string contradiction heuristic =
+   negation-marker flip + Jaccard overlap ≥ 0.4, decay
+   confidence·exp(−λ·age) λ default 0.02/day, add-only-endpoint op
+   routing) → submit(wasm, POST /agents/:id/memory/beliefs/proposals:
+   safe as-is, needs_review with "[needs human review]" rationale
+   prefix, exact dups skipped; decay report + per-belt results = job
+   output). Creds v1 = module config (secrets table is the upgrade,
+   same stance as H3.2). Wakes: cron `0 3 * * *` + an `episodes_ready`
+   event wake (manual fire; auto episode-count = H4.5). The engine
+   injects `mule_time` (host clock — WASI has none) into every wasm
+   step input. Also fixed while testing: `wasmEchoModule` (engine
+   test helper) used single-byte LEB sizes and broke past 128 bytes.
+   Tests: `internal/reflection/{gate,reflmem}` (host) +
+   `internal/engine/reflection_test.go` (real .wasm through the real
+   engine vs a fake forge, incl. a full 4-step job with a
+   fixed-output stand-in for the agent step — the real-model leg is
+   the manual acceptance). Spec: spec.md "Reflection Workflow".
 
 ### Testing Strategy
 

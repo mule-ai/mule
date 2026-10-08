@@ -338,13 +338,35 @@ func wasmEchoModule(out string) []byte {
 	// -- iov struct at 8, string at 40. Segment form:
 	// kind, offset expr, size LEB, bytes.
 	data := []byte{0x02} // segment count
-	data = append(data, 0x00, 0x41, 0x08, 0x0B, byte(len(iov)))
+	data = append(data, 0x00, 0x41, 0x08, 0x0B)
+	data = append(data, lebu(len(iov))...)
 	data = append(data, iov...)
-	data = append(data, 0x00, 0x41, 0x28, 0x0B, byte(len(str)))
+	data = append(data, 0x00, 0x41, 0x28, 0x0B)
+	data = append(data, lebu(len(str))...)
 	data = append(data, str...)
-	b = append(b, 0x0B, byte(len(data)))
+	b = append(b, 0x0B)
+	b = append(b, lebu(len(data))...)
 	b = append(b, data...)
 	return b
+}
+
+// lebu encodes n as unsigned LEB128 (wasm section/segment sizes are
+// LEB128, not single bytes — the single-byte shortcut only worked for
+// payloads under 128 bytes).
+func lebu(n int) []byte {
+	var out []byte
+	for {
+		b := byte(n & 0x7f)
+		n >>= 7
+		if n > 0 {
+			b |= 0x80
+		}
+		out = append(out, b)
+		if n == 0 {
+			break
+		}
+	}
+	return out
 }
 
 // ------------------------------------------------------------------

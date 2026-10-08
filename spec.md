@@ -707,6 +707,74 @@ flow (`approved-proposal` audit row, approver-owned), 400 on bad
 disposition / sensitivity / agent-scope-without-agent_id, and the
 MULE_NO_AUTH=1 synthetic-admin path.
 
+## Reflection Workflow (Herd H4.4)
+
+The Herd's learning loop is a **real mule workflow**, shipped as
+`examples/reflection/` and seeded against a mule instance by
+`seed.sh` (idempotent; annotated manifest in
+`examples/reflection/reflection.json`). It turns one forge agent's
+recent **episodes** into **reviewed belief diffs**:
+
+```
+wake (cron 0 3 * * * / event) → job on workflow "agent-reflection":
+  1. wasm  pull    → forge memory API: recall-query episode search
+                     (N queries × k≤50) + active beliefs → {episodes,
+                     beliefs, forge creds} (v1 creds flow: module config)
+  2. agent step    → cheap mule agent (pi-based, no tools) proposes
+                     belief diffs as STRICT JSON [{op:
+                     add|strengthen|weaken|forget|supersede, belief,
+                     confidence, rationale, source_episodes}], max 10
+  3. wasm  check   → deterministic gate (internal/reflection/gate):
+                     duplicate (normalized string, pending+active +
+                     batch-local), contradiction (v1 string heuristic:
+                     negation-marker flip + token overlap ≥ 0.4),
+                     decay (confidence·exp(−λ·age), λ default 0.02/day),
+                     op routing (add-only endpoint ⇒ everything else
+                     needs a human)
+  4. wasm  submit  → POST /agents/:id/memory/beliefs/proposals:
+                     safe adds as-is; needs_review with a
+                     "[needs human review] <reason>" rationale prefix
+                     (they become pending beliefs a human acts on);
+                     exact duplicates skipped; per-belt
+                     accepted/rejected_reason + the decay report =
+                     the job's output_data.
+```
+
+Governance after step 4 is forge's (H4.4 part 1, already shipped):
+proposals land as `beliefs status='pending'` + `memory_review`
+approval cards (ranch Keep/Forget/Edit); Keep → active → the next
+turn's `memory:beliefs` prompt section.
+
+v1 decisions & documented limits (full detail in
+`examples/reflection/README.md`):
+
+- **Step 2 is a plain mule agent step, not `forge_conversation`**: a
+  one-shot cheap-model inference over bounded input; parking the loop
+  in the reflected-on agent's own conversation is what the plan
+  avoids (the loop is mule behavior; only governance is forge's).
+- **Recall-based pull**: forge has no episode-list endpoint, so pull
+  uses N recall queries × k=50 over `GET /agents/:id/memory/search`
+  (503 when the embedding endpoint is down ⇒ failed step, not a
+  silent no-op run). A cheap episode-list endpoint + the H4.5
+  episode-count trigger close this.
+- **Triggers**: nightly cron wake + a pre-created `episodes_ready`
+  event wake fired by hand (`POST /api/v1/wakes/fire`); automatic
+  N-new-episodes detection is the H4.5 memory trigger.
+- **Credentials**: inline in the pull/check/submit module config
+  (same stance as H3.2 `forge_conversation`); secrets table +
+  `api_key_ref` is the upgrade path. The engine injects `mule_time`
+  (host wall clock) into every wasm step's input — WASI preview1 has
+  no clock (time.Now() is pinned to the WASI epoch), so without it
+  the decay pass would be dead; config/input may override it (tests
+  pin it).
+- **Tests**: gate + parser are host-unit-tested
+  (`internal/reflection/{gate,reflmem}`); `internal/engine/
+  reflection_test.go` runs the real .wasm binaries through the real
+  engine against a fake forge — including a full 4-step job with the
+  agent step replaced by a fixed-output stand-in (agent steps spawn
+  `pi --mode rpc` and cannot be faked in-process; the real-model leg
+  is the manual acceptance).
+
 ## Dependencies & Constraints
 
 ### External Dependencies

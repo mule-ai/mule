@@ -360,6 +360,13 @@ func (e *WASMExecutor) Execute(ctx context.Context, moduleID string, inputData m
 	// Merge configuration with input data
 	mergedInputData := make(map[string]interface{})
 
+	// WASI preview1 has no wall-clock source: time.Now() inside a
+	// module is pinned to the WASI epoch (2022-01-01). Expose the host
+	// time so time-sensitive modules (e.g. the H4.4 reflection gate's
+	// decay pass) can age their inputs; module config and step input
+	// (merged below) may override mule_time (e.g. tests pinning "now").
+	mergedInputData["mule_time"] = time.Now().UTC().Format(time.RFC3339)
+
 	// Add configuration data if present
 	if len(module.Config) > 0 {
 		// Add all config fields to merged input
