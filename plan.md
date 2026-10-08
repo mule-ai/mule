@@ -126,6 +126,12 @@
 3. **Skill Storage**: Store skill directory paths in database, not content
 4. **Configuration**: Agent config stored as JSONB, passed as CLI flags to pi
 5. **Streaming**: Direct WebSocket broadcast, no intermediate buffering
+6. **forge_conversation step (H3.2)**: step config (forge_url, api_key,
+   agent_id/conversation_id, mode, content template, wait, timeout_secs)
+   lives entirely in the `workflow_steps.config` JSONB column; the step
+   type is admitted by migration `0013_forge_step.sql`.
+7. **Per-job WS subscriptions (H3.4)**: opt-in client-side filtering on
+   the firehose; never-subscribed clients keep receiving everything.
 
 ### Testing Strategy
 

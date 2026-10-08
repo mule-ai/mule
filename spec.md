@@ -105,6 +105,21 @@ We need to replace this with pi in RPC mode, which provides:
 - Workflow step results flow to next step correctly
 - Async workflow support preserved
 
+#### 7. Forge Conversation Step (Herd H3.2)
+
+- `forge_conversation` workflow step type: a job talks to a long-lived
+  forge agent conversation (addressed by agent id or pinned
+  conversation id), optionally waits for the turn, and returns the
+  turn's assistant text as step output. Full contract in
+  ["Forge Conversation Step Type" below](#forge-conversation-step-type-herd-h32).
+
+#### 8. Per-Job WebSocket Subscriptions (Herd H3.4)
+
+- WS clients can subscribe per job (`{"op":"subscribe","job_id":…}` /
+  `unsubscribe` / `subscribe_all`); never-subscribed clients keep the
+  full firehose. Full contract in
+  ["Per-Job WebSocket Subscriptions" below](#per-job-websocket-subscriptions-herd-h34).
+
 ### User Interactions
 
 1. **Create Agent with Skills**: POST /api/v1/agents with skill_ids array
@@ -267,6 +282,140 @@ Mule supports multi-user deployments. The full contract lives in
 - Non-admins see only their own primitives; foreign objects read as
   404. `MULE_NO_AUTH=1` restores the legacy single-operator behavior
   with a synthetic admin context (local/ranch dev).
+
+## Forge Conversation Step Type (Herd H3.2)
+
+A `forge_conversation` workflow step (migration `0013_forge_step.sql`
+widens the `workflow_steps.step_type` CHECK to admit it) lets a mule
+job drive a **long-lived forge agent conversation**: it resolves a
+target conversation by address, posts a templated message tagged with
+its mule job, optionally waits for the turn to end, and returns the
+turn's assistant text as the step output. Implementation:
+`internal/engine/forge.go` (`processForgeConversationStep`), validated
+by `validation.ValidateForgeConversationStep`.
+
+### Config shape
+
+All step config lives in the `workflow_steps.config` JSONB column
+(`primitive.WorkflowStep.Config`):
+
+```json
+{
+  "forge_url":       "http://10.10.199.29:8110",  // required, http/https
+  "api_key":         "sk_forge_…",                // required (v1: inlined, see below)
+  "agent_id":        "<forge agent uuid>",        // one of agent_id | conversation_id
+  "conversation_id": "<forge session uuid>",      // optional pin; wins over agent_id
+  "mode":            "message",                   // message | steer | follow_up | fork (default message)
+  "content":         "Summarize: {{.prompt}}",    // required; Go text/template over the job input map
+  "wait":            true,                        // optional, default false
+  "timeout_secs":    300                          // optional, default 300, positive int
+}
+```
+
+`content` is rendered with Go `text/template` (`missingkey=error`) over
+the job input map — the same "render over the input" contract the
+agent step's prompt uses (agent steps pass `inputData["prompt"]` through
+verbatim; this step generalizes it to the whole input map).
+
+### Addressing resolution order
+
+1. Pinned `conversation_id` wins: use it as-is.
+2. `mode: fork`: `agent_id` is required; mule calls
+   `POST /agents/{agent_id}/conversations` with
+   `fork_from` = the pinned conversation (or the agent's active one,
+   from `GET /agents/{agent_id}/active`) and posts to the NEW session
+   id returned in `{"session":{"id":…}}`.
+3. `agent_id`: `GET /agents/{agent_id}/active` →
+   `{busy, current_conversation}`; when `current_conversation` is null
+   the step creates one via `POST /agents/{agent_id}/conversations`.
+
+v1 mode semantics: `message` / `steer` / `fork` are the real
+behaviors; `follow_up` is accepted as an alias of `message` (forge
+has a single `POST /messages` entry point — steer is a forge-side
+capability mule will pin down post-H2).
+
+### Messages posted
+
+POST `/messages {"session_id", "content"}` (202). Forge's message API
+accepts plain content with no provenance field, so mule-origin tagging
+is a **content prefix** in v1:
+`[mule job <job_id> <workflow_id>] <rendered content>`.
+(Upgrade path: a forge `source`/`origin` field on messages, or a
+mule-claims table — not in H3 scope.)
+
+All calls carry `Authorization: Bearer <api_key>`.
+
+### wait / cancel / timeout semantics
+
+- `wait: false` (default): the step returns as soon as the message is
+  accepted (202). Step output: `{forge_conversation: <session id>,
+  output: <posted content incl. prefix>}`.
+- `wait: true`: mule snapshots the conversation's highest message
+  sequence, posts the message, then waits for the turn to end with
+  **SSE as the primary signal**: `GET /sessions/{id}/events?since=N&
+  oneshot=true` — forge emits `message` rows and a final
+  `turn_ended` event and closes the stream. A messages-table fallback
+  covers the attach race (turn ends before the SSE connection
+  attaches): a post-turn assistant row is treated as turn-end.
+- **Timeout** (`timeout_secs`, default 300): the step FAILS with
+  `timed out waiting for forge turn …` and the workflow stops. The
+  forge turn **keeps running** — mule gives up *waiting*; it does not
+  interrupt the agent (use forge's `POST /sessions/{id}/interrupt`
+  separately when you want that).
+- **Cancellation** (`DELETE /api/v1/jobs/:id` → engine context
+  cancel): the wait aborts promptly — the SSE request and the
+  fallback poll loop both select on the job context, and no poll
+  goroutine is left behind (the wait runs in the step's own
+  goroutine). The job is marked cancelled; the forge turn keeps
+  running, same as on timeout.
+- On success the step output is `{forge_conversation: <session id>,
+  output: <turn's final assistant text>}` (fetched from
+  `GET /messages?session_id=…` filtered to the post-turn sequence
+  range), which flows into the next step as its input map.
+
+### v1: api_key in config; upgrade path
+
+The forge key (`sk_forge_…`) is **inlined in the step config** in v1.
+Known trade-off: the key is visible to anyone who can read the
+workflow row (mule tenancy scopes that to the owner + admin, and
+restricted keys cannot write workflows). The documented upgrade path
+is a `secrets` table + `api_key_ref` in the config (mule resolves the
+reference at step time; config stores only the ref), mirroring how
+providers already keep `api_key_encrypted` under
+`MULE_ENCRYPTION_SECRET`. The engine's config parser is the single
+place to change; step behavior does not move.
+
+## Per-Job WebSocket Subscriptions (Herd H3.4)
+
+The `/ws` hub (`internal/api/websocket.go`) is a broadcast firehose by
+default. Clients may now narrow it per job with inbound control
+messages (JSON text frames, acked synchronously):
+
+```json
+{"op":"subscribe","job_id":"…"}      → {"op":"subscribed","job_id":"…"}
+{"op":"unsubscribe","job_id":"…"}    → {"op":"unsubscribed","job_id":"…"}
+{"op":"subscribe_all"}               → {"op":"subscribed_all"}
+```
+
+Filtering rules (per client, thread-safe on the client's own lock):
+
+- **Never subscribed** (no subscribe op ever sent): receives
+  everything — the backward-compatible default the ranch mule worker
+  panes rely on.
+- **Subscribed to ≥1 job**: receives only frames whose job id is in
+  the subscription set (`job_update`, `job_step_update`). Frames
+  without a job id (agent events) are withheld for filtered clients;
+  `subscribe_all` restores the full firehose.
+- `unsubscribe` removes a job; a client that has ever subscribed and
+  then unsubscribes everything receives nothing until it subscribes
+  again or sends `subscribe_all`.
+
+`JobStreamer` (the polling tail that emits job status changes) goes
+through the same `BroadcastJobUpdate`/`BroadcastJobStepUpdate` path,
+so it inherits the filter automatically. Acceptance is covered by
+`internal/api/websocket_test.go` (H3.4 acceptance: A-subscribed vs
+B-subscribed vs subscribe-all vs default clients; step-update
+filtering).
 
 ## Dependencies & Constraints
 

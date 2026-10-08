@@ -165,12 +165,18 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 			Message: "Step type is required",
 		})
 	} else {
-		validTypes := []string{"agent", "wasm_module"}
+		validTypes := []string{"agent", "wasm_module", "forge_conversation"}
 		if !isValidEnum(step.StepType, validTypes) {
 			errors = append(errors, ValidationError{
 				Field:   "type",
-				Message: "Step type must be either agent or wasm_module",
+				Message: "Step type must be one of agent, wasm_module, forge_conversation",
 			})
+		}
+	}
+
+	if step.StepType == "forge_conversation" {
+		for _, err := range v.ValidateForgeConversationStep(step.Config) {
+			errors = append(errors, err)
 		}
 	}
 
@@ -189,6 +195,132 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 	}
 
 	return errors
+}
+
+// ForgeConversationMode enumerates the address/content modes a
+// forge_conversation step supports (Herd H3.2).
+var ForgeConversationModes = []string{"message", "steer", "follow_up", "fork"}
+
+// ValidateForgeConversationStep validates the config map of a
+// forge_conversation workflow step (Herd H3.2).
+//
+//	{forge_url: string (required, http/https), api_key: string (required,
+//	 the forge sk_forge_ key, inlined in config in v1), agent_id?:
+//	 string, conversation_id?: string, mode?: "message"|"steer"|
+//	 "follow_up"|"fork" (default "message"), content: string (required,
+//	 a Go text/template rendered over the job input map), wait?: bool
+//	 (default false), timeout_secs?: int (default 300, positive when
+//	 set)}.
+func (v *Validator) ValidateForgeConversationStep(config map[string]interface{}) ValidationErrors {
+	var errors ValidationErrors
+
+	if config == nil {
+		errors = append(errors, ValidationError{
+			Field:   "config",
+			Message: "forge_conversation step requires a config object",
+		})
+		return errors
+	}
+
+	forgeURL := configString(config, "forge_url")
+	if strings.TrimSpace(forgeURL) == "" {
+		errors = append(errors, ValidationError{
+			Field:   "config.forge_url",
+			Message: "forge_url is required for forge_conversation steps",
+		})
+	} else if u, err := url.Parse(forgeURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		errors = append(errors, ValidationError{
+			Field:   "config.forge_url",
+			Message: "forge_url must be an http or https URL",
+		})
+	}
+
+	if apikey := configString(config, "api_key"); strings.TrimSpace(apikey) == "" {
+		errors = append(errors, ValidationError{
+			Field:   "config.api_key",
+			Message: "api_key is required for forge_conversation steps (v1: the forge sk_forge_ key inlined in config)",
+		})
+	}
+
+	if mode, ok := config["mode"]; ok {
+		modeStr, isStr := mode.(string)
+		if !isStr || !isValidEnum(modeStr, ForgeConversationModes) {
+			errors = append(errors, ValidationError{
+				Field:   "config.mode",
+				Message: "mode must be one of: message, steer, follow_up, fork",
+			})
+		}
+	}
+
+	content := configString(config, "content")
+	if strings.TrimSpace(content) == "" {
+		errors = append(errors, ValidationError{
+			Field:   "config.content",
+			Message: "content is required for forge_conversation steps",
+		})
+	}
+
+	if wait, ok := config["wait"]; ok {
+		if _, isBool := wait.(bool); !isBool {
+			errors = append(errors, ValidationError{
+				Field:   "config.wait",
+				Message: "wait must be a boolean",
+			})
+		}
+	}
+
+	if timeoutSecs, ok := config["timeout_secs"]; ok {
+		if !configIntPositive(timeoutSecs) {
+			errors = append(errors, ValidationError{
+				Field:   "config.timeout_secs",
+				Message: "timeout_secs must be a positive integer",
+			})
+		}
+	}
+
+	// Addressing: a step needs either a pinned conversation or an
+	// agent to resolve one against. mode "fork" additionally needs
+	// the agent (forks are created via POST /agents/:id/conversations).
+	agentID := strings.TrimSpace(configString(config, "agent_id"))
+	conversationID := strings.TrimSpace(configString(config, "conversation_id"))
+	if conversationID == "" && agentID == "" {
+		errors = append(errors, ValidationError{
+			Field:   "config.agent_id",
+			Message: "either agent_id or conversation_id is required for forge_conversation steps",
+		})
+	}
+	if _, hasMode := config["mode"]; hasMode {
+		if mode, isStr := config["mode"].(string); isStr && mode == "fork" && agentID == "" {
+			errors = append(errors, ValidationError{
+				Field:   "config.agent_id",
+				Message: "mode fork requires agent_id (forks are created against an agent)",
+			})
+		}
+	}
+
+	return errors
+}
+
+// configString returns a config-map value as a string (zero value when
+// absent or of the wrong type).
+func configString(config map[string]interface{}, key string) string {
+	s, _ := config[key].(string)
+	return s
+}
+
+// configIntPositive reports whether a config-map value is a positive
+// integer (JSON numbers decode as float64; the engine's parser accepts
+// the same set).
+func configIntPositive(value interface{}) bool {
+	switch n := value.(type) {
+	case float64:
+		return n > 0 && n == float64(int64(n))
+	case int:
+		return n > 0
+	case int64:
+		return n > 0
+	}
+	return false
 }
 
 // ValidateChatCompletionRequest validates a chat completion request

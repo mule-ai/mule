@@ -311,3 +311,104 @@ func TestValidateWorkflowStep(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+// forgeStepConfig is a minimal helper for the H3.2 validation cases.
+func forgeStepConfig(mutate func(map[string]interface{})) map[string]interface{} {
+	cfg := map[string]interface{}{
+		"forge_url": "http://forge.example",
+		"api_key":   "sk_forge_deadbeef",
+		"agent_id":  "agent-1",
+		"content":   "hello {{.prompt}}",
+	}
+	if mutate != nil {
+		mutate(cfg)
+	}
+	return cfg
+}
+
+func TestValidateForgeConversationStep(t *testing.T) {
+	v := NewValidator()
+
+	tests := []struct {
+		name       string
+		config     map[string]interface{}
+		expectErrs int
+		wantField  string
+	}{
+		{name: "valid minimal", config: forgeStepConfig(nil), expectErrs: 0},
+		{name: "valid pinned conversation + wait", config: forgeStepConfig(func(m map[string]interface{}) {
+			delete(m, "agent_id")
+			m["conversation_id"] = "conv-1"
+			m["wait"] = true
+			m["timeout_secs"] = 60
+		}), expectErrs: 0},
+		{name: "valid fork mode", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["mode"] = "fork"
+		}), expectErrs: 0},
+		{name: "nil config", config: nil, expectErrs: 1, wantField: "config"},
+		{name: "missing forge_url", config: forgeStepConfig(func(m map[string]interface{}) {
+			delete(m, "forge_url")
+		}), expectErrs: 1, wantField: "config.forge_url"},
+		{name: "bad forge_url scheme", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["forge_url"] = "ftp://forge.example"
+		}), expectErrs: 1, wantField: "config.forge_url"},
+		{name: "missing api_key", config: forgeStepConfig(func(m map[string]interface{}) {
+			delete(m, "api_key")
+		}), expectErrs: 1, wantField: "config.api_key"},
+		{name: "bad mode", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["mode"] = "teleport"
+		}), expectErrs: 1, wantField: "config.mode"},
+		{name: "non-string mode", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["mode"] = 42
+		}), expectErrs: 1, wantField: "config.mode"},
+		{name: "missing content", config: forgeStepConfig(func(m map[string]interface{}) {
+			delete(m, "content")
+		}), expectErrs: 1, wantField: "config.content"},
+		{name: "blank content", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["content"] = "   "
+		}), expectErrs: 1, wantField: "config.content"},
+		{name: "wait not bool", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["wait"] = "yes"
+		}), expectErrs: 1, wantField: "config.wait"},
+		{name: "timeout not positive int", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["timeout_secs"] = -5
+		}), expectErrs: 1, wantField: "config.timeout_secs"},
+		{name: "timeout not a number", config: forgeStepConfig(func(m map[string]interface{}) {
+			m["timeout_secs"] = "fast"
+		}), expectErrs: 1, wantField: "config.timeout_secs"},
+		{name: "no addressing", config: forgeStepConfig(func(m map[string]interface{}) {
+			delete(m, "agent_id")
+		}), expectErrs: 1, wantField: "config.agent_id"},
+		{name: "fork without agent", config: forgeStepConfig(func(m map[string]interface{}) {
+			delete(m, "agent_id")
+			m["conversation_id"] = "conv-1"
+			m["mode"] = "fork"
+		}), expectErrs: 1, wantField: "config.agent_id"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := v.ValidateForgeConversationStep(tt.config)
+			assert.Len(t, errs, tt.expectErrs, "got: %v", errs)
+			if tt.expectErrs > 0 && tt.wantField != "" {
+				fields := []string{}
+				for _, e := range errs {
+					fields = append(fields, e.Field)
+				}
+				assert.Contains(t, fields, tt.wantField)
+			}
+		})
+	}
+
+	// Integrated through ValidateWorkflowStep as well.
+	step := &primitive.WorkflowStep{
+		ID: "step-forge", WorkflowID: "workflow1", StepOrder: 1,
+		StepType: "forge_conversation", Config: forgeStepConfig(nil),
+	}
+	assert.Empty(t, v.ValidateWorkflowStep(step))
+
+	step.Config = forgeStepConfig(func(m map[string]interface{}) {
+		delete(m, "api_key")
+	})
+	assert.NotEmpty(t, v.ValidateWorkflowStep(step))
+}

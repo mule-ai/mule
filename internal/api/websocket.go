@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net"
@@ -20,11 +21,31 @@ type WebSocketMessage struct {
 	Timestamp time.Time   `json:"timestamp"`
 }
 
-// WebSocketClient wraps a websocket.Conn with exactly-once closure semantics
+// inboundOp is a client->hub control message (Herd H3.4 per-job
+// subscriptions). Clients may send {"op":"subscribe","job_id":"…"},
+// {"op":"unsubscribe","job_id":"…"} or {"op":"subscribe_all"}.
+type inboundOp struct {
+	Op    string `json:"op"`
+	JobID string `json:"job_id"`
+}
+
+// WebSocketClient wraps a websocket.Conn with exactly-once closure
+// semantics plus per-job subscription state (H3.4).
+//
+// Default (backward-compatible) behavior: a client that has never
+// subscribed to anything receives the full firehose. Once a client
+// subscribes to at least one job, it receives only updates for those
+// jobs (or everything after subscribe_all).
 type WebSocketClient struct {
 	conn      *websocket.Conn
 	closeOnce sync.Once
 	closed    chan struct{}
+
+	// H3.4 per-job subscription state.
+	mu             sync.RWMutex
+	subscribed     map[string]bool
+	subscribeAll   bool
+	subscribedOnce bool // has the client ever sent a subscribe op?
 }
 
 // closeNoise reports whether a close error is an expected consequence of the
@@ -36,8 +57,9 @@ func closeNoise(err error) bool {
 // NewWebSocketClient creates a new WebSocket client wrapper
 func NewWebSocketClient(conn *websocket.Conn) *WebSocketClient {
 	return &WebSocketClient{
-		conn:   conn,
-		closed: make(chan struct{}),
+		conn:       conn,
+		closed:     make(chan struct{}),
+		subscribed: make(map[string]bool),
 	}
 }
 
@@ -54,6 +76,54 @@ func (wsc *WebSocketClient) Close() error {
 // Conn returns the underlying websocket connection
 func (wsc *WebSocketClient) Conn() *websocket.Conn {
 	return wsc.conn
+}
+
+// AddSubscription subscribes this client to a job's update stream.
+func (wsc *WebSocketClient) AddSubscription(jobID string) {
+	wsc.mu.Lock()
+	defer wsc.mu.Unlock()
+	wsc.subscribed[jobID] = true
+	wsc.subscribedOnce = true
+}
+
+// RemoveSubscription unsubscribes this client from a job's update stream.
+// Once a client has ever subscribed, an empty subscription set means
+// "receive nothing" (the firehose default only applies before the
+// client's first subscribe).
+func (wsc *WebSocketClient) RemoveSubscription(jobID string) {
+	wsc.mu.Lock()
+	defer wsc.mu.Unlock()
+	delete(wsc.subscribed, jobID)
+}
+
+// SubscribeAll makes this client receive every job update regardless of
+// per-job subscriptions.
+func (wsc *WebSocketClient) SubscribeAll() {
+	wsc.mu.Lock()
+	defer wsc.mu.Unlock()
+	wsc.subscribeAll = true
+	wsc.subscribedOnce = true
+}
+
+// ShouldReceive reports whether this client receives a message carrying
+// the given job id (or, when jobOK is false, a message with no job id
+// such as an agent event).
+func (wsc *WebSocketClient) ShouldReceive(jobID string, jobOK bool) bool {
+	wsc.mu.RLock()
+	defer wsc.mu.RUnlock()
+	if wsc.subscribeAll {
+		return true
+	}
+	if !wsc.subscribedOnce {
+		// Never subscribed: full firehose (backward compatible).
+		return true
+	}
+	if !jobOK {
+		// Job-filtered client: non-job messages (agent events) are not
+		// delivered. subscribe_all restores them.
+		return false
+	}
+	return wsc.subscribed[jobID]
 }
 
 // WebSocketHub manages WebSocket connections
@@ -100,7 +170,13 @@ func (h *WebSocketHub) Run() {
 
 		case message := <-h.broadcast:
 			h.mutex.RLock()
+			jobID, hasJob := jobIDOfMessage(message)
 			for client := range h.clients {
+				// H3.4 per-job filter (default: clients that never
+				// subscribed receive everything).
+				if !client.ShouldReceive(jobID, hasJob) {
+					continue
+				}
 				// Bound each write so one stuck client can't stall the
 				// broadcast loop for everyone else.
 				if err := client.Conn().SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
@@ -119,7 +195,27 @@ func (h *WebSocketHub) Run() {
 	}
 }
 
+// jobIDOfMessage extracts the job id from a broadcast message. Job
+// updates and job step updates carry it; agent events do not.
+func jobIDOfMessage(message WebSocketMessage) (string, bool) {
+	switch d := message.Data.(type) {
+	case *job.Job:
+		if d != nil && d.ID != "" {
+			return d.ID, true
+		}
+		return "", false
+	case *job.JobStep:
+		if d != nil && d.JobID != "" {
+			return d.JobID, true
+		}
+		return "", false
+	}
+	return "", false
+}
+
 // BroadcastJobUpdate broadcasts a job update to all connected clients
+// (filtered per-client by H3.4 subscriptions; JobStreamer's tail
+// updates flow through the same filter).
 func (h *WebSocketHub) BroadcastJobUpdate(job *job.Job) {
 	message := WebSocketMessage{
 		Type:      "job_update",
@@ -240,16 +336,44 @@ func (h *WebSocketHandler) handleConnection(client *WebSocketClient) {
 		}
 	}()
 
-	// Main read loop
+	// Main read loop. Inbound control messages (H3.4) adjust this
+	// client's per-job subscription set; anything else is ignored.
 	for {
-		// Read messages from client (for now, we don't expect any)
-		_, _, err := client.conn.ReadMessage()
+		msgType, raw, err := client.conn.ReadMessage()
 		if err != nil {
 			// Don't log close errors as they're expected when the connection is closed
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("WebSocket error: %v", err)
 			}
 			return
+		}
+		if msgType != websocket.TextMessage {
+			continue
+		}
+		var op inboundOp
+		if err := json.Unmarshal(raw, &op); err != nil {
+			continue
+		}
+		switch op.Op {
+		case "subscribe":
+			if op.JobID != "" {
+				client.AddSubscription(op.JobID)
+			}
+			if err := client.conn.WriteJSON(map[string]interface{}{"op": "subscribed", "job_id": op.JobID}); err != nil {
+				return
+			}
+		case "unsubscribe":
+			if op.JobID != "" {
+				client.RemoveSubscription(op.JobID)
+			}
+			if err := client.conn.WriteJSON(map[string]interface{}{"op": "unsubscribed", "job_id": op.JobID}); err != nil {
+				return
+			}
+		case "subscribe_all":
+			client.SubscribeAll()
+			if err := client.conn.WriteJSON(map[string]interface{}{"op": "subscribed_all"}); err != nil {
+				return
+			}
 		}
 	}
 }

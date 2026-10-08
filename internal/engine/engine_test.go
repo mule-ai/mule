@@ -121,6 +121,9 @@ type MockPrimitiveStore struct {
 	Agents        []*primitive.Agent
 	Providers     []*primitive.Provider
 	WasmModules   []*primitive.WasmModuleListItem
+	// WasmModuleData optionally carries the module bytes per WasmModules
+	// ID so tests can run real WASM steps (H3.2 forge-step integration).
+	WasmModuleData map[string][]byte
 }
 
 func (m *MockPrimitiveStore) CreateProvider(ctx context.Context, p *primitive.Provider) error {
@@ -291,10 +294,14 @@ func (m *MockPrimitiveStore) GetWasmModule(ctx context.Context, id string) (*pri
 	for _, w := range m.WasmModules {
 		if w.ID == id {
 			// Return a mock WasmModule with the ID
-			return &primitive.WasmModule{
+			mod := &primitive.WasmModule{
 				ID:   w.ID,
 				Name: w.Name,
-			}, nil
+			}
+			if data, ok := m.WasmModuleData[id]; ok {
+				mod.ModuleData = data
+			}
+			return mod, nil
 		}
 	}
 	return nil, primitive.ErrNotFound
@@ -718,7 +725,7 @@ func TestProcessWASMStepWithWorkingDir(t *testing.T) {
 		WasmModuleID: &[]string{"wasm-module-1"}[0],
 		StepOrder:    1,
 	}
-	_, err := engineWithNilWasm.processStepWithWorkingDir(ctx, stepWithNilExecutor, nil, "")
+	_, err := engineWithNilWasm.processStepWithWorkingDir(ctx, "job-test", stepWithNilExecutor, nil, "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not available")
 }
@@ -750,7 +757,7 @@ func TestProcessStepWithWorkingDir(t *testing.T) {
 			StepType:   "unknown_type",
 			StepOrder:  1,
 		}
-		_, err := engine.processStepWithWorkingDir(ctx, unknownStep, nil, "")
+		_, err := engine.processStepWithWorkingDir(ctx, "job-test", unknownStep, nil, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown step type")
 	})
@@ -763,7 +770,7 @@ func TestProcessStepWithWorkingDir(t *testing.T) {
 			AgentID:    nil,
 			StepOrder:  1,
 		}
-		_, err := engine.processStepWithWorkingDir(ctx, agentStepNilID, nil, "")
+		_, err := engine.processStepWithWorkingDir(ctx, "job-test", agentStepNilID, nil, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "agent_id not found")
 	})

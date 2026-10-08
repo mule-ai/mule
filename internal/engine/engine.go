@@ -306,7 +306,7 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 		default:
 		}
 
-		stepResult, err := e.processStepWithWorkingDir(jobCtx, step, stepOutput, updatedJob.WorkingDirectory)
+		stepResult, err := e.processStepWithWorkingDir(jobCtx, jobID, step, stepOutput, updatedJob.WorkingDirectory)
 		if err != nil {
 			jobStep.Status = "failed"
 			jobStep.ErrorMessage = err.Error()
@@ -353,13 +353,17 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-// processStepWithWorkingDir processes a single workflow step with working directory context
-func (e *Engine) processStepWithWorkingDir(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
+// processStepWithWorkingDir processes a single workflow step with working directory context.
+// jobID is used by the forge_conversation step to tag its mule-origin
+// message.
+func (e *Engine) processStepWithWorkingDir(ctx context.Context, jobID string, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
 	switch step.StepType {
 	case "agent":
 		return e.processAgentStepWithWorkingDir(ctx, step, inputData, workingDir)
 	case "wasm_module":
 		return e.processWASMStepWithWorkingDir(ctx, step, inputData, workingDir)
+	case "forge_conversation":
+		return e.processForgeConversationStep(ctx, step, jobID, inputData, workingDir)
 	default:
 		return nil, fmt.Errorf("unknown step type: %s", step.StepType)
 	}
