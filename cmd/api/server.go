@@ -310,6 +310,18 @@ func main() {
 	router.HandleFunc("/api/v1/wakes/{id}", handler.deleteWakesHandler).Methods("DELETE")
 	router.HandleFunc("/api/v1/wakes/{id}/log", handler.wakeLogHandler).Methods("GET")
 
+	// Policy engine (Herd H3.5): owner-scoped CRUD + the synchronous
+	// evaluate hook surface + the agent-proposal flow. The static
+	// evaluate/proposals routes register BEFORE the {id} routes.
+	router.HandleFunc("/api/v1/policies", handler.listPoliciesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/policies", handler.createPoliciesHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/evaluate", handler.evaluatePolicyHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/proposals", handler.createProposalHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/proposals/{id}/approve", handler.approveProposalHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/{id}", handler.getPolicyHandler).Methods("GET")
+	router.HandleFunc("/api/v1/policies/{id}", handler.patchPolicyHandler).Methods("PATCH")
+	router.HandleFunc("/api/v1/policies/{id}", handler.deletePolicyHandler).Methods("DELETE")
+
 	// WASM module APIs - Order matters! Specific routes before generic {id} routes
 	router.HandleFunc("/api/v1/wasm-modules", handler.listWasmModulesHandler).Methods("GET")
 	router.HandleFunc("/api/v1/wasm-modules", handler.createWasmModuleHandler).Methods("POST")

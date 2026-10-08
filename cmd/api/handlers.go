@@ -19,6 +19,7 @@ import (
 	internaldb "github.com/mule-ai/mule/internal/database"
 	"github.com/mule-ai/mule/internal/engine"
 	"github.com/mule-ai/mule/internal/manager"
+	"github.com/mule-ai/mule/internal/policy"
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
 	"github.com/mule-ai/mule/internal/wake"
@@ -27,17 +28,19 @@ import (
 )
 
 type apiHandler struct {
-	db             *internaldb.DB
-	store          primitive.PrimitiveStore
-	runtime        *agent.Runtime
-	jobStore       job.JobStore
-	validator      *validation.Validator
-	wasmModuleMgr  *manager.WasmModuleManager
-	wasmExecutor   *engine.WASMExecutor
-	workflowEngine *engine.Engine
-	workflowMgr    *manager.WorkflowManager
-	skillMgr       *manager.SkillManager
-	wakeScheduler  *wake.Scheduler
+	db              *internaldb.DB
+	store           primitive.PrimitiveStore
+	runtime         *agent.Runtime
+	jobStore        job.JobStore
+	validator       *validation.Validator
+	wasmModuleMgr   *manager.WasmModuleManager
+	wasmExecutor    *engine.WASMExecutor
+	workflowEngine  *engine.Engine
+	workflowMgr     *manager.WorkflowManager
+	skillMgr        *manager.SkillManager
+	wakeScheduler   *wake.Scheduler
+	policyStore     *policy.Store
+	policyEvaluator *policy.Evaluator
 }
 
 func NewAPIHandler(db *internaldb.DB) *apiHandler {
@@ -76,17 +79,19 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	wakeScheduler := wake.NewScheduler(wake.NewStore(db.DB), workflowEngine)
 
 	return &apiHandler{
-		db:             db,
-		store:          store,
-		runtime:        runtime,
-		jobStore:       jobStore,
-		validator:      validator,
-		wasmModuleMgr:  wasmModuleMgr,
-		wasmExecutor:   wasmExecutor,
-		workflowEngine: workflowEngine,
-		workflowMgr:    workflowMgr,
-		skillMgr:       skillMgr,
-		wakeScheduler:  wakeScheduler,
+		db:              db,
+		store:           store,
+		runtime:         runtime,
+		jobStore:        jobStore,
+		validator:       validator,
+		wasmModuleMgr:   wasmModuleMgr,
+		wasmExecutor:    wasmExecutor,
+		workflowEngine:  workflowEngine,
+		workflowMgr:     workflowMgr,
+		skillMgr:        skillMgr,
+		wakeScheduler:   wakeScheduler,
+		policyStore:     policy.NewStore(db.DB),
+		policyEvaluator: policy.NewEvaluator(db.DB),
 	}
 }
 

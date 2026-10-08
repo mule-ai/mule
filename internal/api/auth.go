@@ -78,10 +78,22 @@ func isProtectedPath(path string) bool {
 
 // restrictedWritePrefixes are the route classes a restricted key may
 // NOT write to: POST/PUT/PATCH/DELETE on agents, workflows, jobs, and
-// (when it lands) policies. A restricted key can still READ and can
-// still execute workflows via the /v1/* surface (submission is
-// restricted only under /api/v1/jobs* — see docs/TENANCY.md for the
-// chosen semantics).
+// policies. A restricted key can still READ and can still execute
+// workflows via the /v1/* surface (submission is restricted only
+// under /api/v1/jobs* — see docs/TENANCY.md for the chosen semantics).
+//
+// H3.5 carve-out: two POST routes UNDER /api/v1/policies stay open to
+// restricted (agent) keys (restrictedWriteExemptPaths) —
+//   - /api/v1/policies/evaluate: the forge before_tool hook's query
+//     surface; the agent's own key must be able to ask the control
+//     plane about its actions. It is a decision query, not a policy
+//     mutation (it only writes its own agent's memo row).
+//   - /api/v1/policies/proposals: agents DRAFT rules here; the policy
+//     itself only exists after a non-restricted key posts to
+//     /policies/proposals/{id}/approve (restricted, as before).
+//
+// Everything else under /api/v1/policies (CRUD, approve) stays a
+// restricted-class write.
 //
 // Note: admin role does NOT bypass the restricted flag — restricted
 // is a property of the KEY, and admin+restricted still cannot write
@@ -91,6 +103,13 @@ var restrictedWritePrefixes = []string{
 	"/api/v1/workflows",
 	"/api/v1/jobs",
 	"/api/v1/policies",
+}
+
+// restrictedWriteExemptPaths stay open to restricted keys even though
+// they sit under a restricted class (H3.5, documented above).
+var restrictedWriteExemptPaths = map[string]bool{
+	"/api/v1/policies/evaluate":  true,
+	"/api/v1/policies/proposals": true,
 }
 
 // isRestrictedWrite reports whether (method, path) is a write on a
@@ -103,6 +122,9 @@ func isRestrictedWrite(method, path string) bool {
 	}
 	for _, p := range restrictedWritePrefixes {
 		if path == p || strings.HasPrefix(path, p+"/") {
+			if restrictedWriteExemptPaths[path] {
+				continue
+			}
 			return true
 		}
 	}

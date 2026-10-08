@@ -146,6 +146,40 @@
    dow 0-6); invalid expr → 400. Auth: owner-scoped CRUD for any
    valid key; the fire endpoint is a fleet ingress (any valid key).
    Spec: spec.md "Wakes".
+9. **Policy engine (H3.5)**: mule's control plane in `internal/policy`
+   (migration `0015_policies.sql`: `policies` + `policy_audit` +
+   `policy_memo`). A policy = versioned, owner-scoped bundle of
+   deterministic rules; the evaluator answers `(agent_id, tool,
+   input)` synchronously. Matching: a rule's `match` fires on EITHER
+   (1) an anchored glob over each rendered `field=value` line of the
+   input, or (2) a literal substring of the raw bash `command` — so
+   global deny `bash`/`rm -rf` blocks `sudo rm -rf /tmp/x`. Decision:
+   agent > org > global (first scope with a matching rule decides);
+   within scope, most-restrictive wins (deny > ask > allow), full tie
+   → earliest rule id; no match → non-blocking allow, un-memoized.
+   Memo: `sha256(tool + "\n" + canonical input)` keyed; allow/deny
+   memoized, ask + default never; lookup is rule-agnostic and the
+   most-restrictive memo wins, so a memoed deny survives rule churn
+   (resume/retry determinism). v1 `reviewer:true` = deterministic
+   floor: verdict returned immediately with `review: "pending"`;
+   review-agent upgrade is a documented follow-up. API: owner-scoped
+   CRUD (every content change bumps `version` + writes a
+   `policy_audit` row in the same txn; audit `policy_id` is
+   ON DELETE SET NULL so 'deleted' rows survive),
+   `POST /policies/evaluate` (open to restricted keys — the agent's
+   own control-plane query), `POST /policies/proposals` (open to
+   restricted keys — agent drafts) and
+   `POST /policies/proposals/{id}/approve` (restricted-class write —
+   human materializes the policy, owned by the approver, audit row
+   morphs to 'approved-proposal'). One store bug fixed while
+   testing: `auditInsert` passed a typed-nil `[]byte` detail,
+   which lib/pq encodes as `''` — Postgres rejects that as JSON; now
+   an untyped nil → SQL NULL. Tests: `internal/policy/policy_test.go`
+   (deterministic matrix, memo semantics, hash stability, owner
+   scoping) + `cmd/api/policy_tenancy_test.go` (version/audit, owner
+   isolation on evaluate, restricted-key carve-out, proposal→approve
+   flow, 400 validation, MULE_NO_AUTH path). Spec: spec.md
+   "Policy Engine".
 
 ### Testing Strategy
 

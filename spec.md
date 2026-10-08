@@ -530,6 +530,167 @@ third fire with `error='rate_limited'` in `wake_log`; workflow targets
 submit a job (`wake_log.job_id` set); user B cannot see user A's
 wakes; inert kinds are accepted and never fire.
 
+## Policy Engine (Herd H3.5)
+
+mule's control plane for autonomous agent action: **versioned,
+owner-scoped bundles of deterministic rules** that answer
+`(agent_id, tool, input)` with a synchronous verdict
+`{allow | deny | ask, rule_id, reason}`. Mule owns the store +
+evaluator (`internal/policy`, migration `0015_policies.sql`:
+`policies` + `policy_audit` + `policy_memo`); forge's `before_tool`
+hook is the enforcement point; ranch is the approval UI.
+
+### Rule shape
+
+```json
+{
+  "id": "rm-guard",
+  "description": "rm -rf is dangerous",
+  "action": {"tool": "bash", "match": "rm -rf"},
+  "sensitivity": "sensitive",
+  "disposition": "deny",
+  "reason": "rm -rf is blocked by operator policy",
+  "reviewer": false,
+  "review_mode": "agent"
+}
+```
+
+- `action.tool` ∈ `bash | write | edit | web | email | *`.
+- `disposition` ∈ `allow | deny | ask`; `sensitivity` ∈
+  `low | normal | sensitive` (the dots tiers: sensitive data →
+  named-recipient rules; destructive/irreversible or money → always
+  `ask`; credentials/money transfer → `deny` with a
+  hand-back-to-human reason).
+- Rules validate at write time: non-empty array, unique non-empty
+  ids, and `action.match` must PARSE as a glob (`*`/`?` dialect, ≤ 512
+  chars; empty match = "every call of this tool") — bad shapes are
+  400 at creation, never at evaluate time.
+- `reviewer` + `review_mode` are v1 STUBS (see below).
+
+### Matching semantics (v1, deterministic, documented)
+
+A rule's `match` (when present) fires when EITHER of two legs hits —
+these are the ONLY two legs:
+
+1. **Rendered-line glob.** The input is rendered as `field=value`
+   lines (top-level fields sorted lexicographically; string values
+   unquoted, every other value compact JSON). The match glob is
+   ANCHORED and matched against EACH rendered line; one hit is
+   enough. Glob dialect: `*` = any sequence of characters INCLUDING
+   `/`, `?` = exactly one character, everything else literal.
+2. **Bash raw-command substring (bash only).** When the tool is
+   `bash` and the input has a string `command` field, the match
+   string must occur as a LITERAL SUBSTRING of the raw command (no
+   glob interpretation on this leg: `*`/`?` are literal here).
+
+This second leg is why a global deny rule
+`{"action":{"tool":"bash","match":"rm -rf"}}` blocks
+`sudo rm -rf /tmp/x`: the rendered `command=...` line does not START
+with `rm -rf` (the anchored line-glob leg misses), but the raw
+substring leg fires. One rule, two legs, no ambiguity; a rule with no
+`match` matches every call of its tool.
+
+### Decision order (most specific, then most restrictive)
+
+1. **MEMO FIRST** (below).
+2. **Active policies**: enabled policies that are same-owner OR
+   global-scoped (admin callers see all owners); agent-scope
+   policies apply only to their `agent_id`.
+3. **MOST-SPECIFIC-SCOPES-WIN**: `agent > org > global`. The first
+   scope with ANY matching rule decides; later scopes are not
+   consulted. Within the winning scope, every matching rule is
+   collected and the **MOST-RESTRICTIVE disposition wins
+   (`deny > ask > allow`)**; a full tie resolves to the earliest
+   rule id (as stored in the policy), deterministically.
+4. **No matching policy**: non-blocking default `allow` with
+   `rule_id ""` and reason `"no matching policy"` — and NOTHING is
+   memoized (the default is not a decision; a policy created later
+   must take effect immediately).
+
+### Action hash + memo (and why resume is safe)
+
+The memo table is keyed by `(rule_id, agent_id, action_hash)` where
+`action_hash = sha256(tool + "\n" + canonical JSON of the input)`
+(sorted-key compact JSON — key order and whitespace irrelevant; nil
+input canonicalizes to `null`). Semantics:
+
+- **Memo writes**: the winning `allow` and `deny` verdicts are
+  upserted (idempotent, last deterministic evaluation wins). `ask`
+  and the no-match default are NEVER written: an `ask` is a pending
+  question, not a decided answer — an unapproved ask re-asks on
+  retry, and the human's "yes" is what eventually lands in the memo
+  (the H2.5 forge hook path records it).
+- **Memo lookup** is rule-agnostic: ALL memo rows for
+  `(agent_id, action_hash)` are read and the MOST-RESTRICTIVE
+  verdict wins. A deny memoed under one rule still covers the action
+  after rule churn — deleting the original rule cannot un-deny a
+  previously-blocked action.
+- **Resume safety**: the verdict is a pure function of
+  `(agent_id, tool, input, policy set, memo)` — deterministic and
+  stateless apart from the memo — so a resumed/interrupted turn
+  re-evaluating the SAME tool call gets the SAME verdict (or the
+  memoized one) instead of re-asking the human or drifting across
+  scopes. The hash is over the semantic input, not any rendered
+  string, so re-serialization cannot change the answer.
+
+### v1: `reviewer: true` = deterministic floor
+
+When the winning rule has `reviewer: true` and `review_mode:
+"agent"`, the evaluator returns the deterministic verdict
+IMMEDIATELY with `review: "pending"` — the deterministic verdict is
+the FLOOR. The review-agent upgrade path (a cheap mule agent step
+that can only LOOSEN the floor to a documented subset) is a
+follow-up, not built in v1; forge never blocks on a review agent,
+and evaluate stays a synchronous p99 < 50 ms decision query.
+
+### API & auth
+
+- `GET/POST /api/v1/policies`, `GET/PATCH/DELETE
+  /api/v1/policies/{id}` — owner-scoped CRUD (H3.1 pattern; admin
+  sees all). Every content change bumps `version` and writes a
+  `policy_audit` row IN THE SAME TRANSACTION (actor = the caller's
+  user id, or `system`); a no-content patch is a 200 with no bump.
+  `policy_audit.policy_id` is `ON DELETE SET NULL`, so a policy's
+  `'deleted'` row survives the deletion as the permanent record that
+  it existed and who removed it.
+- `POST /api/v1/policies/evaluate {agent_id, tool, input?}` — the
+  forge `before_tool` hook's synchronous surface.
+- `POST /api/v1/policies/proposals {draft: {scope, agent_id?,
+  rules}}` → `{proposal_id}` — an agent (restricted keys included)
+  DRAFTS a new policy: a `policy_audit` row with `change='proposal'`
+  and `policy_id NULL`, whose id IS the proposal id. It creates no
+  policy.
+- `POST /api/v1/policies/proposals/{id}/approve` — the HUMAN side:
+  non-restricted key only. Materializes the draft as a new policy
+  (owner = the APPROVER, version 1, enabled) and morphs the row to
+  `'approved-proposal'` pointing at it, in one transaction.
+
+Auth choice (deliberate, the H3.1 restricted-class carve-out): CRUD
+and approve stay RESTRICTED CLASS — a restricted (agent) key may
+read but not write. **`evaluate` and `proposals` stay open to any
+valid key, including restricted agent keys**: evaluate is the
+agent's own control-plane query ("may I do this?" — it only writes
+its own agent's memo row) and proposals are agent DRAFTS; neither
+materializes a policy. The loop is thus: agent proposes → human
+(non-restricted key) approves → policy takes effect. (Implemented as
+`restrictedWriteExemptPaths` in `internal/api/auth.go`; everything
+else under `/api/v1/policies` stays restricted class.)
+
+Acceptance (`internal/policy/policy_test.go`,
+`cmd/api/policy_tenancy_test.go`): deterministic matrix — global
+deny `bash`/`rm -rf` (raw-substring leg) vs agent-scope allow
+`write`, no-policy default, agent > global specificity, within-scope
+deny > ask > allow, full-tie rule-id ordering; memo — second
+Evaluate returns `memoized: true`, most-restrictive memo wins across
+rule ids, ask + default never memoized; action-hash stability
+(key-order independent, nil → `"null"`); API — version bump + audit
+rows (POST v1, PATCH v2, `rules changed v1→v2`, no-op no-bump,
+`disabled v3`), owner isolation on evaluate, restricted key 403 on
+CRUD + approve but 200 on evaluate/proposals, proposal → approve
+flow (`approved-proposal` audit row, approver-owned), 400 on bad
+disposition / sensitivity / agent-scope-without-agent_id, and the
+MULE_NO_AUTH=1 synthetic-admin path.
+
 ## Dependencies & Constraints
 
 ### External Dependencies
