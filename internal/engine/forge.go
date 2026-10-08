@@ -441,6 +441,84 @@ func truncateForError(s string) string {
 	return s
 }
 
+// ForgeSubmission is a forge-conversation address for posting a message
+// OUTSIDE a workflow step — the wakes fire path (Herd H3.3) uses it.
+// Same addressing shape as the forge_conversation step config (H3.2),
+// minus content/wait/timeout: the caller supplies the content and the
+// submission is fire-and-forget (no turn wait).
+type ForgeSubmission struct {
+	ForgeURL       string
+	APIKey         string
+	AgentID        string
+	ConversationID string
+}
+
+// ParseForgeSubmission extracts and validates the submission config from
+// a raw JSONB-style map ({forge_url, api_key, agent_id?, conversation_id?}).
+func ParseForgeSubmission(cfg map[string]interface{}) (ForgeSubmission, error) {
+	var s ForgeSubmission
+	s.ForgeURL = strings.TrimRight(configStringOrEmpty(cfg, "forge_url"), "/")
+	s.APIKey = configStringOrEmpty(cfg, "api_key")
+	s.AgentID = strings.TrimSpace(configStringOrEmpty(cfg, "agent_id"))
+	s.ConversationID = strings.TrimSpace(configStringOrEmpty(cfg, "conversation_id"))
+
+	var errs []string
+	if s.ForgeURL == "" {
+		errs = append(errs, "forge_url is required")
+	} else if u, err := url.Parse(s.ForgeURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		errs = append(errs, "forge_url must be an http or https URL")
+	}
+	if s.APIKey == "" {
+		errs = append(errs, "api_key is required")
+	}
+	if s.AgentID == "" && s.ConversationID == "" {
+		errs = append(errs, "agent_id or conversation_id is required")
+	}
+	if len(errs) > 0 {
+		return s, fmt.Errorf("invalid forge submission: %s", strings.Join(errs, "; "))
+	}
+	return s, nil
+}
+
+// PostMessage resolves the target conversation (pinned conversation_id
+// > the agent's active conversation > a newly created conversation) and
+// posts content to it. Fire-and-forget: it does NOT wait for the turn
+// to end. Returns the conversation id the message was posted to.
+func (s ForgeSubmission) PostMessage(ctx context.Context, content string) (string, error) {
+	client := newForgeStepClient(forgeStepConfig{ForgeURL: s.ForgeURL, APIKey: s.APIKey})
+
+	sessionID := s.ConversationID
+	if sessionID == "" {
+		if s.AgentID == "" {
+			return "", fmt.Errorf("forge submission requires agent_id or conversation_id")
+		}
+		_, active, activeErr := client.agentActive(ctx, s.AgentID)
+		if activeErr == nil && active != "" {
+			sessionID = active
+		} else {
+			sessionID, err := client.createConversation(ctx, s.AgentID, "")
+			if err != nil {
+				if activeErr != nil {
+					return "", fmt.Errorf("failed to resolve forge agent %s: %w", s.AgentID, activeErr)
+				}
+				return "", fmt.Errorf("failed to create forge conversation: %w", err)
+			}
+			return sessionID, s.postTo(ctx, client, sessionID, content)
+		}
+	}
+	if err := s.postTo(ctx, client, sessionID, content); err != nil {
+		return "", err
+	}
+	return sessionID, nil
+}
+
+func (s ForgeSubmission) postTo(ctx context.Context, client *forgeStepClient, sessionID, content string) error {
+	if err := client.postMessage(ctx, sessionID, content); err != nil {
+		return fmt.Errorf("failed to post to forge conversation %s: %w", sessionID, err)
+	}
+	return nil
+}
+
 // processForgeConversationStep executes a forge_conversation step.
 //
 // Addressing resolution order:

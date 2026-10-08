@@ -132,6 +132,20 @@
    type is admitted by migration `0013_forge_step.sql`.
 7. **Per-job WS subscriptions (H3.4)**: opt-in client-side filtering on
    the firehose; never-subscribed clients keep receiving everything.
+8. **Wakes (H3.3)**: fleet wake-policy engine in `internal/wake`
+   (migration `0014_wakes.sql`). Cron lane scans every 30 s against
+   `next_due_at`; event lane consumes a bounded EventBus fed by
+   `Engine.SetJobEventSink` (job.completed/job.failed) plus the
+   `POST /api/v1/wakes/fire` ingress. Fire = render prompt_template
+   (missingkey=error) → rate-limit check (drop + log
+   `error='rate_limited'`) → workflow `SubmitJob` or
+   `engine.ForgeSubmission.PostMessage` (H3.2 client, fire-and-forget
+   → `wake_log` + cron schedule advance in one txn. `memory`/
+   `agent_signal` kinds are validated-inert H4 stubs. Cron: faithful
+   port of the ranch 5-field subset (`*`, `*/n`, lists, ranges, UTC,
+   dow 0-6); invalid expr → 400. Auth: owner-scoped CRUD for any
+   valid key; the fire endpoint is a fleet ingress (any valid key).
+   Spec: spec.md "Wakes".
 
 ### Testing Strategy
 

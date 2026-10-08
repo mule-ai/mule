@@ -21,6 +21,7 @@ import (
 	"github.com/mule-ai/mule/internal/manager"
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
+	"github.com/mule-ai/mule/internal/wake"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 	"github.com/mule-ai/mule/pkg/job"
 )
@@ -36,6 +37,7 @@ type apiHandler struct {
 	workflowEngine *engine.Engine
 	workflowMgr    *manager.WorkflowManager
 	skillMgr       *manager.SkillManager
+	wakeScheduler  *wake.Scheduler
 }
 
 func NewAPIHandler(db *internaldb.DB) *apiHandler {
@@ -68,6 +70,11 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	// Create skill manager
 	skillMgr := manager.NewSkillManager(db)
 
+	// Wake scheduler (Herd H3.3): fleet wake-policy engine. Not started
+	// here — main() starts it with the engine (tenancy tests build the
+	// handler without starting it).
+	wakeScheduler := wake.NewScheduler(wake.NewStore(db.DB), workflowEngine)
+
 	return &apiHandler{
 		db:             db,
 		store:          store,
@@ -79,6 +86,7 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 		workflowEngine: workflowEngine,
 		workflowMgr:    workflowMgr,
 		skillMgr:       skillMgr,
+		wakeScheduler:  wakeScheduler,
 	}
 }
 

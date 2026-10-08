@@ -120,6 +120,14 @@ func tenancyRouter(t *testing.T, db *internaldb.DB) http.Handler {
 	router.HandleFunc("/api/v1/jobs/{id}", handler.getJobHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/jobs/{id}", handler.cancelJobHandler).Methods(http.MethodDelete)
 	router.HandleFunc("/api/v1/providers", handler.createProviderHandler).Methods(http.MethodPost)
+	// Wakes (H3.3): owner-scoped CRUD + external fire ingress.
+	router.HandleFunc("/api/v1/wakes", handler.listWakesHandler).Methods(http.MethodGet)
+	router.HandleFunc("/api/v1/wakes", handler.createWakesHandler).Methods(http.MethodPost)
+	router.HandleFunc("/api/v1/wakes/fire", handler.fireWakesHandler).Methods(http.MethodPost)
+	router.HandleFunc("/api/v1/wakes/{id}", handler.getWakesHandler).Methods(http.MethodGet)
+	router.HandleFunc("/api/v1/wakes/{id}", handler.patchWakesHandler).Methods(http.MethodPatch)
+	router.HandleFunc("/api/v1/wakes/{id}", handler.deleteWakesHandler).Methods(http.MethodDelete)
+	router.HandleFunc("/api/v1/wakes/{id}/log", handler.wakeLogHandler).Methods(http.MethodGet)
 	return router
 }
 

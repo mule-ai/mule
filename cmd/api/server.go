@@ -230,6 +230,11 @@ func main() {
 	}
 	defer handler.workflowEngine.Stop()
 
+	// Start the wake scheduler (Herd H3.3): registers the engine's
+	// job-event sink and runs the cron scan + event lanes.
+	handler.wakeScheduler.Start()
+	defer handler.wakeScheduler.Stop()
+
 	router.HandleFunc("/v1/models", handler.modelsHandler).Methods("GET")
 	router.HandleFunc("/v1/chat/completions", handler.chatCompletionsHandler).Methods("POST")
 
@@ -295,6 +300,15 @@ func main() {
 	router.HandleFunc("/api/v1/jobs/{id}", handler.getJobHandler).Methods("GET")
 	router.HandleFunc("/api/v1/jobs/{id}", handler.cancelJobHandler).Methods("DELETE")
 	router.HandleFunc("/api/v1/jobs/{id}/steps", handler.listJobStepsHandler).Methods("GET")
+
+	// Wake engine (Herd H3.3): fleet wake policies + external fire ingress.
+	router.HandleFunc("/api/v1/wakes", handler.listWakesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wakes", handler.createWakesHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wakes/fire", handler.fireWakesHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wakes/{id}", handler.getWakesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wakes/{id}", handler.patchWakesHandler).Methods("PATCH")
+	router.HandleFunc("/api/v1/wakes/{id}", handler.deleteWakesHandler).Methods("DELETE")
+	router.HandleFunc("/api/v1/wakes/{id}/log", handler.wakeLogHandler).Methods("GET")
 
 	// WASM module APIs - Order matters! Specific routes before generic {id} routes
 	router.HandleFunc("/api/v1/wasm-modules", handler.listWasmModulesHandler).Methods("GET")

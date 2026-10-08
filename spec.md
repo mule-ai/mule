@@ -417,6 +417,119 @@ so it inherits the filter automatically. Acceptance is covered by
 B-subscribed vs subscribe-all vs default clients; step-update
 filtering).
 
+## Wakes (Herd H3.3)
+
+`wakes` is mule's **fleet-level wake-policy engine**: a *wake* is a
+condition plus a target plus a prompt template. The scheduler
+(`internal/wake`, started from `cmd/api/server.go` alongside the
+workflow engine) fires due wakes — it renders the template and either
+submits a mule job or posts a message to a forge agent conversation.
+Ranch's machine-local trigger scheduler stays the edge (cron/event/
+webhook firing mule jobs or local panes); wakes is the fleet superset
+that can address any forge agent from any condition, including
+conditions only mule sees (job completed, memory trigger, agent
+signal). Tables: `wakes` + `wake_log` (migration `0014_wakes.sql`).
+
+### Kinds
+
+| kind           | spec                              | lane            | status |
+|----------------|-----------------------------------|-----------------|--------|
+| `cron`         | `{expr}`                          | 30 s due-scan   | live   |
+| `webhook`      | `{source, tag?}` (tagless matches any tag for that source) | `POST /api/v1/wakes/fire` | live |
+| `event`        | `{type}` (e.g. `job.completed`, `job.failed`, any external type) | engine job-event sink + fire endpoint | live |
+| `job`          | `{workflow_id, status}` (`completed`\|`failed`) | engine job-event sink | live |
+| `memory`       | `{agent_id, predicate}`           | —               | **inert in H3**: validated + stored, never fires; H4.5 wires it to the memory store |
+| `agent_signal` | `{agent_id, kinds[]}`             | —               | **inert in H3**: validated + stored, never fires; H4.6 wires it to the agent signal bus |
+
+### Target
+
+- `target.workflow_id` — the fire submits a mule job on that workflow
+  with input `{"prompt": <rendered template>, "payload": <fire payload>}`;
+  the job id is recorded in `wake_log.job_id`.
+- `target.forge_conversation` — an H3.2 step-config map
+  (`{forge_url, api_key, agent_id | conversation_id}`); the fire posts
+  the rendered prompt as a plain message (prefixed `[mule wake <id>]`),
+  fire-and-forget — no turn wait, wakes are cheap. A bare `agent_id`
+  without forge credentials is not addressable in v1 (400 at create);
+  a shared fleet forge config is the documented upgrade path.
+
+### Fire path
+
+1. **Rate-limit guardrail** (runaway proactivity, research §10.3, the
+   H5.3 kill-switch ancestor): if the wake's `wake_log` already has
+   ≥ `rate_limit_per_hour` rows in the trailing hour, the fire is
+   **dropped** and logged (`ok=false, error='rate_limited'`) — no
+   submission. Enforced in the control plane, not the agent.
+2. Render `prompt_template` (Go `text/template`, `missingkey=error`)
+   over `{wake_id, wake_name, kind, source, payload, fired_at}`.
+3. Submit per the target (above).
+4. Record `wake_log {payload, job_id?, ok, error}` and — for cron
+   wakes — advance `last_fired_at`/`next_due_at` in the **same
+   transaction** (`Store.RecordFire`), so a fire cannot be double-
+   counted by the scan lane.
+
+Cron wakes advance `next_due_at` even on submission failure: the
+schedule stays on cadence and the rate limit bounds a broken target to
+`rate_limit_per_hour` error rows per hour. Every attempt (ok, failed,
+rate-limited) lands in `wake_log`, so throttling is visible in the
+audit trail (and, in H5, the Activity View).
+
+### Cron subset
+
+Faithful Go port of the ranch daemon's 5-field cron semantics
+(`ranch-2/crates/ranch/src/triggers.rs`, "minimal cron"): fields are
+minute hour day-of-month month day-of-week; each field supports `*`,
+`*/n`, single values, inclusive ranges `a-b`, and lists `a,b,c`.
+Ranges: 0-59 / 0-23 / 1-31 / 1-12 / 0-6 (0 = Sunday; `7` is not
+accepted). UTC. No `?`, `L`, `W`, names, or range-steps. Next-fire is
+computed by minute probing (bounded 366 days) — the same brute force
+as the Rust reference. Invalid expr at create/update → 400.
+`next_due_at` is computed at create/update and after each fire.
+
+### API & auth
+
+- `GET/POST /api/v1/wakes`, `GET/PATCH/DELETE /api/v1/wakes/{id}` —
+  owner-scoped (H3.1 `owner_id` pattern; admin sees all).
+- `GET /api/v1/wakes/{id}/log` — newest first, limit 100.
+- `POST /api/v1/wakes/fire {kind: "webhook"|"event", source, event_tag?,
+  payload?}` — the external ingress (webhooks + external event pushes).
+  `kind=webhook` matches `spec {source, tag?}`; `kind=event` treats
+  `source` as the event TYPE (matches `spec {type}`).
+
+Auth choice (deliberate): wakes are the **proactivity primitive** —
+the H3.1 write-restriction that applies to agent/workflow/job/policy
+routes does NOT apply to wake CRUD; any valid owner key has full CRUD
+on its own wakes. The fire endpoint accepts any valid key: it is an
+ingress, not a mutation (it triggers other owners' already-published
+wakes fleet-wide, which is the point of a fleet ingress).
+
+### Engine event hook
+
+`Engine.SetJobEventSink` (wired in `Scheduler.Start()`) receives a
+`JobEvent` (`job.completed` / `job.failed`, with job + workflow ids)
+from `processJob`'s terminal paths. The scheduler publishes them to
+its bounded `EventBus` (drop-oldest + warn when full), which the
+event lane matches against `event`/`job` wakes.
+
+### Ranch integration
+
+ranchd's `WebhookEvent` handling gains an optional `daemon.toml
+[wakes] mule_forward = true` (+ `wakes_url`/`wakes_api_key`): when a
+webhook event arrives locally, ranchd fire-and-forget POSTs
+`{kind:"webhook", source, event_tag, payload}` to the mule fire
+endpoint — a single webhook can drive both local panes and fleet
+agents. A mule failure is logged and dropped; it never fails local
+webhook handling. The existing trigger → mule job path is unchanged.
+
+Acceptance (`internal/wake/wake_test.go`, `cmd/api/wake_tenancy_test.go`):
+cron wake fires once per window against a fake forge (no double fire
+on rescan); webhook fire endpoint wakes the agent with a rendered
+prompt; `job.completed` on a real engine job fires the event-kind wake
+with the job id in the payload; `rate_limit_per_hour=2` drops the
+third fire with `error='rate_limited'` in `wake_log`; workflow targets
+submit a job (`wake_log.job_id` set); user B cannot see user A's
+wakes; inert kinds are accepted and never fire.
+
 ## Dependencies & Constraints
 
 ### External Dependencies

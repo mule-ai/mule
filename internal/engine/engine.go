@@ -28,9 +28,18 @@ type Engine struct {
 	wg           sync.WaitGroup
 	mu           sync.RWMutex
 	running      bool
+	jobEventSink func(JobEvent)
 }
 
 // Config holds engine configuration
+// JobEvent is a terminal-state notification for a job, emitted to the
+// sink registered via SetJobEventSink (the wakes event lane, H3.3).
+type JobEvent struct {
+	Event      string // "job.completed" or "job.failed"
+	JobID      string
+	WorkflowID string
+}
+
 type Config struct {
 	Workers int
 }
@@ -46,6 +55,17 @@ func NewEngine(store primitive.PrimitiveStore, jobStore job.JobStore, agentRunti
 		jobQueue:     make(chan string, 100), // Buffered channel for job IDs
 		stopCh:       make(chan struct{}),
 	}
+}
+
+// SetJobEventSink registers a callback invoked with a JobEvent for every
+// job that reaches a terminal state in this process (completed or
+// failed — the cancelled/timed-out paths surface as failed). It must be
+// called before Start for the sink to see jobs submitted during the
+// engine's life.
+func (e *Engine) SetJobEventSink(fn func(JobEvent)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.jobEventSink = fn
 }
 
 // Start starts the workflow engine
@@ -175,10 +195,35 @@ func (e *Engine) worker(ctx context.Context, workerID int) {
 	}
 }
 
-// processJob executes one job: marks it RUNNING, runs the workflow steps
+// processJob executes one job and emits its terminal-state JobEvent to
+// the registered sink (if any) before returning.
+func (e *Engine) processJob(ctx context.Context, jobID string) error {
+	err := e.runJob(ctx, jobID)
+	e.emitJobEvent(jobID, err)
+	return err
+}
+
+func (e *Engine) emitJobEvent(jobID string, err error) {
+	e.mu.RLock()
+	sink := e.jobEventSink
+	e.mu.RUnlock()
+	if sink == nil {
+		return
+	}
+	ev := JobEvent{JobID: jobID, Event: "job.failed"}
+	if err == nil {
+		ev.Event = "job.completed"
+	}
+	if j, getErr := e.jobStore.GetJob(jobID); getErr == nil && j != nil {
+		ev.WorkflowID = j.WorkflowID
+	}
+	sink(ev)
+}
+
+// runJob executes one job: marks it RUNNING, runs the workflow steps
 // sequentially (AGENT or WASM_MODULE) within the job timeout, and marks the
 // job COMPLETED or FAILED. Cancellation is checked between steps.
-func (e *Engine) processJob(ctx context.Context, jobID string) error {
+func (e *Engine) runJob(ctx context.Context, jobID string) error {
 	// Mark job as running
 	if err := e.jobStore.MarkJobRunning(jobID); err != nil {
 		return fmt.Errorf("failed to mark job as running: %w", err)
