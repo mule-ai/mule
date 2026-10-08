@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mule-ai/mule/internal/database"
+	"github.com/mule-ai/mule/internal/primitive"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 )
 
@@ -37,6 +38,14 @@ func (sm *SkillManager) CreateSkill(ctx context.Context, name, description, path
 	}
 
 	query := `INSERT INTO skills (id, name, description, path, enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	if pr, ok := primitive.PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query = `INSERT INTO skills (id, name, description, path, enabled, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+		_, err := sm.db.ExecContext(ctx, query, skill.ID, skill.Name, skill.Description, skill.Path, skill.Enabled, pr.UserID, skill.CreatedAt, skill.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert skill: %w", err)
+		}
+		return skill, nil
+	}
 	_, err := sm.db.ExecContext(ctx, query, skill.ID, skill.Name, skill.Description, skill.Path, skill.Enabled, skill.CreatedAt, skill.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert skill: %w", err)
@@ -48,8 +57,13 @@ func (sm *SkillManager) CreateSkill(ctx context.Context, name, description, path
 // GetSkill retrieves a skill by ID
 func (sm *SkillManager) GetSkill(ctx context.Context, id string) (*dbmodels.Skill, error) {
 	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills WHERE id = $1`
+	args := []interface{}{id}
+	if clause, arg := primitive.OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
 	skill := &dbmodels.Skill{}
-	err := sm.db.QueryRowContext(ctx, query, id).Scan(
+	err := sm.db.QueryRowContext(ctx, query, args...).Scan(
 		&skill.ID,
 		&skill.Name,
 		&skill.Description,
@@ -70,8 +84,14 @@ func (sm *SkillManager) GetSkill(ctx context.Context, id string) (*dbmodels.Skil
 
 // ListSkills lists all skills
 func (sm *SkillManager) ListSkills(ctx context.Context) ([]*dbmodels.Skill, error) {
-	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills ORDER BY name`
-	rows, err := sm.db.QueryContext(ctx, query)
+	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills`
+	args := []interface{}{}
+	if clause, arg := primitive.OwnerScope(ctx, 1); clause != "" {
+		query += " WHERE " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY name"
+	rows, err := sm.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query skills: %w", err)
 	}
@@ -117,7 +137,12 @@ func (sm *SkillManager) UpdateSkill(ctx context.Context, id, name, description, 
 	skill.UpdatedAt = time.Now()
 
 	query := `UPDATE skills SET name = $1, description = $2, path = $3, enabled = $4, updated_at = $5 WHERE id = $6`
-	_, err = sm.db.ExecContext(ctx, query, skill.Name, skill.Description, skill.Path, skill.Enabled, skill.UpdatedAt, skill.ID)
+	args := []interface{}{skill.Name, skill.Description, skill.Path, skill.Enabled, skill.UpdatedAt, skill.ID}
+	if clause, arg := primitive.OwnerScope(ctx, 7); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	_, err = sm.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update skill: %w", err)
 	}
@@ -128,7 +153,12 @@ func (sm *SkillManager) UpdateSkill(ctx context.Context, id, name, description, 
 // DeleteSkill deletes a skill
 func (sm *SkillManager) DeleteSkill(ctx context.Context, id string) error {
 	query := `DELETE FROM skills WHERE id = $1`
-	result, err := sm.db.ExecContext(ctx, query, id)
+	args := []interface{}{id}
+	if clause, arg := primitive.OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	result, err := sm.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to delete skill: %w", err)
 	}
@@ -174,10 +204,17 @@ func (sm *SkillManager) GetAgentSkills(ctx context.Context, agentID string) ([]*
 		FROM skills s
 		JOIN agent_skills ast ON s.id = ast.skill_id
 		WHERE ast.agent_id = $1
+	`
+	args := []interface{}{agentID}
+	if clause, arg := primitive.AgentOwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	query += `
 		ORDER BY s.name
 	`
 
-	rows, err := sm.db.QueryContext(ctx, query, agentID)
+	rows, err := sm.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent skills: %w", err)
 	}

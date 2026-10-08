@@ -249,6 +249,25 @@ User Request → HTTP Handler → Agent Runtime → PI RPC Process
 - Add pi installation to build process (npm install -g)
 - Test pi subprocess spawning in CI
 
+## Tenancy & Authentication (Herd H3.1)
+
+Mule supports multi-user deployments. The full contract lives in
+**[`docs/TENANCY.md`](docs/TENANCY.md)**; summary:
+
+- `users` + `api_keys` (migration `0012_tenancy.sql`): SHA-256 key
+  hashes, `key_prefix`, `restricted` flag, optional `expires_at`; argon2id
+  password hashes. `owner_id` on agents/workflows/jobs/skills/providers.
+- `Authorization: Bearer sk_mule_<hex>` is required on every
+  `/api/v1/*` and `/v1/*` route; unknown/expired → 401, restricted
+  writes → 403. `/health` and `/ws` stay unauthenticated.
+- First-boot bootstrap creates the operator's admin from
+  `MULE_ADMIN_*` (id defaults to the documented
+  `00000000-0000-4000-8000-000000000001`; generated credentials are
+  logged once). Idempotent on later boots.
+- Non-admins see only their own primitives; foreign objects read as
+  404. `MULE_NO_AUTH=1` restores the legacy single-operator behavior
+  with a synthetic admin context (local/ranch dev).
+
 ## Dependencies & Constraints
 
 ### External Dependencies

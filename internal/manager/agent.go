@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mule-ai/mule/internal/database"
+	"github.com/mule-ai/mule/internal/primitive"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 )
 
@@ -38,6 +39,14 @@ func (am *AgentManager) CreateAgent(ctx context.Context, name, description, prov
 	}
 
 	query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	if pr, ok := primitive.PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query = `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+		_, err := am.db.ExecContext(ctx, query, agent.ID, agent.Name, agent.Description, agent.ProviderID, agent.ModelID, agent.SystemPrompt, pr.UserID, agent.CreatedAt, agent.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert agent: %w", err)
+		}
+		return agent, nil
+	}
 	_, err := am.db.ExecContext(ctx, query, agent.ID, agent.Name, agent.Description, agent.ProviderID, agent.ModelID, agent.SystemPrompt, agent.CreatedAt, agent.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert agent: %w", err)

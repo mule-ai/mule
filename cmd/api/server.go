@@ -21,6 +21,7 @@ import (
 	"github.com/mule-ai/mule/internal/frontend"
 	"github.com/mule-ai/mule/internal/initialization"
 	"github.com/mule-ai/mule/internal/manager"
+	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
@@ -110,6 +111,15 @@ func main() {
 	}
 	log.Println("Database schema initialized successfully")
 
+	// Tenancy bootstrap (docs/TENANCY.md): on first boot create the
+	// operator's admin user + API key from MULE_ADMIN_* (generated and
+	// logged once when unset). Idempotent: a boot with existing users
+	// is a no-op.
+	bootInfo, err := api.BootstrapAdmin(context.Background(), db.DB)
+	if err != nil {
+		log.Fatalf("failed to bootstrap tenancy admin: %v", err)
+	}
+
 	// Encryption secret for provider API keys. Set MULE_ENCRYPTION_SECRET to a
 	// 16/24/32-byte value; without it we fall back to a built-in default so
 	// local development works, but the key provides no real secrecy then.
@@ -125,7 +135,11 @@ func main() {
 	agentMgr := manager.NewAgentManager(db)
 	workflowMgr := manager.NewWorkflowManager(db)
 
-	initCtx := context.Background()
+	// Carries the bootstrap admin as principal so the default
+	// provider/agent/workflow rows created below are owned by the
+	// admin (visible to everyone, editable only by the admin).
+	initCtx := primitive.WithPrincipal(context.Background(),
+		primitive.Principal{UserID: bootInfo.AdminID, Admin: true})
 	defaults, err := initialization.EnsureAllDefaults(initCtx, providerMgr, agentMgr, workflowMgr)
 	if err != nil {
 		log.Printf("Warning: failed to ensure default primitives: %v", err)
@@ -140,6 +154,9 @@ func main() {
 	router.Use(api.LoggingMiddleware)
 	router.Use(api.RecoveryMiddleware)
 	router.Use(api.CORSMiddleware)
+	// Tenancy auth for /api/v1/* and /v1/*. /health, /ws and the
+	// frontend catch-all stay unauthenticated (docs/TENANCY.md).
+	router.Use(api.AuthMiddleware(db.DB))
 
 	// Register WebSocket endpoint BEFORE timeout middleware
 	// This is critical because the timeout middleware wraps the ResponseWriter

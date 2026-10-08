@@ -82,6 +82,34 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	}
 }
 
+// ownerIDFrom returns the tenancy principal's user id carried by ctx
+// (empty when the context has no principal — engine/background paths).
+func ownerIDFrom(ctx context.Context) string {
+	if p, ok := primitive.PrincipalFrom(ctx); ok {
+		return p.UserID
+	}
+	return ""
+}
+
+// principalAdmin reports whether ctx carries an admin tenancy principal.
+func principalAdmin(ctx context.Context) bool {
+	p, ok := primitive.PrincipalFrom(ctx)
+	return ok && p.Admin
+}
+
+// jobOwnerDenied reports whether the caller (when non-admin and
+// authenticated) does not own the job. Admins and unauthenticated-
+// context callers (background paths) pass. Ownerless jobs (NULL
+// owner_id, pre-backfill) are admin-only, mirroring forge's tenancy
+// gate.
+func jobOwnerDenied(ctx context.Context, j *job.Job) bool {
+	p, ok := primitive.PrincipalFrom(ctx)
+	if !ok || p.Admin {
+		return false
+	}
+	return j.OwnerID != p.UserID
+}
+
 // modelsHandler lists all agents and workflows as /v1/models entries.
 // GET /v1/models
 func (h *apiHandler) modelsHandler(w http.ResponseWriter, r *http.Request) {
@@ -972,6 +1000,13 @@ func (h *apiHandler) assignToolToAgentHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Ownership check (tenancy): scoped GetAgent fails for other users'
+	// agents and unknown ids.
+	if _, err := h.store.GetAgent(ctx, agentID); err != nil {
+		api.HandleError(w, fmt.Errorf("agent not found: %s", agentID), http.StatusNotFound)
+		return
+	}
+
 	if err := h.store.AssignToolToAgent(ctx, agentID, request.ToolID); err != nil {
 		api.HandleError(w, fmt.Errorf("failed to assign tool to agent: %w", err), http.StatusInternalServerError)
 		return
@@ -988,6 +1023,12 @@ func (h *apiHandler) removeToolFromAgentHandler(w http.ResponseWriter, r *http.R
 	vars := mux.Vars(r)
 	agentID := vars["id"]
 	toolID := vars["toolId"]
+
+	// Ownership check (tenancy)
+	if _, err := h.store.GetAgent(ctx, agentID); err != nil {
+		api.HandleError(w, fmt.Errorf("agent not found: %s", agentID), http.StatusNotFound)
+		return
+	}
 
 	if err := h.store.RemoveToolFromAgent(ctx, agentID, toolID); err != nil {
 		if err == primitive.ErrNotFound {
@@ -1035,6 +1076,12 @@ func (h *apiHandler) assignSkillsToAgentHandler(w http.ResponseWriter, r *http.R
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	agentID := vars["id"]
+
+	// Ownership check (tenancy)
+	if _, err := h.store.GetAgent(ctx, agentID); err != nil {
+		api.HandleError(w, fmt.Errorf("agent not found: %s", agentID), http.StatusNotFound)
+		return
+	}
 
 	var request struct {
 		SkillIDs []string `json:"skill_ids"`
@@ -1084,6 +1131,12 @@ func (h *apiHandler) removeSkillFromAgentHandler(w http.ResponseWriter, r *http.
 	vars := mux.Vars(r)
 	agentID := vars["id"]
 	skillID := vars["skillId"]
+
+	// Ownership check (tenancy)
+	if _, err := h.store.GetAgent(ctx, agentID); err != nil {
+		api.HandleError(w, fmt.Errorf("agent not found: %s", agentID), http.StatusNotFound)
+		return
+	}
 
 	if err := h.store.RemoveSkillFromAgent(ctx, agentID, skillID); err != nil {
 		if err == primitive.ErrNotFound {
@@ -1266,6 +1319,15 @@ func (h *apiHandler) createWorkflowStepHandler(w http.ResponseWriter, r *http.Re
 			}
 		}
 		step.StepOrder = maxOrder + 1
+	}
+
+	// Ownership check (tenancy): only the workflow owner (or an admin)
+	// can add steps; scoped GetWorkflow fails for other users' workflows.
+	// Runs after field validation so request-shape errors still read as
+	// 400, matching the pre-tenancy behavior.
+	if _, err := h.store.GetWorkflow(ctx, workflowID); err != nil {
+		api.HandleError(w, fmt.Errorf("workflow not found: %s", workflowID), http.StatusNotFound)
+		return
 	}
 
 	if err := h.store.CreateWorkflowStep(ctx, &step); err != nil {
@@ -1454,6 +1516,14 @@ func (h *apiHandler) listJobsHandler(w http.ResponseWriter, r *http.Request) {
 		Search:       searchStr,
 		WorkflowName: workflowNameStr,
 	}
+	// Owner scope (tenancy): non-admin callers only see their own jobs
+	if p, ok := primitive.PrincipalFrom(r.Context()); ok {
+		if p.Admin {
+			opts.Admin = true
+		} else {
+			opts.OwnerID = p.UserID
+		}
+	}
 
 	jobs, totalCount, err := h.jobStore.ListJobs(opts)
 	if err != nil {
@@ -1543,6 +1613,7 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 			Status:           job.StatusQueued,
 			InputData:        req.InputData,
 			WorkingDirectory: req.WorkingDirectory,
+			OwnerID:          ownerIDFrom(ctx),
 			CreatedAt:        time.Now(),
 		}
 
@@ -1567,6 +1638,7 @@ func (h *apiHandler) createJobHandler(w http.ResponseWriter, r *http.Request) {
 			Status:           job.StatusRunning, // Start as running since we're executing immediately
 			InputData:        req.InputData,
 			WorkingDirectory: req.WorkingDirectory,
+			OwnerID:          ownerIDFrom(ctx),
 			CreatedAt:        time.Now(),
 		}
 
@@ -1636,6 +1708,10 @@ func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if jobOwnerDenied(r.Context(), j) {
+		api.HandleError(w, fmt.Errorf("job not found: %s", id), http.StatusNotFound)
+		return
+	}
 
 	// Enrich job with workflow and WASM module names
 	ctx := r.Context()
@@ -1669,6 +1745,14 @@ func (h *apiHandler) getJobHandler(w http.ResponseWriter, r *http.Request) {
 func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	jobID := vars["id"]
+
+	// Ownership check (tenancy): a job that exists and belongs to
+	// another user is not visible. Unknown jobs keep the legacy
+	// behavior (empty step list).
+	if j, err := h.jobStore.GetJob(jobID); err == nil && jobOwnerDenied(r.Context(), j) {
+		api.HandleError(w, fmt.Errorf("job not found: %s", jobID), http.StatusNotFound)
+		return
+	}
 
 	steps, err := h.jobStore.ListJobSteps(jobID)
 	if err != nil {
@@ -1719,6 +1803,14 @@ func (h *apiHandler) listJobStepsHandler(w http.ResponseWriter, r *http.Request)
 func (h *apiHandler) cancelJobHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	jobID := vars["id"]
+
+	// Ownership check (tenancy): a job that exists and belongs to
+	// another user cannot be cancelled. Unknown jobs keep the legacy
+	// behavior (the cancel below reports them).
+	if j, err := h.jobStore.GetJob(jobID); err == nil && jobOwnerDenied(r.Context(), j) {
+		api.HandleError(w, fmt.Errorf("job not found: %s", jobID), http.StatusNotFound)
+		return
+	}
 
 	if err := h.jobStore.CancelJob(jobID); err != nil {
 		if err.Error() == "job not found or cannot be cancelled" {

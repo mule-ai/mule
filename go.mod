@@ -12,6 +12,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.11.1
 	github.com/tetratelabs/wazero v1.10.1
+	golang.org/x/crypto v0.52.0
 )
 
 require (
@@ -70,7 +71,6 @@ require (
 	go.opentelemetry.io/otel v1.41.0 // indirect
 	go.opentelemetry.io/otel/metric v1.41.0 // indirect
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
