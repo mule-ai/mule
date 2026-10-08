@@ -27,9 +27,12 @@ type Wake struct {
 
 // Kind is a wake's condition class.
 //
-// Cron / Webhook / Event / Job are live in H3. Memory and AgentSignal
-// are registered and validated in H3 but INERT (never fire); H4 wires
-// them to the memory store and the agent signal bus respectively.
+// Cron / Webhook / Event / Job are live in H3. Memory is live in H4:
+// the forwarder lane (memory_trigger.go) fires it IN-PROCESS when one
+// of the agent's belief watches matches an episode — it never fires
+// from the cron/event/webhook lanes (Inert keeps those out; only the
+// forwarder calls FireWake on a memory wake). AgentSignal is inert
+// (H4.6 wires it to the agent signal bus).
 type Kind string
 
 const (
@@ -54,7 +57,9 @@ func IsKind(s string) (Kind, bool) {
 	return "", false
 }
 
-// Inert reports whether the kind is accepted-but-not-wired in H3.
+// Inert reports whether the kind never fires from the cron/event
+// lanes (only a dedicated lane may fire it — memory via the H4.5
+// forwarder).
 func (k Kind) Inert() bool { return k == KindMemory || k == KindAgentSignal }
 
 // LogEntry mirrors one `wake_log` row (fire audit trail).

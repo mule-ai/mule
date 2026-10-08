@@ -574,8 +574,10 @@ func TestInertKindsNeverFire(t *testing.T) {
 	mustCreate(t, store, mem)
 	mustCreate(t, store, sig)
 
-	// ...but inert in H3: even when due, the cron lane ignores them
-	// (kind != 'cron'), and the event lane has no event type to match.
+	// ...but never fire from the cron/event lanes: even when due, the
+	// cron lane ignores them (kind != 'cron'), and the event lane has
+	// no event type to match. (The H4.5 forwarder is the ONLY path
+	// that fires a memory wake, and it calls FireWake directly.)
 	_, err := db.Exec(`UPDATE wakes SET next_due_at = NOW() - INTERVAL '1 hour' WHERE kind IN ('memory','agent_signal')`)
 	require.NoError(t, err)
 	sched := NewScheduler(store, nil)

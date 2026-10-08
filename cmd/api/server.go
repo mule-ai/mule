@@ -22,6 +22,7 @@ import (
 	"github.com/mule-ai/mule/internal/initialization"
 	"github.com/mule-ai/mule/internal/manager"
 	"github.com/mule-ai/mule/internal/primitive"
+	"github.com/mule-ai/mule/internal/wake"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
@@ -234,6 +235,18 @@ func main() {
 	// job-event sink and runs the cron scan + event lanes.
 	handler.wakeScheduler.Start()
 	defer handler.wakeScheduler.Stop()
+
+	// Memory trigger forwarder lane (Herd H4.5): when FORGE_TRIGGER_*
+	// is set, poll the forge memory_trigger_queue every 30 s and fire
+	// the corresponding mule wake in-process (disabled when
+	// FORGE_TRIGGER_AGENTS is empty — no loop, no HTTP).
+	memoryTriggerFwd := wake.NewMemoryTriggerForwarder(
+		handler.wakeScheduler.Store(),
+		handler.wakeScheduler,
+		wake.NewMemoryTriggerForwarderConfigFromEnv(),
+	)
+	memoryTriggerFwd.Start()
+	defer memoryTriggerFwd.Stop()
 
 	router.HandleFunc("/v1/models", handler.modelsHandler).Methods("GET")
 	router.HandleFunc("/v1/chat/completions", handler.chatCompletionsHandler).Methods("POST")

@@ -210,6 +210,28 @@
    engine vs a fake forge, incl. a full 4-step job with a
    fixed-output stand-in for the agent step — the real-model leg is
    the manual acceptance). Spec: spec.md "Reflection Workflow".
+11. **Memory trigger lane (H4.5)**: `internal/wake/memory_trigger.go`
+    (started from `cmd/api/server.go` next to the scheduler) is the
+    mule host's forwarder for forge's `memory_trigger_queue` (H4.5,
+    forge migration 024): when a belief's `watch` matches an episode,
+    forge queues a row; this lane polls each configured agent's
+    `GET …/memory/triggers/pending` every 30 s and fires the wake
+    named by `watch.wake_id` IN-PROCESS via `Scheduler.FireWake`
+    (source `memory_trigger`), then ACKs with
+    `POST …/triggers/:tid/consumed`. HTTP pull (not the plan's
+    shared-DB table poll): forge and mule are separate containers
+    with separate Postgres clusters in the lab. Config via env:
+    `FORGE_TRIGGER_BASE` / `FORGE_TRIGGER_KEY` / `FORGE_TRIGGER_AGENTS`
+    (empty agents ⇒ disabled, no loop). Stale rows (>6 h) and rows
+    with no/unknown `wake_id` are acked with a warn (a misconfigured
+    belief cannot block the queue). Delivery is at-least-once:
+    failed ACKs re-fire on the next poll (bounded by the wake's
+    rate_limit_per_hour); failed submissions stay pending; rate-
+    limited fires are acked. Tests:
+    `internal/wake/memory_trigger_test.go` (fake forge trigger API +
+    real mule store on scratch PG: fire+ack, no-wake_id ack, ack-
+    failure retry, stale skip, disabled lane). Spec: spec.md "Wakes
+    — Memory trigger lane".
 
 ### Testing Strategy
 

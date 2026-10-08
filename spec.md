@@ -438,7 +438,7 @@ signal). Tables: `wakes` + `wake_log` (migration `0014_wakes.sql`).
 | `webhook`      | `{source, tag?}` (tagless matches any tag for that source) | `POST /api/v1/wakes/fire` | live |
 | `event`        | `{type}` (e.g. `job.completed`, `job.failed`, any external type) | engine job-event sink + fire endpoint | live |
 | `job`          | `{workflow_id, status}` (`completed`\|`failed`) | engine job-event sink | live |
-| `memory`       | `{agent_id, predicate}`           | —               | **inert in H3**: validated + stored, never fires; H4.5 wires it to the memory store |
+| `memory`       | `{agent_id, predicate}`           | H4.5 forwarder lane (in-process `FireWake`; never from the cron/event lanes) | **live (H4.5)**: fired by the memory trigger lane when a forge belief `watch` matches an episode |
 | `agent_signal` | `{agent_id, kinds[]}`             | —               | **inert in H3**: validated + stored, never fires; H4.6 wires it to the agent signal bus |
 
 ### Target
@@ -529,6 +529,58 @@ with the job id in the payload; `rate_limit_per_hour=2` drops the
 third fire with `error='rate_limited'` in `wake_log`; workflow targets
 submit a job (`wake_log.job_id` set); user B cannot see user A's
 wakes; inert kinds are accepted and never fire.
+
+### Memory trigger lane (Herd H4.5)
+
+The forge side of H4.5 (belief `watch` scan at episode insert + the
+`memory_trigger_queue` table + `GET …/memory/triggers/pending` /
+`POST …/triggers/:tid/consumed`) lives in forge. This lane —
+`internal/wake/memory_trigger.go`, started from `cmd/api/server.go`
+next to the scheduler — is the **mule host's forwarder**:
+
+- config from env at boot (same pattern as `MULE_ENCRYPTION_SECRET`):
+  `FORGE_TRIGGER_BASE` (forge API base), `FORGE_TRIGGER_KEY` (Bearer
+  key with owner-or-admin access to every listed agent),
+  `FORGE_TRIGGER_AGENTS` (comma-separated forge agent ids; **empty ⇒
+  the lane is disabled** — no loop, no HTTP).
+- every 30 s, per agent: `GET {base}/api/v1/agents/{id}/memory/
+  triggers/pending?limit=50` (10 s timeout).
+- per pending row: rows older than 6 h are skipped+acked (stale); a
+  payload without `watch.wake_id`, or whose `wake_id` is unknown to
+  this mule's `wakes` table, is acked with a warn — a misconfigured
+  belief cannot block the queue (there is no wake to log a skip
+  against, so the note is the log line). Otherwise the wake is
+  looked up locally (by id, fleet-level background context — no
+  owner scoping, like the cron lane) and fired **in-process** via
+  `Scheduler.FireWake` (source `memory_trigger`; NOT the
+  `POST /api/v1/wakes/fire` ingress — this is the same binary). The
+  queue payload IS the fire payload, so the wake's `prompt_template`
+  can reference `{{.payload.episode_summary}}` etc.
+- after a successful fire: `POST …/triggers/{id}/consumed`
+  (best-effort, 10 s timeout).
+
+**Delivery is at-least-once, not exactly-once.** A fire that failed
+to submit is NOT acked (retried next poll). A fire that submitted
+but whose ACK failed (or a crash between the two) IS re-fired on the
+next poll — `FireWake` is fire-and-forget, so the retry cost is a
+duplicate message to the target, bounded by the wake's
+`rate_limit_per_hour` guardrail. A fire the wake's own rate limiter
+dropped IS acked: re-polling every 30 s would just re-trigger the
+limiter.
+
+Why HTTP pull instead of the plan's "mule polls a forge-written DB
+table": in the lab forge and mule are separate containers with
+separate Postgres clusters, so there is no shared table to poll.
+The same 30 s cadence, restart-safe, and no cross-DB coupling.
+
+Acceptance (`internal/wake/memory_trigger_test.go`, fake forge trigger
+API + real mule store on scratch PG): pending row with
+`watch.wake_id` → `FireWake` fires (wake_log row + rendered prompt to
+the wake's target) + consumed POSTed; no `wake_id` (and unknown
+`wake_id`) → consumed + no fire; fire-then-ACK failure → row stays
+pending and the next poll re-fires (at-least-once, asserted as a
+second wake_log row); stale (>6 h) row skipped+acked; empty
+`FORGE_TRIGGER_AGENTS` → lane disabled, forge never polled.
 
 ## Policy Engine (Herd H3.5)
 
