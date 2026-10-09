@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -324,6 +325,80 @@ func (h *apiHandler) wakeLogHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"log": logs})
+}
+
+// pauseWakesHandler: POST /api/v1/wakes/pause (H5.3 kill switch —
+// mule half). Bulk-enables/disables the caller's wakes whose
+// forge-conversation target points at the given agent, without
+// deleting them. The H3.1 restriction does not apply (wakes are
+// owner-scoped, like every other wake write).
+//
+//	body: {agent_id, paused}
+//
+// Response: {agent_id, paused, updated}
+func (h *apiHandler) pauseWakesHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AgentID string `json:"agent_id"`
+		Paused  bool   `json:"paused"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AgentID == "" {
+		api.HandleError(w, fmt.Errorf("agent_id is required"), http.StatusBadRequest)
+		return
+	}
+	n, err := h.wakeScheduler.Store().SetAgentWakesEnabled(r.Context(), req.AgentID, !req.Paused)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to update wakes: %w", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"agent_id": req.AgentID, "paused": req.Paused, "updated": n,
+	})
+}
+
+// activityWakesHandler: GET /api/v1/wakes/activity (H5.3 — the data
+// the ranch Activity View polls). The caller's most recent wake_log
+// rows joined to their wakes, newest first.
+//
+//	query: ?since=RFC3339 (default 24 h ago) &limit=N (default 50, cap 100)
+//
+// Response: {activity: [{wake_id, name, kind, fired_at, job_id, ok,
+//
+//	error}]}
+func (h *apiHandler) activityWakesHandler(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	since := time.Now().UTC().Add(-24 * time.Hour)
+	if s := q.Get("since"); s != "" {
+		parsed, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			api.HandleError(w, fmt.Errorf("since must be RFC3339: %s", s), http.StatusBadRequest)
+			return
+		}
+		since = parsed
+	}
+	limit := 50
+	if l := q.Get("limit"); l != "" {
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed < 1 {
+			api.HandleError(w, fmt.Errorf("limit must be a positive integer: %s", l), http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
+	entries, err := h.wakeScheduler.Store().Activity(r.Context(), since, limit)
+	if err != nil {
+		api.HandleError(w, fmt.Errorf("failed to list wake activity: %w", err), http.StatusInternalServerError)
+		return
+	}
+	out := []map[string]interface{}{}
+	for _, e := range entries {
+		out = append(out, map[string]interface{}{
+			"wake_id": e.WakeID, "name": e.Name, "kind": e.Kind,
+			"fired_at": e.FiredAt, "job_id": e.JobID, "ok": e.OK, "error": e.Error,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"activity": out})
 }
 
 // fireWakesHandler: POST /api/v1/wakes/fire — the external ingress

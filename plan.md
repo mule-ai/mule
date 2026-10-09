@@ -232,6 +232,28 @@
     real mule store on scratch PG: fire+ack, no-wake_id ack, ack-
     failure retry, stale skip, disabled lane). Spec: spec.md "Wakes
     — Memory trigger lane".
+12. **Wakes: agent pause + activity feed (H5.3)**: the mule half of
+    the Herd kill switch + the data the ranch Activity View polls.
+    `POST /api/v1/wakes/pause {agent_id, paused}` bulk-enables/
+    disables the caller's wakes whose forge-conversation target points
+    at that agent (`Store.SetAgentWakesEnabled` —
+    `target::jsonb->'forge_conversation'->>'agent_id'` + owner scope),
+    without deleting them: pause stops every scheduled/event fire for
+    one agent in one call, resume is lossless (specs, schedules,
+    `next_due_at` all survive). Conversation-targeted and workflow
+    wakes are untouched; other users' wakes are owner-scoped out
+    (admin is not). `GET /api/v1/wakes/activity?since=RFC3339&limit=N`
+    (`Store.Activity`) returns the caller's recent `wake_log` rows
+    joined to their wakes — ok AND failed/rate-limited fires (every
+    fire path records a row), newest first, `since` default 24 h, `limit`
+    default 50 / cap 100; rows for deleted wakes cascade away. Both
+    routes owner-scoped like every wake read/write (the H3.1
+    write-restriction still does not apply to wake routes). Tests:
+    `cmd/api/wake_h53_test.go` (scratch-PG tenancy: bulk-pause owner
+    scoping + untouched conversation targets + resume + no-op + admin
+    fan-out + 400; activity owner scoping + ok/failed rows +
+    since/limit + bad-param 400s). Spec: spec.md "Wakes: pause +
+    activity (Herd H5.3)".
 
 ### Testing Strategy
 

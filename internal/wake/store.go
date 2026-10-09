@@ -257,6 +257,80 @@ func (s *Store) MatchingEventWakes(ctx context.Context, eventType, workflowID, s
 		ORDER BY created_at ASC`, eventType, workflowID, status)
 }
 
+// SetAgentWakesEnabled bulk-enables/disables the caller's wakes whose
+// forge-conversation target points at the given agent (H5.3 kill
+// switch — the mule half: stop every scheduled/proactive fire for one
+// agent without destroying the wakes). Returns the number of rows
+// updated. Wakes targeting a conversation (not an agent) and workflow
+// wakes are untouched.
+func (s *Store) SetAgentWakesEnabled(ctx context.Context, agentID string, enabled bool) (int, error) {
+	query := `UPDATE wakes SET enabled = $1, updated_at = NOW()
+		WHERE target::jsonb->'forge_conversation'->>'agent_id' = $2`
+	args := []interface{}{enabled, agentID}
+	if clause, arg := primitive.OwnerScope(ctx, len(args)+1); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to set wakes enabled for agent %s: %w", agentID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to set wakes enabled for agent %s: %w", agentID, err)
+	}
+	return int(n), nil
+}
+
+// ActivityEntry is one row of the caller's wake activity feed (H5.3 —
+// the data the ranch Activity View polls): a wake_log row joined to
+// its wake for identity + name.
+type ActivityEntry struct {
+	WakeID  string
+	Name    string
+	Kind    string
+	FiredAt time.Time
+	JobID   *string
+	OK      *bool
+	Error   *string
+}
+
+// Activity returns the caller's most recent wake_log rows (all fire
+// attempts, including failed/rate-limited ones, since every fire path
+// records a row) joined to their wakes, newest first. `since` is the
+// earliest fired_at to include; limit caps the result (capped at 100
+// server-side; the handler default is 50). Rows for deleted wakes are
+// gone (wake_log cascade-deletes with the wake).
+func (s *Store) Activity(ctx context.Context, since time.Time, limit int) ([]ActivityEntry, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	query := `SELECT wl.wake_id, w.name, w.kind, wl.fired_at, wl.job_id, wl.ok, wl.error
+		FROM wake_log wl JOIN wakes w ON w.id = wl.wake_id
+		WHERE wl.fired_at >= $1`
+	args := []interface{}{since}
+	if clause, arg := primitive.OwnerScope(ctx, len(args)+1); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY wl.fired_at DESC, wl.ctid DESC LIMIT $" + strconv.Itoa(len(args)+1)
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query wake activity: %w", err)
+	}
+	defer rows.Close()
+	out := []ActivityEntry{}
+	for rows.Next() {
+		e := ActivityEntry{}
+		if err := rows.Scan(&e.WakeID, &e.Name, &e.Kind, &e.FiredAt, &e.JobID, &e.OK, &e.Error); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // CountRecentFires counts this wake's wake_log rows in the trailing
 // hour — the rate_limit_per_hour guardrail query.
 func (s *Store) CountRecentFires(ctx context.Context, wakeID string, now time.Time) (int, error) {

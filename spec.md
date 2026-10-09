@@ -530,6 +530,37 @@ third fire with `error='rate_limited'` in `wake_log`; workflow targets
 submit a job (`wake_log.job_id` set); user B cannot see user A's
 wakes; inert kinds are accepted and never fire.
 
+### Wakes: pause + activity (Herd H5.3)
+
+The mule half of the H5.3 kill switch and the data the ranch
+Activity View polls. Both are owner-scoped like every other wake
+read/write (the H3.1 restriction still does not apply).
+
+- `POST /api/v1/wakes/pause {agent_id, paused}` — bulk-enable/
+  disable the caller's wakes whose forge-conversation target points
+  at that agent (`target::jsonb->'forge_conversation'->>'agent_id'`),
+  WITHOUT deleting them: the kill switch stops every scheduled and
+  event-driven fire for one agent in one call, and un-pause is
+  lossless (wakes, specs, and schedules survive). Conversation
+  targets and workflow targets are untouched; other users' wakes are
+  owner-scoped out (admin is not). Response: `{agent_id, paused,
+  updated}` (0 matches is a success, not an error).
+- `GET /api/v1/wakes/activity?since=RFC3339&limit=N` — the caller's
+  most recent `wake_log` rows joined to their wakes (newest first),
+  INCLUDING failed and rate-limited fires (every fire path records a
+  row — that is the audit trail). `since` defaults to 24 h ago;
+  `limit` defaults to 50, capped at 100. Response:
+  `{activity: [{wake_id, name, kind, fired_at, job_id, ok, error}]}`.
+  Rows for deleted wakes are gone (`wake_log` cascade-deletes with
+  the wake).
+
+Acceptance (`cmd/api/wake_h53_test.go`): bulk pause flips only the
+caller's agent-targeted wakes (other agents' wakes, conversation
+targets, and another user's wakes stay enabled); resume re-enables;
+admin pause spans both users; `agent_id` missing → 400; the activity
+feed shows ok AND failed fires, is owner-scoped, honors `since`/
+`limit`, and rejects bad query params.
+
 ### Memory trigger lane (Herd H4.5)
 
 The forge side of H4.5 (belief `watch` scan at episode insert + the

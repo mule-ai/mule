@@ -124,6 +124,9 @@ func tenancyRouter(t *testing.T, db *internaldb.DB) http.Handler {
 	router.HandleFunc("/api/v1/wakes", handler.listWakesHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/wakes", handler.createWakesHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/v1/wakes/fire", handler.fireWakesHandler).Methods(http.MethodPost)
+	// H5.3: agent bulk-pause + activity feed (before the {id} routes).
+	router.HandleFunc("/api/v1/wakes/pause", handler.pauseWakesHandler).Methods(http.MethodPost)
+	router.HandleFunc("/api/v1/wakes/activity", handler.activityWakesHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/wakes/{id}", handler.getWakesHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/wakes/{id}", handler.patchWakesHandler).Methods(http.MethodPatch)
 	router.HandleFunc("/api/v1/wakes/{id}", handler.deleteWakesHandler).Methods(http.MethodDelete)

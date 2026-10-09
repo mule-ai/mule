@@ -318,6 +318,10 @@ func main() {
 	router.HandleFunc("/api/v1/wakes", handler.listWakesHandler).Methods("GET")
 	router.HandleFunc("/api/v1/wakes", handler.createWakesHandler).Methods("POST")
 	router.HandleFunc("/api/v1/wakes/fire", handler.fireWakesHandler).Methods("POST")
+	// H5.3 kill-switch + activity feed — static segments, registered
+	// before the {id} routes (mux matches in registration order).
+	router.HandleFunc("/api/v1/wakes/pause", handler.pauseWakesHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wakes/activity", handler.activityWakesHandler).Methods("GET")
 	router.HandleFunc("/api/v1/wakes/{id}", handler.getWakesHandler).Methods("GET")
 	router.HandleFunc("/api/v1/wakes/{id}", handler.patchWakesHandler).Methods("PATCH")
 	router.HandleFunc("/api/v1/wakes/{id}", handler.deleteWakesHandler).Methods("DELETE")
