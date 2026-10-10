@@ -165,11 +165,11 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 			Message: "Step type is required",
 		})
 	} else {
-		validTypes := []string{"agent", "wasm_module", "forge_conversation"}
+		validTypes := []string{"agent", "wasm_module", "forge_conversation", "voice_call"}
 		if !isValidEnum(step.StepType, validTypes) {
 			errors = append(errors, ValidationError{
 				Field:   "type",
-				Message: "Step type must be one of agent, wasm_module, forge_conversation",
+				Message: "Step type must be one of agent, wasm_module, forge_conversation, voice_call",
 			})
 		}
 	}
@@ -178,6 +178,13 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 		for _, err := range v.ValidateForgeConversationStep(step.Config) {
 			errors = append(errors, err)
 		}
+	}
+
+	if step.StepType == "voice_call" && len(step.Config) == 0 {
+		errors = append(errors, ValidationError{
+			Field:   "config",
+			Message: "voice_call steps require a config object (forge_url, api_key, agent_id or conversation_id; see spec.md \"Voice loop (H6.3)\")",
+		})
 	}
 
 	if step.StepType == "agent" && (step.AgentID == nil || strings.TrimSpace(*step.AgentID) == "") {

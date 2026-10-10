@@ -120,6 +120,18 @@ We need to replace this with pi in RPC mode, which provides:
   full firehose. Full contract in
   ["Per-Job WebSocket Subscriptions" below](#per-job-websocket-subscriptions-herd-h34).
 
+#### 9. Voice Loop Call (Herd H6.3)
+
+- `voice_call` workflow step type: one mule job IS one push-to-talk
+  "call" with a forge agent — it stays RUNNING until hang-up, then
+  completes with the call's stats; a crash/kill mid-call fails the job
+  (both surfaces render that as "call dropped"). Audio flows phone/
+  host ⇄ mule over two per-call WebSockets (`/voice/{job_id}/in` /
+  `/out`); VAD, STT (forge proxy), agent steer, and TTS (forge proxy,
+  sentence-chunked with barge-in v1) are orchestrated in-process by
+  the voice package. Full contract in
+  ["Voice loop (H6.3)" below](#voice-loop-h63).
+
 ### User Interactions
 
 1. **Create Agent with Skills**: POST /api/v1/agents with skill_ids array
@@ -857,6 +869,136 @@ v1 decisions & documented limits (full detail in
   agent step replaced by a fixed-output stand-in (agent steps spawn
   `pi --mode rpc` and cannot be faked in-process; the real-model leg
   is the manual acceptance).
+
+## Voice loop (H6.3)
+
+A "call" is a mule job of workflow type `voice_call` (single-step
+workflows; the step type is the whole loop). Mule owns the async
+boundary — the plan's "mule owns the async boundary": the call is a
+long-lived interaction a conversation loop must not block on, so it
+runs as its own job that stays RUNNING for the call's whole duration.
+
+### Transport (v1, mule-hosted)
+
+Two WebSockets, addressed by the mule job id (the job id is the
+128-bit capability; these routes are unauthenticated like `/ws`):
+
+- `WS /voice/{job_id}/in` — audio IN: binary frames of 16 kHz mono
+  s16le PCM (~30 ms each). Text frame `{"hangup":true}` hangs up; so
+  does the connection closing. `{"text": …}` is a typed utterance —
+  the CLI's key-typed-text fallback (no STT: the line goes straight to
+  the agent turn); unknown text frames are ignored.
+- `WS /voice/{job_id}/out` — audio OUT: binary frames carrying the TTS
+  audio chunks (v1: 24 kHz PCM from Kokoro, `response_format:"pcm"`);
+  a text frame `{"assistant": …}` follows each agent turn (non-audio
+  surfaces print it; it is how a player-less surface still sees the
+  conversation); a final text frame `{"done":true}` marks the end.
+
+The voice sockets can attach before the engine worker starts the step
+(job poll interval ~1 s); the handlers wait for the call to be
+registered (5-minute bound, 404 on timeout).
+
+**Surface decision (ranch-2 H6.3):** audio flows phone/host ⇄ mule
+**directly** — the surfaces create the job via mule's jobs API, then
+attach to the two sockets. Ranch's JSON-lines wire protocol carries
+no audio; the daemon is out of the media path entirely (no new frames,
+no new daemon endpoints).
+
+### Pipeline (one utterance at a time)
+
+`listening → utterance → thinking → speaking → listening`:
+
+1. **VAD** (energy-based, no dep): RMS per 30 ms frame; an utterance
+   ends after ≥ 600 ms of trailing silence (`silence_ms` in config).
+2. **STT**: the utterance bytes are WAV-wrapped (44-byte RIFF header,
+   16 kHz mono) and POSTed to forge's `POST /v1/audio/transcriptions`
+   (the H6.2 shape: multipart `file` + `model=parakeet` +
+   `response_format=json`).
+3. **Agent steer**: the transcript is posted to the agent's
+   conversation (pinned `conversation_id` > agent's active
+   conversation > a fresh one) with the H3.2 `mode:"steer"` label and
+   a `TurnTimeout` (default 120 s) turn wait (SSE `turn_ended` +
+   messages-table attach-race fallback, same as `forge_conversation`).
+   **v1 steer note:** the H3.2 client implements `steer` as a plain
+   `POST /messages` to the target conversation — the forge API has no
+   separate mid-turn delivery surface yet; each utterance steers the
+   agent by message, and the mode label is kept so the upgrade is
+   config-only. Utterances are tagged `[voice call] …`.
+4. **TTS**: the agent's final assistant text is sentence-chunked and
+   each sentence is one `POST /v1/audio/speech` (Kokoro via forge, the
+   web UI's JSON shape: `{model:"kokoro", input, voice,
+   response_format:"pcm", speed:1}`); each response is one out-socket
+   binary frame.
+5. **Hang-up**: `{"hangup":true}` on the in socket (or the in socket
+   closing) → the step returns `{status:"hung_up", turns, barge_ins,
+   forge_conversation, in_sample_rate:16000, out_sample_rate,
+   out_format, dropped[]}` → job COMPLETED.
+
+### Barge-in v1
+
+While the agent's TTS audio is streaming out, the in-socket VAD keeps
+running. In-frames are drained right after each TTS chunk is written;
+`barge_in_threshold` (RMS, default 600) hit for 3 consecutive frames
+(~90 ms) stops the TTS stream (remaining sentences are not
+synthesized) and starts a new STT buffer from the triggering frame —
+the simple barge-in; true full-duplex simultaneous speech is H6.4.
+
+### Degraded hops
+
+A failed STT / agent / TTS hop does NOT kill the call: the error is
+recorded in `dropped[]` (visible in the job output at hang-up) and the
+loop returns to listening. The agent stays reachable over the surviving
+hops (e.g. TTS down ⇒ the call still works as dictation).
+
+### Crash / kill
+
+`Kill(err)` on the live call (the in-process crash/kill path) — or the
+job's own context ending (job timeout / engine cancel) — ends the call
+as a failure: the step errors, the engine marks the job **FAILED**,
+both sockets close, the call is unregistered from the hub (no zombie
+handlers). The forge conversation is intact (committed turns are
+history). Surfaces render a failed call job as "call dropped".
+
+### Engine seam
+
+The engine knows nothing about the voice package: `Config.Voice` is a
+`VoiceExecutor` interface (`StartCall` / `ForgetCall`) and the live
+call is a `VoiceCall` interface (`Run` blocks until end; `FeedIn`,
+`Out`, `MarkOutClosed`, `HangUp`, `Kill`). `internal/voice`'s `Hub`
+implements it. Engines built without a voice executor fail
+`voice_call` steps with a clear error.
+
+### Config shape
+
+The `voice_call` step's `config` JSONB:
+
+```json
+{
+  "forge_url": "http://…",          // required
+  "api_key":   "sk_forge_…",        // required
+  "agent_id":  "…",                // required unless conversation_id
+  "conversation_id": "…",          // pin one
+  "mode": "steer",                 // steer (default) | message
+  "tts_voice": "af_heart",
+  "tts_response_format": "pcm",    // "ogg" also works; surfaces play it
+  "tts_sample_rate": 24000,        // out-socket audio rate (no metadata on-socket)
+  "silence_ms": 600,               // VAD endpointing window
+  "frame_ms": 30,                  // nominal in-frame duration
+  "vad_threshold": 300,            // RMS: "the user speaks"
+  "barge_in_threshold": 600,       // RMS: "the user talks over the agent"
+  "turn_timeout_secs": 120
+}
+```
+
+### v1 limits
+
+- Single utterance pipeline: audio arriving while the agent is
+  *thinking* queues; it is endpointed and STT'd only after the current
+  turn settles (mid-turn steer during the wait is H6.4).
+- Out socket carries no rate/format metadata: surfaces read
+  `tts_sample_rate` / `tts_response_format` from the step config.
+- One in socket per call surface; any in-socket close hangs the call
+  up (surfaces open exactly one).
 
 ## Dependencies & Constraints
 

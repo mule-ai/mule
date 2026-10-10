@@ -22,6 +22,7 @@ type Engine struct {
 	jobStore     job.JobStore
 	agentRuntime *agent.Runtime
 	wasmExecutor *WASMExecutor
+	voice        VoiceExecutor
 	workers      int
 	jobQueue     chan string
 	stopCh       chan struct{}
@@ -42,6 +43,56 @@ type JobEvent struct {
 
 type Config struct {
 	Workers int
+	// Voice implements the voice_call step type (Herd H6.3). Nil is
+	// legal: engines built without it fail voice_call steps with a
+	// clear error instead of panicking.
+	Voice VoiceExecutor
+}
+
+// VoiceExecutor is the seam between the engine and the voice-loop
+// orchestrator (H6.3). The voice package's Hub implements it; the
+// engine only sees this interface so it never imports the voice
+// package (the voice package imports the engine for its forge client).
+type VoiceExecutor interface {
+	// StartCall builds and registers the call for a voice_call step.
+	// stepConfig is the step's raw config JSONB; jobInput the job's
+	// input map (v1: unused, reserved for templates like the
+	// forge_conversation step has).
+	StartCall(ctx context.Context, jobID string, stepConfig map[string]interface{}, jobInput map[string]interface{}) (VoiceCall, error)
+	// ForgetCall drops the job's call from the hub when the step
+	// finishes. (The hub's concrete type also exposes Get/WaitCall —
+	// the API layer's voice-socket handlers use those before the step
+	// has started.)
+	ForgetCall(jobID string)
+}
+
+// VoiceOutChunk is one out-socket event (H6.3): either an audio byte
+// slice (TTS chunk) or a text metadata frame (the turn's assistant
+// text, for non-audio surfaces). Exactly one of the two is set.
+type VoiceOutChunk struct {
+	Audio []byte
+	Text  string
+}
+
+// VoiceCall is one live voice loop (a mule job stays RUNNING for its
+// whole duration until hang-up).
+type VoiceCall interface {
+	// Run blocks until the call ends: nil = clean hang-up (job
+	// COMPLETED), error = dropped/killed (job FAILED).
+	Run() error
+	// Output is the step's terminal output.
+	Output() map[string]interface{}
+	// FeedIn pushes one in-socket PCM frame; FeedText one in-socket
+	// typed utterance (the CLI text fallback, skips STT); Out is the
+	// out-socket event stream (TTS audio + assistant-text frames);
+	// MarkOutClosed stops TTS when the out client goes away. HangUp
+	// ends cleanly; Kill fails the job.
+	FeedIn(pcm []byte)
+	FeedText(text string)
+	Out() <-chan VoiceOutChunk
+	MarkOutClosed()
+	HangUp()
+	Kill(err error)
 }
 
 // NewEngine creates a new workflow engine
@@ -51,6 +102,7 @@ func NewEngine(store primitive.PrimitiveStore, jobStore job.JobStore, agentRunti
 		jobStore:     jobStore,
 		agentRuntime: agentRuntime,
 		wasmExecutor: wasmExecutor,
+		voice:        config.Voice,
 		workers:      config.Workers,
 		jobQueue:     make(chan string, 100), // Buffered channel for job IDs
 		stopCh:       make(chan struct{}),
@@ -409,9 +461,36 @@ func (e *Engine) processStepWithWorkingDir(ctx context.Context, jobID string, st
 		return e.processWASMStepWithWorkingDir(ctx, step, inputData, workingDir)
 	case "forge_conversation":
 		return e.processForgeConversationStep(ctx, step, jobID, inputData, workingDir)
+	case "voice_call":
+		return e.processVoiceStep(ctx, step, jobID, inputData)
 	default:
 		return nil, fmt.Errorf("unknown step type: %s", step.StepType)
 	}
+}
+
+// processVoiceStep runs a voice-loop call (Herd H6.3): it starts the
+// call via the voice executor seam and blocks until the call is
+// hung up (success → the job completes with the call's stats) or
+// dropped/killed (error → the job is marked FAILED, which is how
+// both surfaces see "call dropped").
+func (e *Engine) processVoiceStep(ctx context.Context, step *primitive.WorkflowStep, jobID string, inputData map[string]interface{}) (map[string]interface{}, error) {
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("voice_call step cancelled: %w", ctx.Err())
+	default:
+	}
+	if e.voice == nil {
+		return nil, fmt.Errorf("voice_call step requires a voice executor (this engine was built without voice support)")
+	}
+	call, err := e.voice.StartCall(ctx, jobID, step.Config, inputData)
+	if err != nil {
+		return nil, err
+	}
+	defer e.voice.ForgetCall(jobID)
+	if err := call.Run(); err != nil {
+		return nil, err
+	}
+	return call.Output(), nil
 }
 
 // processAgentStepWithWorkingDir processes an agent step with working directory context

@@ -159,6 +159,11 @@ func main() {
 	// frontend catch-all stay unauthenticated (docs/TENANCY.md).
 	router.Use(api.AuthMiddleware(db.DB))
 
+	// Create the API handler early: the voice-loop routes below
+	// (H6.3) need its voice hub, and they must register BEFORE the
+	// timeout middleware (WebSocket upgrade), same constraint as /ws.
+	handler := NewAPIHandler(db)
+
 	// Register WebSocket endpoint BEFORE timeout middleware
 	// This is critical because the timeout middleware wraps the ResponseWriter
 	// in a way that doesn't implement http.Hijacker, which is required for WebSocket upgrades
@@ -174,6 +179,14 @@ func main() {
 	// WebSocket endpoint - registered BEFORE timeout middleware
 	wsHandler := api.NewWebSocketHandler(wsHub)
 	router.Handle("/ws", wsHandler)
+
+	// Voice-loop call transport (Herd H6.3): per-call audio sockets
+	// addressed by mule job id. Registered before the timeout
+	// middleware like /ws (WebSocket upgrade needs the raw
+	// ResponseWriter); like /ws these are unauthenticated — the 128-
+	// bit job id is the capability (spec.md "Voice loop (H6.3)").
+	router.Handle("/voice/{job_id}/in", handler.NewVoiceInHandler())
+	router.Handle("/voice/{job_id}/out", handler.NewVoiceOutHandler())
 
 	// NOW apply the timeout middleware - it won't affect the WebSocket endpoint
 	// because it was registered before this middleware
@@ -220,8 +233,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
-
-	handler := NewAPIHandler(db)
 
 	// Start the workflow engine
 	var ctx context.Context

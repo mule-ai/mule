@@ -363,8 +363,9 @@ func (m *MockPrimitiveStore) SetAgentSkills(ctx context.Context, agentID string,
 // mu guards Jobs: the engine's poller/worker goroutines call into the mock
 // concurrently with the test's main goroutine.
 type MockJobStore struct {
-	mu   sync.Mutex
-	Jobs map[string]*job.Job
+	mu     sync.Mutex
+	Jobs   map[string]*job.Job
+	Errors map[string]string // MarkJobFailed reasons by job id (nil = not recorded)
 }
 
 func (m *MockJobStore) CreateJob(j *job.Job) error {
@@ -527,6 +528,9 @@ func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
 	defer m.mu.Unlock()
 	if jobItem, exists := m.Jobs[jobID]; exists {
 		jobItem.Status = job.StatusFailed
+		if m.Errors != nil {
+			m.Errors[jobID] = err.Error()
+		}
 		return nil
 	}
 	return job.ErrJobNotFound

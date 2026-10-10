@@ -22,6 +22,7 @@ import (
 	"github.com/mule-ai/mule/internal/policy"
 	"github.com/mule-ai/mule/internal/primitive"
 	"github.com/mule-ai/mule/internal/validation"
+	"github.com/mule-ai/mule/internal/voice"
 	"github.com/mule-ai/mule/internal/wake"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 	"github.com/mule-ai/mule/pkg/job"
@@ -41,6 +42,7 @@ type apiHandler struct {
 	wakeScheduler   *wake.Scheduler
 	policyStore     *policy.Store
 	policyEvaluator *policy.Evaluator
+	voiceHub        *voice.Hub // Herd H6.3: voice-loop calls (job id → call)
 }
 
 func NewAPIHandler(db *internaldb.DB) *apiHandler {
@@ -59,8 +61,13 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 	wasmModuleMgr := manager.NewWasmModuleManager(store, wasmExecutor)
 
 	// Create workflow engine
+	// Herd H6.3: the voice hub implements the engine's VoiceExecutor
+	// seam (the voice_call step type); the /voice/{job_id}/in|out
+	// sockets route through the same hub (see server.go routes).
+	voiceHub := voice.NewHub()
 	workflowEngine := engine.NewEngine(store, jobStore, runtime, wasmExecutor, engine.Config{
 		Workers: 5, // Default to 5 workers
+		Voice:   voiceHub,
 	})
 
 	// Wire the circular engine<->executor dependency after construction
@@ -92,7 +99,19 @@ func NewAPIHandler(db *internaldb.DB) *apiHandler {
 		wakeScheduler:   wakeScheduler,
 		policyStore:     policy.NewStore(db.DB),
 		policyEvaluator: policy.NewEvaluator(db.DB),
+		voiceHub:        voiceHub,
 	}
+}
+
+// NewVoiceInHandler serves WS /voice/{job_id}/in (audio in, hang-up
+// control — Herd H6.3).
+func (h *apiHandler) NewVoiceInHandler() http.Handler {
+	return voice.InHandler(h.voiceHub)
+}
+
+// NewVoiceOutHandler serves WS /voice/{job_id}/out (TTS audio out).
+func (h *apiHandler) NewVoiceOutHandler() http.Handler {
+	return voice.OutHandler(h.voiceHub)
 }
 
 // ownerIDFrom returns the tenancy principal's user id carried by ctx
