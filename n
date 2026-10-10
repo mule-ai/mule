@@ -1,0 +1,36 @@
+# Developer Guide
+
+## Agent Settings
+
+Agent settings are stored in the `agent_settings` table. The settings include the provider, model, parameters, and system prompt.
+
+### Provider
+
+The provider is the company that provides the language model. Currently, the supported providers are OpenAI, Anthropic, Google, and Local.
+
+### Model
+
+The model is the specific language model used by the provider. Currently, the supported models are GPT-4, GPT-3.5-turbo, Claude-3, Gemini Pro, and Ollama.
+
+### Parameters
+
+The parameters are the settings for the language model. Currently, the supported parameters are temperature, max tokens, top P, frequency penalty, presence penalty, stop sequences, and system prompt.
+
+### System Prompt
+
+The system prompt is the text that is used to prompt the language model.
+
+## API Endpoints
+
+The API endpoints for agent settings are:
+
+* `GET /agents/<agent_id>/settings`: Get the agent settings for the specified agent ID.
+* `PUT /agents/<agent_id>/settings`: Set the agent settings for the specified agent ID.
+
+## UI Components
+
+The UI components for agent settings are:
+
+* `ModelSettingsComponent`: A component that displays the model settings.
+* `PresetConfig`: A class that represents a preset configuration.
+* `PresetConfigStorage`: A class that stores the preset configurations.
