@@ -46,15 +46,30 @@ phone/host                     mule (job goroutine tree)                 forge
    |                                |-- sentence chunks                  |
    |                                |=== POST /v1/audio/speech (xN) =====>|
    |<== WS /voice/{job}/out (PCM)   |<== audio/pcm chunks (Kokoro, 24k)  |
+   |    {"flush":true} on barge-in  | out-queue drained + flush control |
    |==== barge-in: hot in-frames ===| TTS stream stops, new STT buffer   |
    |    {"hangup":true} / close     |  -> step output {status,turns,...}  |
    |                                |  -> job COMPLETED (or FAILED)       |
 ```
 
-- **Barge-in v1**: while TTS plays, in-frames are drained after each
-  out-chunk; `barge_in_threshold` hit for 3 consecutive frames stops
-  TTS and starts a new utterance from the triggering frame. Full
-  duplex is H6.4.
+- **Barge-in v2 (H6.4, full-duplex)**: the in-VAD runs in every state
+  and is pumped in real time around the blocking STT/agent/TTS hops
+  (v1 only drained in-frames between out-chunks). A `barge_in_threshold`
+  hit for 3 consecutive frames (~90 ms) stops the TTS, **drains the
+  out-queue** (queued chunks are dropped, not sent), and emits a
+  `{"flush":true}` text frame on the out socket so the phone drops its
+  playback buffer too (stop-to-flush is asserted < 150 ms mule-side in
+  the unit tests; the wire + phone tail is the client's budget). The
+  new utterance is continuous across the state change (no re-arming
+  gap). Speech overlapping an in-flight *turn* (thinking/speaking) is
+  submitted as a fire-and-forget **steer** — an early partial at the
+  first ~`silence_ms` pause (tagged), the full utterance at endpoint.
+  Endpointing is the H6.4 ratio rule: silence ≥ `silence_ms` (default
+  500) **and** speech:silence RMS ratio ≥ `endpoint_ratio` (default
+  3.0), with a `max_utterance_ms` hard cap (default 15 s).
+- **Out-queue backpressure**: if a client is slower than TTS, the
+  out-queue (cap 64) drops its OLDEST event (counted as `out_dropped`
+  in the step output) — out pressure never pauses in-VAD bookkeeping.
 - **Out-socket format**: `tts_response_format`/`tts_sample_rate` from
   the step config (v1: `pcm` @ 24 kHz — Kokoro's default rate). The
   out socket carries no metadata; surfaces read the config.
@@ -78,7 +93,8 @@ JOB_ID=$(curl -fsS -X POST "$MULE_URL/api/v1/jobs" \
 # audio in:  ws://mule/voice/$JOB_ID/in    (binary PCM frames ~30ms;
 #            text {"hangup":true} to hang up, {"text": …} = typed utterance)
 # audio out: ws://mule/voice/$JOB_ID/out   (binary TTS chunks;
-#            text {"assistant": …} per turn; {"done":true} at end)
+#            text {"assistant": …} per turn; {"flush":true} = barge-in
+#            → drop your playback buffer; {"done":true} at end)
 ```
 
 Surfaces: `ranch call <agent>` (ranch-2 CLI) and the mobile-native

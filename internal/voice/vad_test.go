@@ -126,3 +126,144 @@ func TestVADReset(t *testing.T) {
 		t.Error("post-Reset speech should report a fresh start")
 	}
 }
+
+// ---------------------------------------------------------------- H6.4
+// endpointing: the pure rule + the VAD wiring
+
+func TestDecideEndpointPure(t *testing.T) {
+	min := 500 * time.Millisecond
+	max := 15 * time.Second
+	cases := []struct {
+		name        string
+		speech, sil float64
+		ratio       float64
+		silence     time.Duration
+		open        time.Duration
+		wantEnd     bool
+		wantReason  string
+	}{
+		{"silence below the window", 8000, 0, 3.0, 200 * time.Millisecond, 2 * time.Second, false, ""},
+		{"window + digital silence ends", 8000, 0, 3.0, 500 * time.Millisecond, 2 * time.Second, true, "ratio"},
+		{"window + loud-enough speech/silence ratio", 8000, 2000, 3.0, 500 * time.Millisecond, 2 * time.Second, true, "ratio"}, // 8000/2000 = 4.0
+		{"window + ratio at the threshold", 6000, 2000, 3.0, 500 * time.Millisecond, 2 * time.Second, true, "ratio"},           // exactly 3.0
+		{"window + ratio below the threshold holds", 500, 200, 3.0, 500 * time.Millisecond, 2 * time.Second, false, ""},        // 2.5 < 3.0
+		{"window + no speech reference holds", 0, 200, 3.0, 500 * time.Millisecond, 2 * time.Second, false, ""},
+		{"hard cap force-ends mid-speech", 8000, 0, 3.0, 0, 15 * time.Second, true, "max"},
+		{"hard cap just under", 8000, 0, 3.0, 0, 14999 * time.Millisecond, false, ""},
+		{"zero ratio falls back to 3.0", 8000, 2000, 0, 500 * time.Millisecond, 2 * time.Second, true, "ratio"},
+	}
+	for _, tc := range cases {
+		d := DecideEndpoint(tc.speech, tc.sil, tc.ratio, tc.silence, min, tc.open, max)
+		if d.End != tc.wantEnd || (d.End && d.Reason != tc.wantReason) {
+			t.Errorf("%s: DecideEndpoint = %+v, want end=%v reason=%q", tc.name, d, tc.wantEnd, tc.wantReason)
+		}
+	}
+}
+
+// feedUtterancePattern feeds the VAD: speechAmp speech frames, then
+// noiseAmp below-threshold frames, then digital-silence frames, and
+// reports where the events landed.
+func TestVADRatioHoldsUtteranceOverNoisySilence(t *testing.T) {
+	vad := NewVAD(30*time.Millisecond, 500*time.Millisecond, 300)
+	speech := makeFrame(480, 500) // RMS 500 (above the 300 floor)
+	noise := makeFrame(480, 200)  // RMS 200 (below: "silence"), 500/200 = 2.5 < 3.0
+	silence := makeFrame(480, 0)  // digital silence
+
+	vad.Feed(speech) // start
+	for i := 0; i < 3; i++ {
+		vad.Feed(speech)
+	}
+	// 170 ms of noisy silence: below the 500 ms window — no event.
+	for i := 0; i < 5; i++ {
+		if ev := vad.Feed(noise); ev.UtteranceEnded || ev.Partial {
+			t.Fatalf("event %+v at noisy-silence frame %d (only %d ms of silence)", ev, i, (i+1)*30)
+		}
+	}
+	// 500 ms of noisy silence: the PARTIAL fires (first window) but the
+	// ratio (2.5 < 3.0) must hold the utterance open.
+	var partialAt, endAt int = -1, -1
+	for i := 0; i < 17; i++ {
+		ev := vad.Feed(noise)
+		if ev.Partial && partialAt < 0 {
+			partialAt = i
+		}
+		if ev.UtteranceEnded && endAt < 0 {
+			endAt = i
+		}
+	}
+	if partialAt != 11 { // 5 pre-loop + frame 11 = 17th silence frame = 510 ms ≥ 500 ms window
+		t.Fatalf("partial on frame %d, want 11 (first 500 ms window)", partialAt)
+	}
+	if endAt >= 0 {
+		t.Fatalf("utterance ended on noisy-silence frame %d, want held open (ratio 2.5 < 3.0)", endAt)
+	}
+	// Speech resumes: the same utterance continues.
+	if ev := vad.Feed(speech); ev.SpeechStarted || ev.UtteranceEnded {
+		t.Fatalf("resumed speech produced %+v", ev)
+	}
+	// Digital silence now: the ratio is infinite → the endpoint lands
+	// on the first full window after the resume.
+	ended := 0
+	for i := 0; i < 25; i++ {
+		if vad.Feed(silence).UtteranceEnded {
+			ended++
+		}
+	}
+	if ended != 1 {
+		t.Fatalf("post-resume endpoint count = %d, want 1", ended)
+	}
+}
+
+func TestVADPartialFiresOnce(t *testing.T) {
+	vad := NewVAD(30*time.Millisecond, 500*time.Millisecond, 300)
+	speech := makeFrame(480, 500)
+	noise := makeFrame(480, 200)
+	silence := makeFrame(480, 0)
+	vad.Feed(speech)
+	partials := 0
+	for i := 0; i < 12; i++ { // 360 ms of noisy silence: window not reached
+		vad.Feed(noise)
+	}
+	// Cross the window once (held open by the ratio), then end on
+	// digital silence: the partial must have fired exactly once, and
+	// never on the ending frame.
+	for i := 0; i < 20; i++ {
+		ev := vad.Feed(noise)
+		partials += boolInt(ev.Partial)
+		if ev.UtteranceEnded && ev.Partial {
+			t.Fatal("partial and endpoint fired on the same frame")
+		}
+	}
+	for i := 0; i < 20; i++ {
+		if ev := vad.Feed(silence); ev.Partial {
+			t.Fatal("second partial fired")
+		}
+	}
+	if partials != 1 {
+		t.Fatalf("partials = %d, want 1", partials)
+	}
+}
+
+func TestVADMaxUtteranceCap(t *testing.T) {
+	vad := NewVAD(30*time.Millisecond, 500*time.Millisecond, 300)
+	vad.MaxUtteranceDur = 15 * time.Second
+	speech := makeFrame(480, 8000)
+	// 15 s of unbroken speech = 500 frames: force-end mid-speech.
+	endedAt := -1
+	for i := 0; i < 600; i++ {
+		if vad.Feed(speech).UtteranceEnded {
+			endedAt = i
+			break
+		}
+	}
+	if endedAt != 499 { // frame index 499 = the 500th frame = 15 s
+		t.Fatalf("max-cap endpoint on frame %d, want 499 (15 s at 30 ms)", endedAt)
+	}
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

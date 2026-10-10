@@ -19,7 +19,13 @@ package voice
 //	                          24 kHz PCM from Kokoro). Text frames:
 //	                          {"assistant": …} after each agent turn
 //	                          (non-audio surfaces print it); a final
-//	                          {"done":true} marks the end.
+//	                          {"done":true} marks the end. H6.4:
+//	                          {"flush":true} is the barge-in control —
+//	                          mule has drained its out queue, so the
+//	                          client must drop its OWN playback buffer
+//	                          immediately (AudioTrack flush).
+//	                          Surfaces that do not implement the flush
+//	                          must at least ignore the frame.
 //
 // v1 transport decision (documented in spec.md and the example's
 // README): the audio flows PHONE/HOST ⇄ MULE directly over these
@@ -148,6 +154,17 @@ func OutHandler(hub *Hub) http.Handler {
 		defer conn.Close()
 
 		for chunk := range call.Out() {
+			if chunk.Flush {
+				// H6.4 barge-in control: mule dropped everything queued
+				// behind this; tell the client to drop its playback
+				// buffer too (wire + phone tail).
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"flush":true}`)); err != nil {
+					call.MarkOutClosed()
+					log.Printf("voice loop: out-socket for job %s closed: %v", jobID, err)
+					return
+				}
+				continue
+			}
 			if chunk.Text != "" {
 				if err := conn.WriteJSON(map[string]string{"assistant": chunk.Text}); err != nil {
 					call.MarkOutClosed()

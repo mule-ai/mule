@@ -15,8 +15,11 @@ package voice
 //	  "tts_voice": "af_heart",
 //	  "tts_response_format": "pcm",    // forge /v1/audio/speech response_format
 //	  "tts_sample_rate": 24000,        // sample rate of the TTS audio out
-//	  "silence_ms": 600,               // VAD utterance-boundary window
+//	  "silence_ms": 500,              // VAD min trailing silence + early-
+//	                                    // partial point (H6.4)
 //	  "frame_ms": 30,                  // nominal in-frame duration
+//	  "endpoint_ratio": 3.0,           // speech/silence RMS ratio to end
+//	  "max_utterance_ms": 15000,       // hard cap on an open utterance
 //	  "vad_threshold": 300,            // RMS floor for "the user speaks"
 //	  "barge_in_threshold": 600,       // RMS floor to interrupt TTS
 //	  "turn_timeout_secs": 120
@@ -50,7 +53,13 @@ type CallConfig struct {
 	FrameDur          time.Duration
 	VADThreshold      float64
 	BargeInThreshold  float64
-	TurnTimeout       time.Duration
+	// H6.4 endpointing: an utterance ends when trailing silence ≥
+	// SilenceDur AND mean(last 400 ms speech) / mean(last 300 ms
+	// silence) ≥ EndpointRatio (digital silence passes as an infinite
+	// ratio); MaxUtterance force-ends an open utterance regardless.
+	EndpointRatio float64
+	MaxUtterance  time.Duration
+	TurnTimeout   time.Duration
 }
 
 // InSampleRate is the fixed in/out-socket audio rate (16 kHz mono
@@ -82,7 +91,7 @@ func ParseCallConfig(cfg map[string]interface{}) (CallConfig, error) {
 	if n := intOr(cfg, "tts_sample_rate", 0); n > 0 {
 		c.TTSRate = n
 	}
-	c.SilenceDur = 600 * time.Millisecond
+	c.SilenceDur = 500 * time.Millisecond
 	if n := intOr(cfg, "silence_ms", 0); n > 0 {
 		c.SilenceDur = time.Duration(n) * time.Millisecond
 	}
@@ -97,6 +106,14 @@ func ParseCallConfig(cfg map[string]interface{}) (CallConfig, error) {
 	c.BargeInThreshold = 600
 	if f := floatOr(cfg, "barge_in_threshold", 0); f > 0 {
 		c.BargeInThreshold = f
+	}
+	c.EndpointRatio = 3.0
+	if f := floatOr(cfg, "endpoint_ratio", 0); f > 0 {
+		c.EndpointRatio = f
+	}
+	c.MaxUtterance = 15 * time.Second
+	if n := intOr(cfg, "max_utterance_ms", 0); n > 0 {
+		c.MaxUtterance = time.Duration(n) * time.Millisecond
 	}
 	c.TurnTimeout = 120 * time.Second
 	if n := intOr(cfg, "turn_timeout_secs", 0); n > 0 {

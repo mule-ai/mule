@@ -66,12 +66,15 @@ type VoiceExecutor interface {
 	ForgetCall(jobID string)
 }
 
-// VoiceOutChunk is one out-socket event (H6.3): either an audio byte
-// slice (TTS chunk) or a text metadata frame (the turn's assistant
-// text, for non-audio surfaces). Exactly one of the two is set.
+// VoiceOutChunk is one out-socket event (H6.3): an audio byte slice
+// (TTS chunk), a text metadata frame (the turn's assistant text, for
+// non-audio surfaces), or — H6.4 — a flush control frame (drop the
+// out queue + the client's playback buffer on barge-in). Exactly one
+// of the three is set.
 type VoiceOutChunk struct {
 	Audio []byte
 	Text  string
+	Flush bool // H6.4 barge-in control: the out handler writes {"flush":true}
 }
 
 // VoiceCall is one live voice loop (a mule job stays RUNNING for its

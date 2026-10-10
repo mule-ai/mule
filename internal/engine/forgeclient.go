@@ -93,6 +93,17 @@ func (f *ForgeClient) PostAndWait(ctx context.Context, sessionID, content string
 	return assistant, nil
 }
 
+// PostMessage posts content to a conversation WITHOUT waiting for the
+// turn to end (H6.4 in-turn steer: an overlap utterance lands as the
+// agent's next message while its own turn is in flight; the voice
+// loop does not block on it and does not TTS-respond to it).
+func (f *ForgeClient) PostMessage(ctx context.Context, sessionID, content string) error {
+	if err := f.rest.postMessage(ctx, sessionID, content); err != nil {
+		return fmt.Errorf("failed to post to forge conversation %s: %w", sessionID, err)
+	}
+	return nil
+}
+
 // Transcribe sends 16 kHz mono s16le PCM bytes wrapped as WAV to forge's
 // STT proxy (POST /v1/audio/transcriptions — the same multipart shape
 // the H6.2 mobile voice input and the forge web UI send) and returns

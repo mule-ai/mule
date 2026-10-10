@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeForge is an in-memory forge for voice-loop tests: it implements
@@ -30,17 +31,29 @@ type forgeMsg struct {
 }
 
 type fakeForge struct {
+	reqLog   []string
 	mu       sync.Mutex
 	msgs     []forgeMsg
 	turn     int // index into replies the next POST /messages consumes
 	replies  []string
 	ttsCalls int
 	sttCalls int
+	// H6.4 test delays: the agent hop and the TTS hop hold their
+	// responses this long (the barge-in / overlap tests need the
+	// turns to be in flight long enough to stream in-frames).
+	agentDelay time.Duration
+	ttsDelay   time.Duration
+	sttDelay   time.Duration
 }
 
 func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge, *httptest.Server) {
 	fg := &fakeForge{replies: replies}
 	mux := http.NewServeMux()
+	logReq := func(op string) {
+		fg.mu.Lock()
+		fg.reqLog = append(fg.reqLog, op)
+		fg.mu.Unlock()
+	}
 
 	// GET /agents/{id}/active → the pinned active conversation.
 	mux.HandleFunc("/agents/", func(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +83,10 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 			fmt.Fprint(w, out.String())
 			return
 		}
+		if fg.agentDelay > 0 {
+			time.Sleep(fg.agentDelay)
+		}
+		logReq("POST /messages")
 		body, _ := io.ReadAll(r.Body)
 		var posted struct {
 			Content string `json:"content"`
@@ -109,6 +126,10 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 
 	// POST /v1/audio/transcriptions — STT proxy shape (H6.2 shape).
 	mux.HandleFunc("/v1/audio/transcriptions", func(w http.ResponseWriter, r *http.Request) {
+		logReq("POST /transcriptions")
+		if fg.sttDelay > 0 {
+			time.Sleep(fg.sttDelay)
+		}
 		fg.mu.Lock()
 		fg.sttCalls++
 		n := fg.sttCalls
@@ -117,11 +138,19 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 	})
 
 	// POST /v1/audio/speech — TTS proxy shape: JSON in, audio out.
+	// The tag (first audio byte = the Nth TTS call) is assigned at
+	// request ARRIVAL, not completion: H6.4 barge-in abandons a call
+	// while its response is in flight, so calls overlap and completion
+	// order is not request order (the tags used to race under load).
 	mux.HandleFunc("/v1/audio/speech", func(w http.ResponseWriter, r *http.Request) {
+		logReq("POST /speech START")
 		fg.mu.Lock()
 		fg.ttsCalls++
 		n := fg.ttsCalls
 		fg.mu.Unlock()
+		if fg.ttsDelay > 0 {
+			time.Sleep(fg.ttsDelay)
+		}
 		w.Header().Set("Content-Type", "audio/pcm")
 		buf := make([]byte, 200)
 		for i := range buf {
@@ -129,6 +158,7 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 		}
 		buf[0] = byte(n) // tag which TTS call produced this chunk
 		_, _ = w.Write(buf)
+		logReq(fmt.Sprintf("POST /speech DONE call=%d", n))
 	})
 
 	srv := httptest.NewServer(mux)
@@ -152,6 +182,13 @@ func (fg *fakeForge) SttCount() int {
 	fg.mu.Lock()
 	defer fg.mu.Unlock()
 	return fg.sttCalls
+}
+
+// ReqLog returns the fake's HTTP request log (for failure diagnostics).
+func (fg *fakeForge) ReqLog() []string {
+	fg.mu.Lock()
+	defer fg.mu.Unlock()
+	return append([]string(nil), fg.reqLog...)
 }
 
 // postedContents returns the user-role message contents in order.

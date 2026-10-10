@@ -120,7 +120,7 @@ We need to replace this with pi in RPC mode, which provides:
   full firehose. Full contract in
   ["Per-Job WebSocket Subscriptions" below](#per-job-websocket-subscriptions-herd-h34).
 
-#### 9. Voice Loop Call (Herd H6.3)
+#### 9. Voice Loop Call (Herd H6.3 + full-duplex v2 H6.4)
 
 - `voice_call` workflow step type: one mule job IS one push-to-talk
   "call" with a forge agent — it stays RUNNING until hang-up, then
@@ -128,9 +128,12 @@ We need to replace this with pi in RPC mode, which provides:
   (both surfaces render that as "call dropped"). Audio flows phone/
   host ⇄ mule over two per-call WebSockets (`/voice/{job_id}/in` /
   `/out`); VAD, STT (forge proxy), agent steer, and TTS (forge proxy,
-  sentence-chunked with barge-in v1) are orchestrated in-process by
-  the voice package. Full contract in
-  ["Voice loop (H6.3)" below](#voice-loop-h63).
+  sentence-chunked with full-duplex barge-in v2 — ratio endpointing,
+  in-turn steers, `{"flush":true}` playback-drop control,
+  drop-oldest out-queue) are orchestrated in-process by the voice
+  package. Full contract in ["Voice loop (H6.3)"
+  below](#voice-loop-h63) + ["Voice loop v2 (H6.4)"
+  below](#voice-loop-v2-h64--fullduplex-barge-in).
 
 ### User Interactions
 
@@ -999,6 +1002,131 @@ The `voice_call` step's `config` JSONB:
   `tts_sample_rate` / `tts_response_format` from the step config.
 - One in socket per call surface; any in-socket close hangs the call
   up (surfaces open exactly one).
+
+## Voice loop v2 (H6.4) — full-duplex barge-in
+
+Everything above stays true; this section is the v2 delta. The state
+machine is still the single `Call` loop — v2 generalizes the two
+full-duplex gaps v1 had, and adds one control frame.
+
+**What v1 already did (honest delta):** v1 already ran the in-VAD
+while TTS played (that is how its barge-in worked), already captured
+in-frames during *thinking* into the same in-queue, and already stopped
+the out-stream on a 3-frame RMS hysteresis trigger. What v1 did NOT
+do, and what v2 adds:
+
+- **In-frames are processed in real time, not just between TTS
+  chunks.** v1 drained the in-queue only after each out-chunk was
+  written; the blocking STT/agent/TTS hops themselves were opaque. v2
+  runs each blocking hop in a sub-goroutine and the main loop pumps
+  the in-queue through it (`pollHop`), so barge-in detection and
+  turn-overlap bookkeeping advance while a hop is in flight — the
+  in-utterance buffer is continuous across state changes with no
+  re-arming gap when TTS starts.
+- **Ratio endpointing** replaces the fixed 600 ms silence boundary:
+  an utterance ends when trailing silence ≥ `silence_ms` (default
+  500) AND the speech:silence energy ratio — mean RMS of the last
+  ~400 ms of speech over the last ~300 ms of below-threshold silence
+  — is ≥ `endpoint_ratio` (default 3.0). Noisy "silence" (music,
+  HVAC) keeps the ratio under threshold, so the utterance stays open;
+  true silence passes with an infinite ratio. `max_utterance_ms`
+  (default 15 s) force-ends a runaway utterance. The rule is a pure
+  function (`DecideEndpoint`) with synthetic-PCM unit tests.
+- **In-turn steer (the always-on in-VAD's payoff).** While the
+  agent's own turn is in flight (thinking OR speaking), overlapping
+  user speech is endpointed and submitted to the agent's
+  conversation **without waiting** (fire-and-forget
+  `POST /messages`) — the in-flight turn owns the speaker; the steer
+  lands as its next message. No TTS answer. The agent's current
+  answer keeps playing until it finishes, then the call returns to
+  listening with the pending typed/utterance text drained.
+- **Fast barge-in flush (< 150 ms, mule-side).** On the barge-in
+  trigger, mule (a) stops enqueuing TTS immediately and (b) DRAINS
+  the out-queue — every queued chunk is dropped, not sent — then
+  emits the flush control (below). Stop-to-flush is asserted < 150 ms
+  in `TestCallTenConsecutiveInterruptions` (10/10, fake TTS). The
+  wire + phone tail is the client's budget (see the echo guard).
+- **Drop-oldest bounded out-queue.** `emitOut` never blocks: when the
+  out-queue (cap 64) is full — a client slower than TTS — the OLDEST
+  event is dropped and counted (`out_dropped` in the call output).
+  Out-queue pressure can therefore never pause in-VAD bookkeeping
+  (`TestCallDualChannelLiveness`: in-frames and out-frames live
+  simultaneously while the out-queue overflows).
+
+### The flush control frame
+
+On a barge-in, after the out-queue is drained, mule sends a text
+frame on the out socket:
+
+```json
+{"flush": true}
+```
+
+Meaning: *everything mule queued behind this has been dropped — drop
+your playback buffer too.* An `AudioTrack` (or any buffered player)
+holds queued PCM beyond mule's knowledge; without this frame the
+phone would finish playing the barged agent's tail. Surfaces:
+
+- **mobile-native `CallActivity`**: `stop() → flush() → play()` on
+  the `AudioTrack` (immediate, < a frame of tail on a real phone).
+- **`ranch call` (CLI)**: no change in H6.4 — it pipes out-frames
+  straight to `aplay`/`paplay` stdin and ignores the flush frame;
+  mule-side stop still applies (no new audio arrives; the tail is
+  bounded by the player's own buffer, a few hundred ms at most).
+- A surface that ignores it still gets correct behavior minus the
+  phone tail (mule-side stop already happened).
+
+### The phone-side echo guard (mobile-native, H6.4)
+
+While the local mic is hot — frame RMS ≥ 400 for 3 consecutive
+frames (~90 ms; just under mule's barge-in floor of 600, with a 200
+RMS cold threshold for hysteresis) — `CallActivity` zeros the
+out-channel gain (`AudioTrack.setVolume(0f)`); the trailing silence
+(≥ 200 ms of cold frames) restores it. This is the plan's "out-channel
+gain zeroed while local mic hot": the phone speaker can't ring the
+user's own voice back into the mic while the user is mid-sentence
+(the speakerphone feedback loop), so mule's VAD sees the user, not
+the agent's echo. The guard is capture-thread-local; it mutes the
+PHONE, not the wire (other surfaces of the same call are unaffected).
+
+### STT partials — what shipped, what didn't
+
+The H6.4 budget is "STT partials < 800 ms". Forge's STT proxy is
+request/response (no streaming-Parakeet surface), so prompt revision
+on a partial is not possible; what shipped is the **early steer
+partial**: when an in-turn utterance first shows a ~`silence_ms`
+trailing pause, the utterance-so-far is transcribed and posted with a
+`(partial; the complete utterance follows)` tag, and the full
+utterance is posted at endpoint — both fire-and-forget, neither
+blocks the call loop. Normal-path utterances (no in-flight turn)
+still submit once, at endpoint. The achieved STT latency is
+measured by `.spike/voice-latency/` (ranch-2) — live numbers pending
+(this box has no real Parakeet/Kokoro; the spike ships the script +
+the honest template, and does not invent numbers).
+
+### v2 config keys (additions to the v1 shape)
+
+```json
+{
+  "silence_ms": 500,              // v2 default (was 600); endpoint window
+  "endpoint_ratio": 3.0,          // speech:silence RMS ratio to close
+  "max_utterance_ms": 15000       // hard cap on an open utterance (15 s)
+}
+```
+
+All three keep their v1 defaults if omitted except `silence_ms`
+(v2 default 500).
+
+### v2 limits
+
+- The steer is advisory: the forge conversation API has no
+  mid-turn prompt/cancel surface, so a steer lands as the next
+  message after the in-flight turn's reply — the agent does not
+  abort mid-reply to hear you (that needs a forge-side surface).
+- `endpoint_ratio` endpointing is heuristic by design (the plan's
+  "RNN-free, silence + energy ratio"); a user who trails off under
+  500 ms of silence while under the ratio will keep the utterance
+  open until the ratio or the 15 s cap closes it.
 
 ## Dependencies & Constraints
 
