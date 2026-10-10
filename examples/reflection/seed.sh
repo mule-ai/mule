@@ -108,15 +108,16 @@ create_module() { # name description config_json file
 }
 
 module_id() { # name
-  api GET /api/v1/wasm-modules | jq -r --arg n "$1" '.[] | select(.name == $n) | .id' | head -1
+  # NOTE: GET /api/v1/wasm-modules wraps its list: {"data":[...]}
+  api GET /api/v1/wasm-modules | jq -r --arg n "$1" '.data[] | select(.name == $n) | .id' | head -1
 }
 
-pull_cfg=$(jq -n --arg u "$FORGE_URL" --arg k "$FORGE_API_KEY" --arg a "$AGENT_ID" \
+pull_cfg=$(jq -nc --arg u "$FORGE_URL" --arg k "$FORGE_API_KEY" --arg a "$AGENT_ID" \
   '{forge_url:$u, forge_api_key:$k, agent_id:$a,
     recall_queries:["work session","what happened today","preferences and feedback"], k:50}')
-check_cfg=$(jq -n --arg u "$FORGE_URL" --arg k "$FORGE_API_KEY" --arg a "$AGENT_ID" --arg l "$LAMBDA_PER_DAY" \
+check_cfg=$(jq -nc --arg u "$FORGE_URL" --arg k "$FORGE_API_KEY" --arg a "$AGENT_ID" --arg l "$LAMBDA_PER_DAY" \
   '{forge_url:$u, forge_api_key:$k, agent_id:$a, lambda_per_day:($l|tonumber)}')
-submit_cfg=$(jq -n --arg u "$FORGE_URL" --arg k "$FORGE_API_KEY" --arg a "$AGENT_ID" \
+submit_cfg=$(jq -nc --arg u "$FORGE_URL" --arg k "$FORGE_API_KEY" --arg a "$AGENT_ID" \
   '{forge_url:$u, forge_api_key:$k, agent_id:$a, actor:"reflection"}')
 
 declare -A MOD_IDS=()
@@ -127,7 +128,8 @@ for spec in \
   "reflection-stub:reflection-stub-wasm:stub:dist/stub.wasm:{}"
 do
   IFS=':' read -r mname mdesc mkey mfile mcfg <<<"$spec"
-  if existing="$(module_id "$mname")"; then
+  existing="$(module_id "$mname")"
+  if [[ -n "$existing" ]]; then
     echo "wasm module  ${mname} already exists (${existing}) — keeping it"
   else
     existing="$(create_module "$mname" "$mdesc" "$mcfg" "$mfile")"
@@ -164,7 +166,8 @@ fi
 
 # ------------------------------------------------------------ wakes
 wake_exists() { # name
-  api GET /api/v1/wakes | jq -r --arg n "$1" '.[] | select(.name == $n) | .id' | head -1
+  # NOTE: GET /api/v1/wakes wraps its list: {"wakes":[...]}
+  api GET /api/v1/wakes | jq -r --arg n "$1" '.wakes[] | select(.name == $n) | .id' | head -1
 }
 
 if [[ -n "$(wake_exists reflection-nightly)" ]]; then
