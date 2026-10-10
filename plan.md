@@ -1,5 +1,24 @@
 # Mule PI Integration Development Plan
 
+## Herd phase status (as of 2026-10-10)
+
+| Herd phase | mule scope | status |
+|---|---|---|
+| H3.1 | tenancy parity (`users`/`api_keys`, owner scoping, restricted keys) | ✅ mule `93aad23` |
+| H3.2 | `forge_conversation` step type | ✅ mule `62f409e` |
+| H3.3 | wakes: cron/webhook/event/job + `rate_limit_per_hour` + `wake_log` | ✅ mule `e09ddc0` |
+| H3.4 | per-job WS subscriptions | ✅ mule `62f409e` |
+| H3.5 | policy engine (evaluate/memo/proposals/audit) | ✅ mule `f4185c5` + `0293244` |
+| H4.4 | reflection workflow (`examples/reflection/`) | ✅ mule `c217760` |
+| H4.5 | memory-trigger forwarder lane | ✅ mule `e9f08ec` |
+| H5.3 | wakes pause + activity feed | ✅ mule `36d0b9e` |
+| H6.3 | voice loop v1 (`internal/voice`, `voice_call` step) | ✅ mule `8b402f0` |
+| H6.4 | voice loop v2 (full-duplex barge-in, flush, ratio endpointing) | ✅ mule `e8f4c86` |
+
+Per-phase detail: "Key Technical Decisions" items 6–14 below +
+`spec.md` (Wakes / Policy Engine / Voice loop sections). Ranch-side
+record: `ranch-2/docs/PLAN-HERD.md` (status ledger + Closeout).
+
 ## Phase 0: Discovery & Planning
 
 - [x] **Objective**: Finalize requirements and prepare development environment
@@ -254,6 +273,44 @@
     fan-out + 400; activity owner scoping + ok/failed rows +
     since/limit + bad-param 400s). Spec: spec.md "Wakes: pause +
     activity (Herd H5.3)".
+13. **Tenancy parity (H3.1)**: mule now mirrors forge's auth shape —
+    migration 0012 creates `users` + `api_keys` (SHA-256 key hash,
+    `sk_mule_…` shown once), an idempotent bootstrap admin (fixed
+    default UUID for deterministic backfill), and Bearer-key
+    middleware (`internal/api/auth.go`); every primitive table gained
+    `owner_id` (backfilled to the admin) and its store/manager routes
+    owner-scope reads and writes. Restricted keys (agent-class) get
+    403 on agents/workflows/jobs/policies incl. sub-paths, with two
+    documented carve-outs: the policy engine's `evaluate` + `memo`
+    (the agent's own control-plane query + recording a decided
+    answer) and wake routes (a wake is a proactivity primitive, not
+    agent CRUD). `MULE_NO_AUTH=1` keeps a synthetic admin for dev.
+    Tests: `go test ./...` green in BOTH auth modes. Spec: docs/
+    TENANCY.md.
+14. **Voice loop (H6.3 + H6.4)**: the mule half of the Herd voice
+    call — a `voice_call` engine step + the `internal/voice` package.
+    A call is a mule job: one state-machine goroutine
+    (listening → utterance → thinking → speaking) pumps
+    in-frames in real time around every blocking hop (STT / agent /
+    TTS run in sub-goroutines — v2; v1 only drained the queue
+    between chunks), so the loop stays full-duplex. In: unauth
+    `/voice/{job}/in` WebSocket (the 128-bit job id IS the
+    capability) — binary 16 kHz s16le ~30 ms frames, or
+    `{"text":…}` typed-utterance fallback; out: `/voice/{job}/out`
+    — TTS PCM at the step's rate + `{"assistant":…}` transcript +
+    `{"done":true}`. Agent steer: `POST /messages` into the agent's
+    active conversation (mode "steer"; in-turn overlap is submitted
+    fire-and-forget). Barge-in: 3-frame RMS hysteresis while TTS
+    plays → `flushOut` drains the out-queue then emits the
+    `"flush":true` control; stop-to-flush asserted <150 ms,
+    10/10 consecutive interruptions (`TestCallTenConsecutive
+    Interruptions`). Ratio endpointing: utterance ends at silence ≥
+    `silence_ms` (500) AND speech:silence RMS ratio ≥
+    `endpoint_ratio` (3.0); `max_utterance_ms` force-end; `emitOut`
+    never blocks (drop-oldest on the bounded out-queue —
+    `TestCallDualChannelLiveness`). Crash mid-call → job failed =
+    "call dropped". Spec: spec.md "Voice loop (H6.3)" + "Voice loop
+    v2 (H6.4)"; `examples/voice-loop/` (seed.sh + README).
 
 ### Testing Strategy
 
