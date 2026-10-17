@@ -21,8 +21,15 @@ package voice
 //	                          {"notice": …} on a degraded hop (stt/tts/
 //	                          agent failure) — the caller is told, not
 //	                          left in silence
-//	                          (non-audio surfaces print it); a final
-//	                          {"done":true} marks the end. H6.4:
+//	                          (non-audio surfaces print it);
+//	                          {"user": …} is what the caller just said
+//	                          (final STT or typed line) so their own
+//	                          words show up on screen; {"state": …} is
+//	                          the call phase — listening/utterance/
+//	                          thinking/speaking — the "is it working?"
+//	                          status lane (2026-10-17: calls looked
+//	                          dead between dial and first answer);
+//	                          a final {"done":true} marks the end. H6.4:
 //	                          {"flush":true} is the barge-in control —
 //	                          mule has drained its out queue, so the
 //	                          client must drop its OWN playback buffer
@@ -104,6 +111,11 @@ func InHandler(hub *Hub) http.Handler {
 		// hang-up frame is processed below.
 		defer call.HangUp()
 
+		// The in socket is the "the caller is here" signal: Run uses it
+		// to fire the answer-the-call greeting (never for a job nobody
+		// dialed).
+		call.OnInAttached()
+
 		// Reader pump: binary frames are audio; text frames are
 		// control ({"hangup":true}).
 		for {
@@ -172,6 +184,26 @@ func OutHandler(hub *Hub) http.Handler {
 				// Degraded-hop status (STT/TTS/agent failure): show the
 				// caller something instead of silence. Best-effort.
 				if err := conn.WriteJSON(map[string]string{"notice": chunk.Notice}); err != nil {
+					call.MarkOutClosed()
+					log.Printf("voice loop: out-socket for job %s closed: %v", jobID, err)
+					return
+				}
+				continue
+			}
+			if chunk.User != "" {
+				// Live transcript: what the caller just said (final STT or
+				// typed line) — the caller sees their own words on screen.
+				if err := conn.WriteJSON(map[string]string{"user": chunk.User}); err != nil {
+					call.MarkOutClosed()
+					log.Printf("voice loop: out-socket for job %s closed: %v", jobID, err)
+					return
+				}
+				continue
+			}
+			if chunk.State != "" {
+				// Call phase (listening/thinking/speaking): the client's
+				// "is it working?" status lane.
+				if err := conn.WriteJSON(map[string]string{"state": chunk.State}); err != nil {
 					call.MarkOutClosed()
 					log.Printf("voice loop: out-socket for job %s closed: %v", jobID, err)
 					return

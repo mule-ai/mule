@@ -900,7 +900,24 @@ Two WebSockets, addressed by the mule job id (the job id is the
   caller is told why the agent went quiet instead of sitting in
   silence (2026-10-16: the WAV-magic STT bug made every mic call
   silently dead; surfaces print notices as a ⚠ transcript line); a
+  text frame `{"user": …}` carries what the caller just said (final
+  STT or typed line) so their own words show up on screen while the
+  agent composes; a text frame `{"state": …}` carries the call phase
+  (`listening` / `utterance` / `thinking` / `speaking`) — the caller's
+  "is it working?" status lane (2026-10-17: between dialling and the
+  first answer nothing on screen moved, so calls looked dead); surfaces
+  that do not implement them must at least ignore the frames; a
   final text frame `{"done":true}` marks the end.
+
+**Answer-the-call.** When the IN socket attaches, the call runs one
+agent turn ahead of any caller speech — a short system-ish prompt
+asking the agent to greet the caller — and captions + speaks the reply
+("the agent answers your call"). It doubles as prefix-cache warm-up:
+the system prompt, tools, and conversation history reach the model
+while the caller settles in, so the first real utterance is a cache hit
+on the conversation prefix. Speech during the greeting prompt is
+buffered, not steered (the greeting owns the speaker), and runs as a
+normal turn immediately after. A job nobody dials never greets.
 
 The voice sockets can attach before the engine worker starts the step
 (job poll interval ~1 s); the handlers wait for the call to be

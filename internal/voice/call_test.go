@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/mule-ai/mule/internal/engine"
 )
 
 // testCfg builds a CallConfig pointed at a fake forge URL.
@@ -96,8 +98,13 @@ func TestCallFullLoopHangUp(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("Run() = %v, want nil on clean hang-up", err)
 	}
-	_, open := <-call.Out()
-	if open {
+	// Drain to close: the out stream also carries metadata events
+	// (state/user/assistant/notice), so a single receive could land on
+	// a buffered event rather than the close itself. The range ends
+	// only when the channel is closed and drained.
+	for range call.Out() {
+	}
+	if _, open := <-call.Out(); open {
 		t.Error("out channel should be closed after Run")
 	}
 
@@ -264,8 +271,10 @@ func TestCallKillMidCallFails(t *testing.T) {
 	}
 	// Second Kill is a no-op (first error wins).
 	call.Kill(errors.New("second"))
-	_, open := <-call.Out()
-	if open {
+	// Drain to close (metadata events may be buffered ahead of the close).
+	for range call.Out() {
+	}
+	if _, open := <-call.Out(); open {
 		t.Error("out channel should be closed after killed Run")
 	}
 }
@@ -854,5 +863,108 @@ func TestCallOverlapSteerDuringThinking(t *testing.T) {
 	}
 	if got := call.Output()["steers"]; got != 2 {
 		t.Errorf("steers = %v, want 2 (partial + full)", got)
+	}
+}
+
+// ---------------------------------------------------------------- Feedback
+
+// nextOut waits for one out event of any kind (fails on timeout/close).
+func nextOut(t *testing.T, c *Call, timeout time.Duration) engine.VoiceOutChunk {
+	t.Helper()
+	select {
+	case chunk, ok := <-c.Out():
+		if !ok {
+			t.Fatal("out channel closed while waiting for an event")
+		}
+		return chunk
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for an out event")
+		return engine.VoiceOutChunk{}
+	}
+}
+
+// waitForOut skips events until one satisfies match (bounded).
+func waitForOut(t *testing.T, c *Call, timeout time.Duration, match func(engine.VoiceOutChunk) bool) engine.VoiceOutChunk {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case chunk, ok := <-c.Out():
+			if !ok {
+				t.Fatal("out channel closed before the expected event")
+			}
+			if match(chunk) {
+				return chunk
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for the expected out event")
+			return engine.VoiceOutChunk{}
+		}
+	}
+}
+
+// TestCallGreetingAndFeedbackLanes covers the 2026-10-17 feedback work:
+// the in socket firing the answer-the-call greeting (agent "picks up"
+// before the caller says a word, warming the prompt cache) and the
+// per-turn {"state": …} / {"user": …} lanes.
+func TestCallGreetingAndFeedbackLanes(t *testing.T) {
+	fg, srv := newFakeForge(t, fakeConv, []string{
+		"Hi, it's Bob.", // greeting turn
+		"2 plus 2 is 4.",
+	})
+	cfg := testCfg(srv.URL)
+	call, err := NewCall(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- call.Run() }()
+
+	// Before the in socket attaches there is NO greeting traffic: a
+	// job nobody dialed must not spend an agent turn.
+	select {
+	case chunk := <-call.Out():
+		t.Fatalf("out event before attach: %+v", chunk)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	call.OnInAttached()
+
+	// The greeting: a thinking state, the spoken reply, then back to
+	// listening.
+	if got := nextOut(t, call, 5*time.Second).State; got != string(PhaseThinking) {
+		t.Errorf("first event state = %q, want %q", got, PhaseThinking)
+	}
+	greet := waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text != "" })
+	if greet.Text != "Hi, it's Bob." {
+		t.Errorf("greeting text = %q", greet.Text)
+	}
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.State == string(PhaseListening) })
+
+	// The greeting consumed one agent turn (prefix-cache warm-up).
+	if out := call.Output(); out["turns"] != 1 {
+		t.Errorf("turns after greeting = %v, want 1", out["turns"])
+	}
+
+	// A voiced utterance: state thinking → the caller's own words →
+	// assistant text → speaking → listening.
+	feedUtterance(call)
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.User == "transcript-1" })
+	answered := waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text != "" })
+	if answered.Text != "2 plus 2 is 4." {
+		t.Errorf("answer text = %q", answered.Text)
+	}
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.State == string(PhaseListening) })
+
+	if got := fg.TTSCount(); got != 2 {
+		t.Errorf("ttsCalls = %d, want 2 (greeting + answer)", got)
+	}
+
+	call.HangUp()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+	if out := call.Output(); out["turns"] != 2 {
+		t.Errorf("turns = %v, want 2 (greeting + one utterance)", out["turns"])
 	}
 }

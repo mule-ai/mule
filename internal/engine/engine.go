@@ -70,7 +70,7 @@ type VoiceExecutor interface {
 // (TTS chunk), a text metadata frame (the turn's assistant text, for
 // non-audio surfaces), or — H6.4 — a flush control frame (drop the
 // out queue + the client's playback buffer on barge-in). Exactly one
-// of the three is set.
+// field is set.
 type VoiceOutChunk struct {
 	Audio  []byte
 	Text   string
@@ -78,6 +78,10 @@ type VoiceOutChunk struct {
 	Notice string // degraded-hop status: the out handler writes {"notice": …}
 	// so the caller can see "I could not hear you" instead of silence
 	// (2026-10-16: STT 415s surfaced as silently-dead mic calls).
+	User  string // what the caller just said: the out handler writes {"user": …}
+	State string // call phase (listening/utterance/thinking/speaking): {"state": …}
+	// — the caller's "is it working?" lane (2026-10-17: calls looked
+	// dead between hang-up and first answer; nothing on screen moved).
 }
 
 // VoiceCall is one live voice loop (a mule job stays RUNNING for its
