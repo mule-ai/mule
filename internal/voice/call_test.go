@@ -315,6 +315,27 @@ func TestCallSTTFailureKeepsCallAlive(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("Run() = %v, want nil", err)
 	}
+	// Every degraded hop must also surface on the OUT channel as a
+	// Notice (the {"notice": …} wire frame) — the caller is never left
+	// in unexplained silence (2026-10-16 mic-call bug).
+	var notices []string
+	for ch := range call.Out() {
+		if ch.Notice != "" {
+			notices = append(notices, ch.Notice)
+		}
+	}
+	if len(notices) == 0 {
+		t.Fatal("expected at least one degraded-hop Notice on Out()")
+	}
+	hasStt := false
+	for _, n := range notices {
+		if strings.HasPrefix(n, "stt:") {
+			hasStt = true
+		}
+	}
+	if !hasStt {
+		t.Errorf("expected an stt: notice, got %v", notices)
+	}
 	dropped, _ := call.Output()["dropped"].([]string)
 	if len(dropped) == 0 {
 		t.Fatal("expected at least one recorded dropped hop")

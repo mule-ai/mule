@@ -15,17 +15,17 @@ func TestEncodeWAVHeader(t *testing.T) {
 	if len(wav) != 44+3200 {
 		t.Fatalf("len = %d, want %d", len(wav), 44+3200)
 	}
-	if binary.LittleEndian.Uint32(wav[0:]) != 0x52494646 {
-		t.Error("RIFF tag mismatch")
+	if got := string(wav[0:4]); got != "RIFF" {
+		t.Errorf("RIFF tag = %q, want \"RIFF\"", got)
 	}
 	if binary.LittleEndian.Uint32(wav[4:]) != 36+3200 {
 		t.Errorf("RIFF size = %d, want %d", binary.LittleEndian.Uint32(wav[4:]), 36+3200)
 	}
-	if binary.LittleEndian.Uint32(wav[8:]) != 0x45564957 {
-		t.Error("WAVE tag mismatch")
+	if got := string(wav[8:12]); got != "WAVE" {
+		t.Errorf("WAVE tag = %q, want \"WAVE\"", got)
 	}
-	if binary.LittleEndian.Uint32(wav[12:]) != 0x20746d66 {
-		t.Error("fmt chunk tag mismatch")
+	if got := string(wav[12:16]); got != "fmt " {
+		t.Errorf("fmt chunk tag = %q, want \"fmt \"", got)
 	}
 	if got := binary.LittleEndian.Uint16(wav[20:]); got != 1 {
 		t.Errorf("audio format = %d, want 1 (PCM)", got)
@@ -45,8 +45,8 @@ func TestEncodeWAVHeader(t *testing.T) {
 	if got := binary.LittleEndian.Uint16(wav[34:]); got != 16 {
 		t.Errorf("bits per sample = %d, want 16", got)
 	}
-	if binary.LittleEndian.Uint32(wav[36:]) != 0x20746164 {
-		t.Error("data chunk tag mismatch")
+	if got := string(wav[36:40]); got != "data" {
+		t.Errorf("data chunk tag = %q, want \"data\"", got)
 	}
 	if got := binary.LittleEndian.Uint32(wav[40:]); got != 3200 {
 		t.Errorf("data size = %d, want 3200", got)

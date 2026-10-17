@@ -614,12 +614,21 @@ func (c *Call) synthesize(sentence string) ([]byte, error) {
 
 // noteDropped records a degraded hop. The call stays alive when a hop
 // fails (the agent stays usable over the remaining hops); the errors
-// surface in Output() at hang-up.
+// surface in Output() at hang-up AND as an out-socket {"notice": …}
+// text frame, so the caller is told "something broke" instead of
+// sitting in silence (2026-10-16: every mic call died here silently
+// when the WAV magic bytes broke STT — the phone showed a live call
+// and heard nothing).
 func (c *Call) noteDropped(hop string, err error) {
 	c.mu.Lock()
 	c.dropped = append(c.dropped, fmt.Sprintf("%s: %s", hop, err.Error()))
 	c.mu.Unlock()
 	log.Printf("voice loop: call degraded (%s): %v", hop, err)
+	msg := err.Error()
+	if len(msg) > 160 {
+		msg = msg[:160] + "…"
+	}
+	c.emitOut(engine.VoiceOutChunk{Notice: fmt.Sprintf("%s: %s", hop, msg)})
 }
 
 // Output is the voice_call step's terminal output (job output).

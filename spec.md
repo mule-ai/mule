@@ -895,7 +895,12 @@ Two WebSockets, addressed by the mule job id (the job id is the
   audio chunks (v1: 24 kHz PCM from Kokoro, `response_format:"pcm"`);
   a text frame `{"assistant": …}` follows each agent turn (non-audio
   surfaces print it; it is how a player-less surface still sees the
-  conversation); a final text frame `{"done":true}` marks the end.
+  conversation); a text frame `{"notice": …}` reports a DEGRADED HOP
+  (stt/tts/agent failure — e.g. `"stt: forge STT … 415 …"`) so the
+  caller is told why the agent went quiet instead of sitting in
+  silence (2026-10-16: the WAV-magic STT bug made every mic call
+  silently dead; surfaces print notices as a ⚠ transcript line); a
+  final text frame `{"done":true}` marks the end.
 
 The voice sockets can attach before the engine worker starts the step
 (job poll interval ~1 s); the handlers wait for the call to be

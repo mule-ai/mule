@@ -72,9 +72,12 @@ type VoiceExecutor interface {
 // out queue + the client's playback buffer on barge-in). Exactly one
 // of the three is set.
 type VoiceOutChunk struct {
-	Audio []byte
-	Text  string
-	Flush bool // H6.4 barge-in control: the out handler writes {"flush":true}
+	Audio  []byte
+	Text   string
+	Flush  bool   // H6.4 barge-in control: the out handler writes {"flush":true}
+	Notice string // degraded-hop status: the out handler writes {"notice": …}
+	// so the caller can see "I could not hear you" instead of silence
+	// (2026-10-16: STT 415s surfaced as silently-dead mic calls).
 }
 
 // VoiceCall is one live voice loop (a mule job stays RUNNING for its

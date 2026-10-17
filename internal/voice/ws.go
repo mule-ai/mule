@@ -18,6 +18,9 @@ package voice
 //	                          out_format from the step config; v1 is
 //	                          24 kHz PCM from Kokoro). Text frames:
 //	                          {"assistant": …} after each agent turn
+//	                          {"notice": …} on a degraded hop (stt/tts/
+//	                          agent failure) — the caller is told, not
+//	                          left in silence
 //	                          (non-audio surfaces print it); a final
 //	                          {"done":true} marks the end. H6.4:
 //	                          {"flush":true} is the barge-in control —
@@ -159,6 +162,16 @@ func OutHandler(hub *Hub) http.Handler {
 				// behind this; tell the client to drop its playback
 				// buffer too (wire + phone tail).
 				if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"flush":true}`)); err != nil {
+					call.MarkOutClosed()
+					log.Printf("voice loop: out-socket for job %s closed: %v", jobID, err)
+					return
+				}
+				continue
+			}
+			if chunk.Notice != "" {
+				// Degraded-hop status (STT/TTS/agent failure): show the
+				// caller something instead of silence. Best-effort.
+				if err := conn.WriteJSON(map[string]string{"notice": chunk.Notice}); err != nil {
 					call.MarkOutClosed()
 					log.Printf("voice loop: out-socket for job %s closed: %v", jobID, err)
 					return
