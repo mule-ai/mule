@@ -1123,3 +1123,101 @@ func TestCallVoiceModelFromJobInput(t *testing.T) {
 		t.Errorf("PATCH body %s should carry the LAGUNA override (input_data wins)", patch)
 	}
 }
+
+// TestCallVoiceModelCompactBudget: when the target model's declared
+// contextWindow (models.json via /v1/models/catalog) is smaller than
+// the conversation's active context, ensureModel submits a background
+// compaction before the first turn — a conversation that fits Spark
+// (262k) overflows Laguna (120k on vram). Below the ratio: no compact.
+func TestCallVoiceModelCompactBudget(t *testing.T) {
+	t.Run("over budget compacts", func(t *testing.T) {
+		fg, srv := newFakeForge(t, fakeConv, []string{"Hi, Bob here.", "Four."})
+		fg.catalog = `{"providers":{"proxy":{"models":[{"id":"llamacpp/laguna-xs-2.1","name":"Laguna","context_window":120000}]}}}`
+		fg.contextChars = 300_000 // 75k tok est > 50% of 120k
+		cfg := testCfg(srv.URL)
+		cfg.Model = "laguna"
+		call, err := NewCall(context.Background(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- call.Run() }()
+		call.OnInAttached()
+		waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text == "Hi, Bob here." })
+		call.HangUp()
+		if err := <-done; err != nil {
+			t.Fatalf("Run() = %v, want nil", err)
+		}
+		fg.mu.Lock()
+		n := fg.compactions
+		fg.mu.Unlock()
+		if n != 1 {
+			t.Fatalf("POST /sessions/compact calls = %d, want 1 (over budget)", n)
+		}
+	})
+	t.Run("under budget does not compact", func(t *testing.T) {
+		fg, srv := newFakeForge(t, fakeConv, []string{"Hi, Bob here.", "Four."})
+		fg.catalog = `{"providers":{"proxy":{"models":[{"id":"llamacpp/laguna-xs-2.1","name":"Laguna","context_window":120000}]}}}`
+		fg.contextChars = 20_000 // 5k tok est < 50% of 120k
+		cfg := testCfg(srv.URL)
+		cfg.Model = "laguna"
+		call, err := NewCall(context.Background(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- call.Run() }()
+		call.OnInAttached()
+		waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text == "Hi, Bob here." })
+		call.HangUp()
+		if err := <-done; err != nil {
+			t.Fatalf("Run() = %v, want nil", err)
+		}
+		fg.mu.Lock()
+		n := fg.compactions
+		fg.mu.Unlock()
+		if n != 0 {
+			t.Fatalf("POST /sessions/compact calls = %d, want 0 (under budget)", n)
+		}
+	})
+}
+
+// TestCallThinkingNeverSpoken: the fake forge replies with the exact
+// inline-<think> shape the live Bob leak had (template-opened
+// reasoning, no opening tag) — the out lane's assistant text and the
+// TTS input must carry ONLY the answer after the closer.
+func TestCallThinkingNeverSpoken(t *testing.T) {
+	_, srv := newFakeForge(t, fakeConv, []string{
+		"The user sent \"Last cookie.\" over the voice call. I should respond briefly.</think>I hear you — last cookie noted. What for?",
+		"<think>just the number</think>Four.",
+	})
+	cfg := testCfg(srv.URL)
+	call, err := NewCall(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- call.Run() }()
+	call.OnInAttached()
+
+	// Greeting turn (the leak shape): only the post-closer answer may
+	// surface — neither the caption lane nor TTS hears the reasoning.
+	greet := waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text != "" })
+	if greet.Text != "I hear you — last cookie noted. What for?" {
+		t.Errorf("greeting text = %q, want the post-think answer only", greet.Text)
+	}
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.State == string(PhaseListening) })
+
+	// A spoken turn: the paired <think> form must strip too.
+	feedUtterance(call)
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.User == "transcript-1" })
+	ans := waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text != "" })
+	if ans.Text != "Four." {
+		t.Errorf("answer text = %q, want \"Four.\"", ans.Text)
+	}
+
+	call.HangUp()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+}

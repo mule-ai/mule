@@ -1016,6 +1016,11 @@ The `voice_call` step's `config` JSONB:
                                    // forge profile name/id/model (fuzzy
                                    // match); wins over the agent's default
                                    // profile for the CALL only
+  "compact": false,               // force a background compaction before
+                                   // the first turn
+  "compact_ratio": 0.5,           // auto-compact when the ACTIVE context
+                                   // exceeds this fraction of the target
+                                   // model's declared contextWindow
   "turn_timeout_secs": 120
 }
 ```
@@ -1033,6 +1038,20 @@ turn-wait lock, so no agent turn can post before it lands. Note the
 prompt cache is per-model: switching invalidates what the greeting
 warmed (that call pays the cold-start on its first turn — inherent to
 choosing a different brain mid-conversation).
+
+**Context budget + pre-call compaction.** A conversation that fits one
+brain overflows another (Bob's default Spark declares 262k tokens;
+Laguna on vram is capped at 120k). After the model switch, ensureModel
+checks the session's ACTIVE context (`GET /sessions/{id}/context`,
+chars/4 ≈ tokens — forge's own heuristic) against `compact_ratio ×`
+the target model's `contextWindow` (from `GET /v1/models/catalog`, the
+machine's models.json) and submits a background compaction
+(`POST /sessions/{id}/compact`) when over budget; `"compact": true`
+(or per-job `input_data.compact`) forces one regardless. Degraded
+not-dead: any failure is a logged ⚠ notice and the call proceeds —
+pi-durable's own generation-prep threshold (which reads the same
+models.json window) is the backstop. Below `keepRecentTokens`
+(pi-durable's 20k) a compaction is a legitimate no-op.
 
 ### v1 limits
 

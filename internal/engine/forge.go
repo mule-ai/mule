@@ -42,6 +42,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -262,7 +263,12 @@ func (c *forgeStepClient) lastMessageSeq(ctx context.Context, sessionID string) 
 }
 
 // latestAssistantAfter returns the content of the most recent
-// assistant row with sequence > afterSeq ("" when none).
+// assistant row with sequence > afterSeq ("" when none). The content
+// is thinking-stripped: reasoning models (Qwen3.8 et al.) emit
+// chain-of-thought as inline <think>…</think> INSIDE the content text
+// (pi projects it verbatim; it is not a separate thinking block), and
+// a voice caller must never hear "The user sent … I should respond
+// briefly." read aloud.
 func (c *forgeStepClient) latestAssistantAfter(ctx context.Context, sessionID string, afterSeq int) (string, error) {
 	msgs, err := c.listMessages(ctx, sessionID)
 	if err != nil {
@@ -274,7 +280,35 @@ func (c *forgeStepClient) latestAssistantAfter(ctx context.Context, sessionID st
 			content = m.Content
 		}
 	}
-	return content, nil
+	return StripThinking(content), nil
+}
+
+// thinkRe matches an inline reasoning segment: <think>…</think> (the
+// usual form, possibly multiline) or a dangling <think> with no
+// closer — everything to EOF is reasoning then (a truncated turn).
+var thinkRe = regexp.MustCompile(`(?s)<think>.*?</think>|<think>.*$`)
+
+// StripThinking removes inline reasoning from assistant content and
+// trims. Safe on clean text: it returns it unchanged.
+//
+// Form handled, in order:
+//  1. <think>…</think> pairs (multiline) — removed.
+//  2. A dangling <think> with no closer — everything from the opener
+//     to EOF is reasoning (a truncated turn) — removed.
+//  3. The template-opened form Qwen3.8 actually emits on the wire: a
+//     reasoning PREFIX with no opening tag, closed by </think> — the
+//     answer is everything after the LAST closer. Only applied when
+//     no <think> opener is present (form 1 handled that case).
+func StripThinking(content string) string {
+	if content == "" {
+		return ""
+	}
+	if strings.Contains(content, "<think>") {
+		content = thinkRe.ReplaceAllString(content, "")
+	} else if i := strings.LastIndex(content, "</think>"); i >= 0 {
+		content = content[i+len("</think>"):]
+	}
+	return strings.TrimSpace(strings.TrimPrefix(content, "</think>"))
 }
 
 // postMessage is POST /messages {"session_id", "content"} -> 202.
@@ -358,6 +392,42 @@ func (c *forgeStepClient) setModelOverrides(ctx context.Context, sessionID, prov
 		body["base_url"] = baseURL
 	}
 	return c.doRequest(ctx, http.MethodPatch, "/sessions/"+sessionID, body, nil)
+}
+
+// sessionContext is GET /sessions/:id/context — the ACTIVE context
+// (harness source: post-compaction chars; unmigrated sessions fall
+// back to a chars/4 estimate over the messages table).
+func (c *forgeStepClient) sessionContext(ctx context.Context, sessionID string) (SessionContext, error) {
+	var out SessionContext
+	if err := c.doRequest(ctx, http.MethodGet, "/sessions/"+sessionID+"/context", nil, &out); err != nil {
+		return SessionContext{}, err
+	}
+	return out, nil
+}
+
+// compactSession is POST /sessions/:id/compact — submit a background
+// compaction (the harness CompactionTask; summary lands at the next
+// turn boundary at the latest).
+func (c *forgeStepClient) compactSession(ctx context.Context, sessionID string) error {
+	return c.doRequest(ctx, http.MethodPost, "/sessions/"+sessionID+"/compact", map[string]interface{}{}, nil)
+}
+
+// modelCatalog is GET /v1/models/catalog — the machine's models.json
+// (id + contextWindow per model, secrets stripped).
+func (c *forgeStepClient) modelCatalog(ctx context.Context) ([]CatalogModel, error) {
+	var out struct {
+		Providers map[string]struct {
+			Models []CatalogModel `json:"models"`
+		} `json:"providers"`
+	}
+	if err := c.doRequest(ctx, http.MethodGet, "/v1/models/catalog", nil, &out); err != nil {
+		return nil, err
+	}
+	var models []CatalogModel
+	for _, p := range out.Providers {
+		models = append(models, p.Models...)
+	}
+	return models, nil
 }
 
 // waitForTurn blocks until the turn started after the given pre-turn

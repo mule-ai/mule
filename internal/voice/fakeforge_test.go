@@ -47,6 +47,12 @@ type fakeForge struct {
 	// voice-model selection (PATCH /sessions/{id}) capture
 	lastPatch string
 	patches   int
+	// pre-call compaction (POST /sessions/{id}/compact) capture
+	compactions int
+	// GET /v1/models/catalog body (models.json shape)
+	catalog string
+	// GET /sessions/{id}/context: active_context_chars served
+	contextChars int64
 }
 
 func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge, *httptest.Server) {
@@ -123,6 +129,25 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 
 	// GET /sessions/{id}/events?since=N&oneshot=true — SSE: message
 	// rows after since, then turn_ended, then the connection closes.
+	mux.HandleFunc("/v1/models/catalog", func(w http.ResponseWriter, r *http.Request) {
+		logReq("GET /v1/models/catalog")
+		fmt.Fprint(w, fg.catalog)
+	})
+
+	// GET /sessions/{id}/context + POST /sessions/{id}/compact — the
+	// pre-call context-budget gate (the voice loop's ensureModel).
+	mux.HandleFunc("/sessions/{id}/context", func(w http.ResponseWriter, r *http.Request) {
+		logReq("GET /sessions/context")
+		fmt.Fprint(w, `{"session_id":"conv-1","source":"harness","active_context_chars":`, fg.contextChars, `}`)
+	})
+	mux.HandleFunc("/sessions/{id}/compact", func(w http.ResponseWriter, r *http.Request) {
+		logReq("POST /sessions/compact")
+		fg.mu.Lock()
+		fg.compactions++
+		fg.mu.Unlock()
+		fmt.Fprint(w, `{"status":"submitted"}`)
+	})
+
 	mux.HandleFunc("/sessions/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			// forge's model switcher (voice model selection)

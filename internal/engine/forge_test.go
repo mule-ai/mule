@@ -669,3 +669,52 @@ func TestForgeConversationStepCancellation(t *testing.T) {
 	assert.Equal(t, afterCancel, forg.requestCount(),
 		"no requests may follow a cancelled wait (poll loop must be gone)")
 }
+
+// TestStripThinking: reasoning models (Qwen3.8 et al.) emit
+// chain-of-thought INLINE in the content text — as <think>…</think>,
+// as a template-opened bare segment with only the closing tag, or as
+// a dangling <think> (truncated turn). A voice caller must never
+// hear any of it; plain content must pass through untouched.
+func TestStripThinking(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"paired", "<think>plan it</think>Here is the answer.", "Here is the answer."},
+		{"multiline paired", "<think>line one\nline two\n</think>\n\nShort answer.", "Short answer."},
+		// The live Bob leak: Qwen3.8's template auto-opens the block —
+		// reasoning text with NO opening tag, then </think>.
+		{
+			"no opening tag",
+			"The user sent \"Last cookie.\" over the voice call. This is a short message to acknowledge. I should respond briefly.\n\nI'll give a short, friendly response acknowledging their message.</think>I hear you — last cookie noted. What for?",
+			"I hear you — last cookie noted. What for?",
+		},
+		{"dangling opener", "<think>The user asked something and I", ""},
+		{"clean", "Just the answer, nothing else.", "Just the answer, nothing else."},
+		{"clean with think word", "I think the answer is 4.", "I think the answer is 4."},
+		{"whitespace after strip", "  <think>x</think>  Answer.  ", "Answer."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, StripThinking(tc.in))
+		})
+	}
+}
+
+// TestLatestAssistantStripsThinking: the messages-table fetch the
+// voice loop's PostAndWait relies on strips thinking before it
+// returns (the fake forge serves an inline-<think> assistant row).
+func TestLatestAssistantStripsThinking(t *testing.T) {
+	forg := newFakeForge("agent-x", "conv-1")
+	forg.setReply("conv-1", "<think>ponder</think>Visible answer.")
+	srv := httptest.NewServer(forg.handler())
+	defer srv.Close()
+
+	forg.mu.Lock()
+	forg.sessions["conv-1"].rows = append(forg.sessions["conv-1"].rows,
+		fakeForgeRow{Sequence: 1, Role: "user", Content: "hi"},
+		fakeForgeRow{Sequence: 2, Role: "assistant", Content: "<think>ponder</think>Visible answer."})
+	forg.mu.Unlock()
+
+	c := &forgeStepClient{baseURL: srv.URL, apiKey: "sk_forge_testkey", http: &http.Client{Timeout: 10 * time.Second}}
+	got, err := c.latestAssistantAfter(context.Background(), "conv-1", 0)
+	assert.NoError(t, err)
+	assert.Equal(t, "Visible answer.", got)
+}

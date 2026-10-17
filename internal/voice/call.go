@@ -839,6 +839,62 @@ func (c *Call) ensureModel(ctx context.Context) {
 		return
 	}
 	log.Printf("voice loop: call model set to %s (%s @ %s)", profile.Name, profile.Model, profile.BaseURL)
+	// Context-budget gate: the target model may declare a much
+	// smaller contextWindow than the conversation has accumulated
+	// (Bob's default is a 262k-token Spark; Laguna on vram is 120k
+	// after its 2026-10-17 cap). A conversation that fits one brain
+	// overflows the other. chars/4 ≈ tokens (forge's own compaction
+	// heuristic), and compaction is DEGRADED-NOT-DEAD: a background
+	// CompactionTask is submitted and its summary lands at the next
+	// turn boundary — the first turn may still ride the pre-summary
+	// context, which the harness's generation-prep threshold (now
+	// seeing the 120k window) would catch anyway. Best effort.
+	c.maybeCompact(ctx, session, profile)
+}
+
+// maybeCompact submits a background compaction when the session's
+// active context (chars) exceeds compactRatio × the target model's
+// context window (tokens ≈ chars/4), or unconditionally when the call
+// config asks for one ("compact": true). Failures are logged, never
+// fatal — the call proceeds.
+func (c *Call) maybeCompact(ctx context.Context, session string, profile *engine.VoiceProfile) {
+	do := func(why string) {
+		if err := c.client.CompactSession(ctx, session); err != nil {
+			c.noteDropped("compact", err)
+			return
+		}
+		log.Printf("voice loop: pre-call compaction submitted (%s)", why)
+	}
+	if c.cfg.Compact {
+		do("requested")
+		return
+	}
+	ratio := c.cfg.CompactRatio
+	if ratio <= 0 || ratio >= 1 {
+		ratio = 0.5
+	}
+	catalog, err := c.client.ModelCatalog(ctx)
+	if err != nil {
+		return // no catalog, no budget — the harness threshold still guards
+	}
+	var window uint64
+	for _, m := range catalog {
+		if m.ID == profile.Model && m.ContextWindow > 0 {
+			window = m.ContextWindow
+			break
+		}
+	}
+	if window == 0 {
+		return
+	}
+	sc, err := c.client.SessionContext(ctx, session)
+	if err != nil {
+		return
+	}
+	usedTokens := sc.ActiveContextChars / 4
+	if uint64(usedTokens) > uint64(float64(window)*ratio) {
+		do(fmt.Sprintf("%d tok est > %.0f%% of %s window %d", usedTokens, ratio*100, profile.Model, window))
+	}
 }
 
 // transcribe wraps the utterance PCM in a WAV and calls the forge STT
@@ -995,9 +1051,16 @@ func (h *Hub) StartCall(jobCtx context.Context, jobID string, stepConfig map[str
 	}
 	// Per-job overrides (POST /api/v1/jobs input_data): the caller's
 	// chosen "voice model" wins over the step config (the phone/CLI
-	// picker). Other knobs stay step-owned.
+	// picker). Other knobs stay step-owned. "compact"/
+	// "compact_ratio" ride along for the pre-call budget check.
 	if m, ok := jobInput["model"].(string); ok && strings.TrimSpace(m) != "" {
 		cfg.Model = strings.TrimSpace(m)
+	}
+	if b, ok := jobInput["compact"].(bool); ok {
+		cfg.Compact = b
+	}
+	if r, ok := jobInput["compact_ratio"].(float64); ok && r > 0 && r < 1 {
+		cfg.CompactRatio = r
 	}
 	call, err := NewCall(jobCtx, cfg)
 	if err != nil {
