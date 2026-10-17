@@ -41,11 +41,17 @@ import (
 
 // CallConfig is the parsed+validated voice_call step config.
 type CallConfig struct {
-	ForgeURL          string
-	APIKey            string
-	AgentID           string
-	ConversationID    string
-	Mode              string // "steer" (default), "message"
+	ForgeURL       string
+	APIKey         string
+	AgentID        string
+	ConversationID string
+	Mode           string // "steer" (default), "message"
+	// Model is the per-call "voice model" choice: a forge profile name,
+	// id, or model label (e.g. "Laguna (dev)"). Empty = the agent's
+	// default profile. Applied once per call (before the first turn) by
+	// Call.ensureModel via forge's session model switcher; it can also
+	// arrive per-job via input_data {"model": …} (Hub.StartCall).
+	Model             string
 	TTSVoice          string
 	TTSResponseFormat string
 	TTSRate           int
@@ -73,6 +79,7 @@ func ParseCallConfig(cfg map[string]interface{}) (CallConfig, error) {
 	var c CallConfig
 	c.ForgeURL = strings.TrimRight(strOr(cfg, "forge_url"), "/")
 	c.APIKey = strOr(cfg, "api_key")
+	c.Model = strings.TrimSpace(strOr(cfg, "model"))
 	c.AgentID = strings.TrimSpace(strOr(cfg, "agent_id"))
 	c.ConversationID = strings.TrimSpace(strOr(cfg, "conversation_id"))
 	c.Mode = "steer"

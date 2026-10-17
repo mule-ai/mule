@@ -1026,3 +1026,100 @@ func TestCallGreetingCancelledBySpeech(t *testing.T) {
 	}
 	_ = fg
 }
+
+// ------------------------------------------------------- Voice model choice
+
+// TestCallVoiceModelSelection: cfg.Model ("laguna", a fuzzy label) must
+// re-point the conversation via forge's session switcher BEFORE the
+// first agent turn, exactly once per call.
+func TestCallVoiceModelSelection(t *testing.T) {
+	fg, srv := newFakeForge(t, fakeConv, []string{"Hi, Bob here.", "Four."})
+	cfg := testCfg(srv.URL)
+	cfg.Model = "laguna" // fuzzy: matches "Laguna (dev)"
+	call, err := NewCall(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- call.Run() }()
+	call.OnInAttached()
+
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text == "Hi, Bob here." })
+
+	fg.mu.Lock()
+	patch, n := fg.lastPatch, fg.patches
+	fg.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("PATCH /sessions calls = %d, want 1 (one shot per call)", n)
+	}
+	for _, want := range []string{`"model":"llamacpp/laguna-xs-2.1"`, `"base_url":"http://vram:8080/v1"`, `"provider":"proxy"`} {
+		if !strings.Contains(patch, want) {
+			t.Errorf("PATCH body %s missing %s", patch, want)
+		}
+	}
+
+	call.HangUp()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+}
+
+// TestCallVoiceModelUnknown: an unresolvable label degrades (⚠ notice,
+// call proceeds on the default profile) instead of failing the call.
+func TestCallVoiceModelUnknown(t *testing.T) {
+	_, srv := newFakeForge(t, fakeConv, []string{"Hi, Bob here.", "Four."})
+	cfg := testCfg(srv.URL)
+	cfg.Model = "gpt99-ultra"
+	call, err := NewCall(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- call.Run() }()
+	call.OnInAttached()
+
+	notice := waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Notice != "" })
+	if !strings.HasPrefix(notice.Notice, "model:") {
+		t.Errorf("notice = %q, want model: …", notice.Notice)
+	}
+	// The call stays alive on the default model.
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text == "Hi, Bob here." })
+
+	call.HangUp()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+}
+
+// TestCallVoiceModelFromJobInput: input_data {"model": …} overrides the
+// step config (the phone/CLI picker path).
+func TestCallVoiceModelFromJobInput(t *testing.T) {
+	fg, srv := newFakeForge(t, fakeConv, []string{"Hi."})
+	hub := NewHub()
+	step := map[string]interface{}{
+		"forge_url": srv.URL,
+		"api_key":   "sk_forge_test",
+		"agent_id":  "agent-1",
+		"model":     "Spark (Qwen3.8-27B)", // step default
+	}
+	input := map[string]interface{}{"model": "Laguna (dev)"} // caller wins
+	callIf, err := hub.StartCall(context.Background(), "j-model", step, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callIf.(*Call)
+	if call.cfg.Model != "Laguna (dev)" {
+		t.Fatalf("cfg.Model = %q, want the input_data override", call.cfg.Model)
+	}
+	go call.Run()
+	call.OnInAttached()
+	waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text != "" })
+	call.HangUp()
+
+	fg.mu.Lock()
+	patch := fg.lastPatch
+	fg.mu.Unlock()
+	if !strings.Contains(patch, `"model":"llamacpp/laguna-xs-2.1"`) {
+		t.Errorf("PATCH body %s should carry the LAGUNA override (input_data wins)", patch)
+	}
+}

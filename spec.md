@@ -1012,9 +1012,27 @@ The `voice_call` step's `config` JSONB:
   "frame_ms": 30,                  // nominal in-frame duration
   "vad_threshold": 300,            // RMS: "the user speaks"
   "barge_in_threshold": 600,       // RMS: "the user talks over the agent"
+  "model": "Laguna (dev)",         // optional per-call "voice model": a
+                                   // forge profile name/id/model (fuzzy
+                                   // match); wins over the agent's default
+                                   // profile for the CALL only
   "turn_timeout_secs": 120
 }
 ```
+
+**Voice model selection.** `config.model` (or a per-job override via
+`POST /api/v1/jobs {"input_data": {"model": "laguna"}}` — the
+phone/CLI picker) re-points the call's conversation once, before the
+first agent turn: mule matches the label against `GET /profiles`
+(exact name/id/model, else unique substring) and PATCHes
+`/sessions/{id}` (forge's model switcher → live pi-durable `setModel`).
+Unresolvable labels degrade not-dead: a `{"notice":"model: …"}` frame
+rides the out socket (listing the available profiles) and the call
+proceeds on the agent's default profile. The switch happens inside the
+turn-wait lock, so no agent turn can post before it lands. Note the
+prompt cache is per-model: switching invalidates what the greeting
+warmed (that call pays the cold-start on its first turn — inherent to
+choosing a different brain mid-conversation).
 
 ### v1 limits
 

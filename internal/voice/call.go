@@ -115,6 +115,9 @@ type Call struct {
 	greetMuted    chan struct{}
 	greetMuteOnce *sync.Once
 	greetState    string // none|pending|answered|cancelled|failed (Output)
+	// modelApplied: the per-call voice-model switch has been attempted
+	// (mu-guarded; one shot — see ensureModel).
+	modelApplied bool
 	// turnMu serializes AGENT-TURN WAITS (greeting vs user turns; hold
 	// around agentTurn only, never around TTS). Two concurrent
 	// PostAndWait calls on one conversation race illegitimately: turn B's
@@ -558,10 +561,14 @@ func (c *Call) startGreeting() {
 		}
 
 		// The agent-turn wait holds the conversation (turnMu) — user
-		// turns queue behind it (see the Call.turnMu comment).
+		// turns queue behind it (see the Call.turnMu comment). The
+		// voice-model switch (if chosen) lands FIRST, inside the same
+		// lock hold: no agent turn can post before the conversation's
+		// model is re-pointed.
 		reply, err := func() (string, error) {
 			c.turnMu.Lock()
 			defer c.turnMu.Unlock()
+			c.ensureModel(gctx)
 			return c.agentTurn(gctx, greetingPrompt)
 		}()
 		if gctx.Err() != nil {
@@ -792,6 +799,48 @@ func (c *Call) steerPost(content string) error {
 	return c.client.PostMessage(sctx, session, content)
 }
 
+// ensureModel applies the per-call "voice model" choice once: resolve
+// the conversation, match the label against forge's profiles, and
+// PATCH the session (forge rebinds the live harness conversation via
+// pi-durable setModel). Failures are DEGRADED-NOT-DEAD: a ⚠ notice
+// rides the out socket and the call proceeds on the agent's default
+// profile — a wrong model is better than no call.
+func (c *Call) ensureModel(ctx context.Context) {
+	c.mu.Lock()
+	model, applied := c.cfg.Model, c.modelApplied
+	c.mu.Unlock()
+	if model == "" || applied {
+		return
+	}
+	c.mu.Lock()
+	c.modelApplied = true // one shot per call (no per-turn retry spam)
+	session := c.sessionID
+	c.mu.Unlock()
+	if session == "" {
+		id, err := c.client.ResolveConversation(ctx, c.cfg.AgentID, c.cfg.ConversationID)
+		if err != nil {
+			c.noteDropped("model", err)
+			return
+		}
+		c.mu.Lock()
+		if c.sessionID == "" {
+			c.sessionID = id
+		}
+		session = c.sessionID
+		c.mu.Unlock()
+	}
+	profile, err := c.client.MatchProfile(ctx, model)
+	if err != nil {
+		c.noteDropped("model", err)
+		return
+	}
+	if err := c.client.SetModel(ctx, session, profile); err != nil {
+		c.noteDropped("model", err)
+		return
+	}
+	log.Printf("voice loop: call model set to %s (%s @ %s)", profile.Name, profile.Model, profile.BaseURL)
+}
+
 // transcribe wraps the utterance PCM in a WAV and calls the forge STT
 // proxy (POST /v1/audio/transcriptions).
 func (c *Call) transcribe(pcm []byte) (string, error) {
@@ -939,10 +988,16 @@ func NewHub() *Hub {
 // StartCall implements the engine's voice-executor seam: it builds the
 // call for a voice_call step and registers it under the job id (the
 // job id is the call's address on the voice sockets).
-func (h *Hub) StartCall(jobCtx context.Context, jobID string, stepConfig map[string]interface{}, _ map[string]interface{}) (engine.VoiceCall, error) {
+func (h *Hub) StartCall(jobCtx context.Context, jobID string, stepConfig map[string]interface{}, jobInput map[string]interface{}) (engine.VoiceCall, error) {
 	cfg, err := ParseCallConfig(stepConfig)
 	if err != nil {
 		return nil, err
+	}
+	// Per-job overrides (POST /api/v1/jobs input_data): the caller's
+	// chosen "voice model" wins over the step config (the phone/CLI
+	// picker). Other knobs stay step-owned.
+	if m, ok := jobInput["model"].(string); ok && strings.TrimSpace(m) != "" {
+		cfg.Model = strings.TrimSpace(m)
 	}
 	call, err := NewCall(jobCtx, cfg)
 	if err != nil {

@@ -44,6 +44,9 @@ type fakeForge struct {
 	agentDelay time.Duration
 	ttsDelay   time.Duration
 	sttDelay   time.Duration
+	// voice-model selection (PATCH /sessions/{id}) capture
+	lastPatch string
+	patches   int
 }
 
 func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge, *httptest.Server) {
@@ -63,6 +66,21 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 		}
 		fmt.Fprintf(w, `{"busy":false,"current_conversation":%q}`, activeConv)
 	})
+
+	// GET /profiles — the voice-model picker source (voice model
+	// selection): two profiles mirroring the lab (Spark/SGLang, Laguna/
+	// vram llama.cpp).
+	mux.HandleFunc("/profiles", func(w http.ResponseWriter, r *http.Request) {
+		logReq("GET /profiles")
+		fmt.Fprint(w, `{"profiles":[
+			{"id":"p-spark","name":"Spark (Qwen3.8-27B)","provider":"spark","model":"spark/qwen3.8-sglang","base_url":"http://spark:8001/v1"},
+			{"id":"p-laguna","name":"Laguna (dev)","provider":"proxy","model":"llamacpp/laguna-xs-2.1","base_url":"http://vram:8080/v1"}
+		]}`)
+	})
+
+	// PATCH /sessions/{id} — forge's model switcher (records the last
+	// override body for assertions); handled inside the /sessions/
+	// handler below (mux allows one pattern per path prefix).
 
 	// POST /messages — 202; append the user row + canned assistant
 	// reply (the synchronous fake "agent").
@@ -106,6 +124,17 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 	// GET /sessions/{id}/events?since=N&oneshot=true — SSE: message
 	// rows after since, then turn_ended, then the connection closes.
 	mux.HandleFunc("/sessions/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			// forge's model switcher (voice model selection)
+			logReq("PATCH /sessions")
+			body, _ := io.ReadAll(r.Body)
+			fg.mu.Lock()
+			fg.lastPatch = string(body)
+			fg.patches++
+			fg.mu.Unlock()
+			fmt.Fprint(w, `{"session":{"id":"s"},"profile":{}}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		since, _ := strconv.Atoi(r.URL.Query().Get("since"))
 		fg.mu.Lock()

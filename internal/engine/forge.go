@@ -283,6 +283,83 @@ func (c *forgeStepClient) postMessage(ctx context.Context, sessionID, content st
 	return c.doRequest(ctx, http.MethodPost, "/messages", body, nil)
 }
 
+// VoiceProfile is the slice of a forge profile the voice loop needs to
+// re-point a conversation's model (GET /profiles).
+type VoiceProfile struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"base_url"`
+}
+
+// listProfiles is GET /profiles (owner scope: the caller's own).
+func (c *forgeStepClient) listProfiles(ctx context.Context) ([]VoiceProfile, error) {
+	var out struct {
+		Profiles []VoiceProfile `json:"profiles"`
+	}
+	if err := c.doRequest(ctx, http.MethodGet, "/profiles", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Profiles, nil
+}
+
+// matchProfile resolves a user-chosen "voice model" label against the
+// forge profiles: exact (case-insensitive) match on name, id, or
+// model; then a unique-substring match on name (so "laguna" picks
+// "Laguna (dev)"). An unknown label lists what IS available.
+func (c *forgeStepClient) matchProfile(ctx context.Context, want string) (*VoiceProfile, error) {
+	profiles, err := c.listProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lc := strings.ToLower(strings.TrimSpace(want))
+	if lc == "" {
+		return nil, fmt.Errorf("empty voice model")
+	}
+	for _, p := range profiles {
+		if strings.EqualFold(p.Name, lc) || strings.EqualFold(p.ID, lc) || strings.EqualFold(p.Model, lc) {
+			pp := p
+			return &pp, nil
+		}
+	}
+	var hits []VoiceProfile
+	var names []string
+	for _, p := range profiles {
+		names = append(names, p.Name)
+		if strings.Contains(strings.ToLower(p.Name), lc) {
+			hits = append(hits, p)
+		}
+	}
+	if len(hits) == 1 {
+		return &hits[0], nil
+	}
+	if len(hits) > 1 {
+		return nil, fmt.Errorf("voice model %q is ambiguous (matches %d profiles)", want, len(hits))
+	}
+	return nil, fmt.Errorf("voice model %q not found (available: %s)", want, strings.Join(names, ", "))
+}
+
+// setModelOverrides is PATCH /sessions/{id} {provider, model,
+// base_url} — forge's model switcher: the effective override rebinds
+// the LIVE harness conversation via pi-durable setModel, effective
+// from the next provider request. (api_key is deliberately untouched:
+// forge redacts it in the API, and the lab's voice models — SGLang /
+// vram llama.cpp — need none.)
+func (c *forgeStepClient) setModelOverrides(ctx context.Context, sessionID, provider, model, baseURL string) error {
+	body := map[string]interface{}{}
+	if provider != "" {
+		body["provider"] = provider
+	}
+	if model != "" {
+		body["model"] = model
+	}
+	if baseURL != "" {
+		body["base_url"] = baseURL
+	}
+	return c.doRequest(ctx, http.MethodPatch, "/sessions/"+sessionID, body, nil)
+}
+
 // waitForTurn blocks until the turn started after the given pre-turn
 // sequence has ended, or ctx/deadline fires. It returns the pre-turn
 // boundary: the caller fetches the turn's output as the latest
