@@ -1227,3 +1227,36 @@ All three keep their v1 defaults if omitted except `silence_ms`
 
 1. **Scope Creep**: Feature additions during implementation
    - Mitigation: Strict feature freeze after spec approval
+
+## Call reliability (2026-10-17 phone report)
+
+Real-phone testing surfaced three call-quality bugs; the fixes are
+part of the loop's contract:
+
+- **Out-socket liveness.** The out-socket handler pings every 20 s.
+  The transport path (Cloudflare edge / cloudflared) ages out idle
+  WebSockets at ~100 s — and an idle OUT socket (the caller simply
+  listening) was silently dropped, after which every later turn came
+  back with no audio and no captions. A failed ping write is the
+  client-gone signal (`MarkOutClosed` → TTS stops streaming into the
+  void). Attach sets `MarkOutOpen`: **a client that re-dials the out
+  socket mid-call resumes its audio lane** (the Kotlin client retries
+  three times on socket failure).
+- **Greeting lock cap.** The greeting's agent-turn wait holds
+  `turnMu` for at most `greetingLockCap` (45 s). Past the cap the
+  wait is abandoned (the turn keeps running server-side; its late
+  reply is never spoken) so the caller's first real turn is never
+  queued behind a slow answer-the-call prompt. Output reports
+  `greeting: "timeout"`.
+- **Phase settle is an invariant.** `handleFrame` drops frames while
+  the phase is Thinking/Speaking, so every turn path settles back to
+  Listening (the `runTurnFrom` defer); an early return that skips it
+  leaves the call permanently deaf. Barge-in (PhaseUtterance) is the
+  only phase a turn may hand back to the loop.
+
+Client-side (Kotlin CallActivity): the echo guard only ducks the
+player on a hot mic when no audio played in the last 700 ms (the
+agent's OWN speaker voice used to mute itself into silence) with a
+2.5 s watchdog; speakerphone + media focus are held for the call; the
+AudioTrack buffer is 4× min for per-sentence TTS jitter; both call
+WebSockets ride a pingInterval=25 s client.

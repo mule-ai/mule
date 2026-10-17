@@ -73,6 +73,17 @@ const (
 var (
 	errBargeIn   = errors.New("barge-in: user speech interrupted the turn")
 	errCallEnded = errors.New("call ended")
+	// errGreetingCap abandons the greeting's turnMu hold after
+	// greetingLockCap (the agent turn may still be running server-side;
+	// nobody waits on it or speaks it — the caller's turns own the
+	// conversation from there).
+	errGreetingCap = errors.New("greeting lock cap")
+	// greetingLockCap bounds how long the greeting's agent-turn wait
+	// may hold turnMu. A slow answer must never queue the caller's
+	// first real turn behind it (2026-10-17 phone report: multi-turn
+	// felt dead after a slow greeting). The greeting is opportunistic —
+	// mute-on-speech already exists; this bounds the worst-case wait.
+	greetingLockCap = 45 * time.Second
 )
 
 // Call is one voice-loop call, bound to one mule job.
@@ -170,6 +181,11 @@ func NewCall(ctx context.Context, cfg CallConfig) (*Call, error) {
 // goes away: TTS synthesis stops (no point streaming audio nobody is
 // listening to) while the call itself continues listening to the user.
 func (c *Call) MarkOutClosed() { atomic.StoreInt32(&c.outOpen, 0) }
+
+// MarkOutOpen re-arms the out lane when an out-socket handler attaches
+// (initial dial AND a client re-attach after a dropped socket): TTS
+// streaming resumes for later turns.
+func (c *Call) MarkOutOpen() { atomic.StoreInt32(&c.outOpen, 1) }
 
 // OnInAttached is called by the in-socket handler once the caller's
 // WebSocket is up: it fires the answer-the-call greeting exactly once
@@ -387,11 +403,11 @@ func (c *Call) runTurnFrom(text string) {
 		if err != errCallEnded {
 			c.noteDropped("agent", err)
 		}
-		return
+		return // defer settles the phase
 	}
 	assistant = strings.TrimSpace(assistant)
 	if assistant == "" {
-		return
+		return // defer settles the phase
 	}
 	// The out-socket assistant-text event (non-audio surfaces print it;
 	// audio surfaces may also show it — it is metadata, not audio).
@@ -404,7 +420,12 @@ func (c *Call) runTurnFrom(text string) {
 	c.barge.Reset()
 	for _, sentence := range splitSentences(assistant) {
 		if atomic.LoadInt32(&c.outOpen) == 0 {
-			return // out socket gone: stop TTS, keep listening
+			// Out socket gone: stop TTS, keep listening. (The defer
+			// settles the phase — a stuck Speaking phase would drop
+			// every later in-frame and leave the call permanently
+			// deaf; the defer is the invariant, do not early-return
+			// past it.)
+			return
 		}
 		audio, err := pollHop(c, func() ([]byte, error) { return c.synthesize(c.ctx, sentence) })
 		if err == errBargeIn {
@@ -414,7 +435,7 @@ func (c *Call) runTurnFrom(text string) {
 			if err != errCallEnded {
 				c.noteDropped("tts", err)
 			}
-			return
+			return // defer settles the phase
 		}
 		c.emitOut(engine.VoiceOutChunk{Audio: audio})
 	}
@@ -564,13 +585,38 @@ func (c *Call) startGreeting() {
 		// turns queue behind it (see the Call.turnMu comment). The
 		// voice-model switch (if chosen) lands FIRST, inside the same
 		// lock hold: no agent turn can post before the conversation's
-		// model is re-pointed.
+		// model is re-pointed. The hold is CAPPED (greetingLockCap):
+		// the caller must not queue behind a slow greeting for minutes
+		// — past the cap the wait is abandoned (the agent turn keeps
+		// running server-side; its late reply is dropped, and the
+		// greeting is muted anyway if the caller already spoke).
 		reply, err := func() (string, error) {
 			c.turnMu.Lock()
 			defer c.turnMu.Unlock()
 			c.ensureModel(gctx)
-			return c.agentTurn(gctx, greetingPrompt)
+			type turnResult struct {
+				reply string
+				err   error
+			}
+			ch := make(chan turnResult, 1)
+			go func() {
+				r, e := c.agentTurn(gctx, greetingPrompt)
+				ch <- turnResult{r, e}
+			}()
+			select {
+			case res := <-ch:
+				return res.reply, res.err
+			case <-time.After(greetingLockCap):
+				return "", errGreetingCap
+			case <-gctx.Done():
+				return "", gctx.Err()
+			}
 		}()
+		if err == errGreetingCap {
+			log.Printf("voice loop: greeting abandoned after %v (caller turns unblocked)", greetingLockCap)
+			settle("timeout")
+			return
+		}
 		if gctx.Err() != nil {
 			settle("cancelled") // call ended / wait timed out
 			return
