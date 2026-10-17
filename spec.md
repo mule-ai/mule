@@ -903,10 +903,11 @@ Two WebSockets, addressed by the mule job id (the job id is the
   text frame `{"user": …}` carries what the caller just said (final
   STT or typed line) so their own words show up on screen while the
   agent composes; a text frame `{"state": …}` carries the call phase
-  (`listening` / `utterance` / `thinking` / `speaking`) — the caller's
-  "is it working?" status lane (2026-10-17: between dialling and the
-  first answer nothing on screen moved, so calls looked dead); surfaces
-  that do not implement them must at least ignore the frames; a
+  (`listening` / `utterance` / `thinking` / `speaking` / `greeting`) —
+  the caller's "is it working?" status lane (2026-10-17: between
+  dialling and the first answer nothing on screen moved, so calls
+  looked dead); surfaces that do not implement them must at least
+  ignore the frames; a
   final text frame `{"done":true}` marks the end.
 
 **Answer-the-call.** When the IN socket attaches, the call runs one

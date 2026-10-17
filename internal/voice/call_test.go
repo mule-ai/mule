@@ -930,10 +930,11 @@ func TestCallGreetingAndFeedbackLanes(t *testing.T) {
 
 	call.OnInAttached()
 
-	// The greeting: a thinking state, the spoken reply, then back to
-	// listening.
-	if got := nextOut(t, call, 5*time.Second).State; got != string(PhaseThinking) {
-		t.Errorf("first event state = %q, want %q", got, PhaseThinking)
+	// The greeting PROCESS announces itself with the greeting state
+	// (the caller may talk over it — it is async, not a gate), then the
+	// spoken reply, then back to listening.
+	if got := nextOut(t, call, 5*time.Second).State; got != string(PhaseGreeting) {
+		t.Errorf("first event state = %q, want %q", got, PhaseGreeting)
 	}
 	greet := waitForOut(t, call, 5*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text != "" })
 	if greet.Text != "Hi, it's Bob." {
@@ -967,4 +968,61 @@ func TestCallGreetingAndFeedbackLanes(t *testing.T) {
 	if out := call.Output(); out["turns"] != 2 {
 		t.Errorf("turns = %v, want 2 (greeting + one utterance)", out["turns"])
 	}
+	if out := call.Output(); out["greeting"] != "answered" {
+		t.Errorf("greeting = %v, want answered", out["greeting"])
+	}
+}
+
+// TestCallGreetingCancelledBySpeech: a slow greeting (5-minute-first-
+// prompt stand-in via agentDelay) must never gate the call — the
+// caller speaks immediately, the utterance is transcribed and answered
+// normally, and the late greeting is muted (never captioned, never
+// spoken). Its agent turn still ran (turns counted): the prompt-cache
+// warm-up stands.
+func TestCallGreetingCancelledBySpeech(t *testing.T) {
+	fg, srv := newFakeForge(t, fakeConv, []string{
+		"SHOULD NEVER BE HEARD", // the slow greeting
+		"Four.",                 // the answer to the caller's question
+	})
+	fg.agentDelay = 2 * time.Second
+	cfg := testCfg(srv.URL)
+	call, err := NewCall(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- call.Run() }()
+
+	call.OnInAttached()
+	if got := nextOut(t, call, 5*time.Second).State; got != string(PhaseGreeting) {
+		t.Errorf("first event state = %q, want %q", got, PhaseGreeting)
+	}
+
+	// The caller does not wait for the greeting: speak at once.
+	feedUtterance(call)
+	waitForOut(t, call, 10*time.Second, func(c engine.VoiceOutChunk) bool { return c.User == "transcript-1" })
+	answered := waitForOut(t, call, 15*time.Second, func(c engine.VoiceOutChunk) bool { return c.Text != "" })
+	if answered.Text != "Four." {
+		t.Errorf("answer text = %q, want %q (the muted greeting must never surface)", answered.Text, "Four.")
+	}
+
+	call.HangUp()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+	// Drain whatever lingered and confirm the greeting text never rode
+	// the out stream.
+	for chunk := range call.Out() {
+		if chunk.Text == "SHOULD NEVER BE HEARD" || chunk.User == "SHOULD NEVER BE HEARD" {
+			t.Error("cancelled greeting surfaced on the out stream")
+		}
+	}
+	out := call.Output()
+	if out["greeting"] != "cancelled" {
+		t.Errorf("greeting = %v, want cancelled", out["greeting"])
+	}
+	if out["turns"] != 2 {
+		t.Errorf("turns = %v, want 2 (greeting turn ran for the cache + the user turn)", out["turns"])
+	}
+	_ = fg
 }

@@ -26,9 +26,10 @@ package voice
 //	                          (final STT or typed line) so their own
 //	                          words show up on screen; {"state": …} is
 //	                          the call phase — listening/utterance/
-//	                          thinking/speaking — the "is it working?"
-//	                          status lane (2026-10-17: calls looked
-//	                          dead between dial and first answer);
+//	                          thinking/speaking/greeting — the "is it
+//	                          working?" status lane (2026-10-17: calls
+//	                          looked dead between dial and first
+//	                          answer);
 //	                          a final {"done":true} marks the end. H6.4:
 //	                          {"flush":true} is the barge-in control —
 //	                          mule has drained its out queue, so the
