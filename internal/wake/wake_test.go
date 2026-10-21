@@ -662,3 +662,233 @@ func TestFireTemplateRenderError(t *testing.T) {
 	require.Len(t, logs, 1)
 	assert.False(t, *logs[0].OK)
 }
+
+// ------------------------------------------------------------------
+// F-002: cron cadence (next_due_at) must advance on EVERY fire —
+// success, rate-limited drop, or failed dispatch — and consecutive
+// failed dispatches must back off, never hot-loop the scan lane.
+// ------------------------------------------------------------------
+
+// TestCronAdvancePureLogic exercises the pure next_due_at math (no DB):
+// rate-limited/successful fires land on the exact next cron slot,
+// failed dispatches apply the 60 s floor then exponential doubling
+// capped at FailBackoffMax, and a success resets the counter.
+func TestCronAdvancePureLogic(t *testing.T) {
+	sched := NewScheduler(nil, nil)
+	firedAt := time.Unix(1789268400, 0).UTC().Add(13 * time.Second) // 03:00:13 Sunday
+
+	// Daily-at-06:00 cron slot is far ahead of the backoff floor:
+	// both a success (failed=false) and a first failure keep the slot.
+	daily := &Wake{ID: "w-daily", Kind: KindCron, Spec: map[string]interface{}{"expr": "0 6 * * *"}}
+	want, err := CronNext("0 6 * * *", firedAt)
+	require.NoError(t, err)
+	nd := sched.cronAdvance(daily, firedAt, false)
+	require.NotNil(t, nd, "cron fires must always produce a next_due_at")
+	assert.Equal(t, want.UTC(), *nd, "successful fire lands on the next cron slot")
+	sched.bumpFailures(daily.ID) // recordFailure's order: advance, then bump
+	nd = sched.cronAdvance(daily, firedAt, true)
+	require.NotNil(t, nd)
+	assert.Equal(t, want.UTC(), *nd, "failure with a far cron slot keeps the slot")
+	sched.resetFailures(daily.ID)
+
+	// Every-minute cron: the backoff dominates the next slot.
+	everyMin := &Wake{ID: "w-min", Kind: KindCron, Spec: map[string]interface{}{"expr": "* * * * *"}}
+	nd = sched.cronAdvance(everyMin, firedAt, false)
+	require.NotNil(t, nd)
+	assert.Equal(t, firedAt.Truncate(time.Minute).Add(time.Minute), *nd,
+		"success on '* * * * *' is the next full minute")
+
+	for i, wantBackoff := range []time.Duration{
+		60 * time.Second,  // 1st consecutive failure: floor
+		120 * time.Second, // 2nd: doubled
+		240 * time.Second, // 3rd
+	} {
+		nd = sched.cronAdvance(everyMin, firedAt, true)
+		require.NotNil(t, nd)
+		assert.Equal(t, firedAt.Add(wantBackoff), *nd,
+			"failure #%d must use the %s backoff floor", i+1, wantBackoff)
+		sched.bumpFailures(everyMin.ID)
+	}
+	// Cap: after many consecutive failures, backoff is FailBackoffMax.
+	for i := 0; i < 20; i++ {
+		sched.bumpFailures(everyMin.ID)
+	}
+	nd = sched.cronAdvance(everyMin, firedAt, true)
+	require.NotNil(t, nd)
+	assert.Equal(t, firedAt.Add(FailBackoffMax), *nd, "backoff is capped")
+	// A success resets the counter: back off from the floor again.
+	sched.resetFailures(everyMin.ID)
+	nd = sched.cronAdvance(everyMin, firedAt, true)
+	require.NotNil(t, nd)
+	assert.Equal(t, firedAt.Add(FailBackoffFloor), *nd, "success resets the backoff")
+
+	// Missing/unparseable expr on a cron wake must NOT leave it due:
+	// advance by the floor instead of returning nil.
+	broken := &Wake{ID: "w-broken", Kind: KindCron, Spec: map[string]interface{}{"expr": "bogus"}}
+	nd = sched.cronAdvance(broken, firedAt, false)
+	require.NotNil(t, nd, "cron wake with a broken expr must still advance")
+	assert.Equal(t, firedAt.Add(FailBackoffFloor), *nd)
+
+	// Non-cron kinds have no schedule to advance.
+	ev := &Wake{ID: "w-ev", Kind: KindEvent, Spec: map[string]interface{}{"type": "x"}}
+	assert.Nil(t, sched.cronAdvance(ev, firedAt, false))
+	assert.Nil(t, sched.cronAdvance(ev, firedAt, true))
+}
+
+// TestRateLimitedCronFireAdvancesNextDue reproduces F-002 end to end:
+// a cron wake whose fire is dropped by the per-hour rate limiter must
+// still advance next_due_at to the next cron slot (and keep its
+// wake_log row), so the scan lane cannot re-fire it every tick.
+func TestRateLimitedCronFireAdvancesNextDue(t *testing.T) {
+	db := wakeDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+	forg := newFakeForge("agent-1")
+	srv := httptest.NewServer(forg.handler())
+	defer srv.Close()
+
+	w := &Wake{
+		Name:             "dependabot",
+		Kind:             KindCron,
+		Spec:             map[string]interface{}{"expr": "0 6 * * *"},
+		Target:           forgeTarget(srv.URL, "agent-1"),
+		PromptTemplate:   "check dependabot",
+		Enabled:          true,
+		RateLimitPerHour: 1,
+	}
+	mustCreate(t, store, w)
+	forceDue := func() {
+		_, err := db.Exec(`UPDATE wakes SET next_due_at = NOW() - INTERVAL '60 seconds' WHERE id = $1`, w.ID)
+		require.NoError(t, err)
+	}
+
+	sched := NewScheduler(store, nil)
+
+	// Fire 1: within the limit, submits, advances.
+	forceDue()
+	require.Equal(t, 1, sched.ScanDue(ctx))
+
+	// Fire 2: force-due again; now the limiter drops it — but the
+	// schedule must STILL advance to the next 06:00 slot.
+	forceDue()
+	res, err := sched.FireWake(ctx, w, "cron", nil)
+	require.NoError(t, err)
+	require.True(t, res.RateLimited, "second fire must be rate limited: %+v", res)
+
+	refreshed, err := store.Get(ctx, w.ID)
+	require.NoError(t, err)
+	require.NotNil(t, refreshed.NextDueAt, "rate-limited fire must still advance next_due_at")
+	assert.True(t, refreshed.NextDueAt.After(time.Now().UTC()),
+		"next_due_at must be in the future, got %v", *refreshed.NextDueAt)
+	assert.True(t, CronMatches("0 6 * * *", *refreshed.NextDueAt),
+		"next_due_at must be a cron slot, got %v", *refreshed.NextDueAt)
+
+	// The scan lane must NOT re-fire it (the F-002 hot loop).
+	assert.Equal(t, 0, sched.ScanDue(ctx), "rate-limited wake must not stay due")
+	assert.Len(t, forg.posted(), 1, "rate-limited fire must NOT submit")
+
+	// Both attempts are in wake_log; the rate-limited one is ok=false.
+	logs, err := store.Log(ctx, w.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, logs, 2)
+	require.NotNil(t, logs[0].OK)
+	assert.False(t, *logs[0].OK)
+	require.NotNil(t, logs[0].Error)
+	assert.Equal(t, "rate_limited", *logs[0].Error)
+	assert.True(t, *logs[1].OK)
+}
+
+// TestFailedCronDispatchBackoff proves a persistently failing cron
+// dispatch cannot hot-loop the scan lane: each consecutive failure
+// pushes next_due_at out by the exponential backoff, rescans stay
+// silent, and a success resets the counter.
+func TestFailedCronDispatchBackoff(t *testing.T) {
+	db := wakeDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+	forg := newFakeForge("agent-1")
+	srv := httptest.NewServer(forg.handler())
+	defer srv.Close()
+
+	deadTarget := forgeTarget("http://127.0.0.1:1", "agent-1")
+	w := &Wake{
+		Name:             "broken cron",
+		Kind:             KindCron,
+		// every minute: the cron slot is always <= 60 s out, so the
+		// backoff floor always dominates it and the assertions below
+		// measure the backoff itself
+		Spec:             map[string]interface{}{"expr": "* * * * *"},
+		Target:           deadTarget,
+		PromptTemplate:   "ping",
+		Enabled:          true,
+		RateLimitPerHour: 24,
+	}
+	mustCreate(t, store, w)
+	forceDue := func() {
+		_, err := db.Exec(`UPDATE wakes SET next_due_at = NOW() - INTERVAL '60 seconds' WHERE id = $1`, w.ID)
+		require.NoError(t, err)
+	}
+	setTarget := func(target map[string]interface{}) {
+		b, err := json.Marshal(target)
+		require.NoError(t, err)
+		_, err = db.Exec(`UPDATE wakes SET target = $1::jsonb WHERE id = $2`, string(b), w.ID)
+		require.NoError(t, err)
+	}
+	nextDue := func() *time.Time {
+		refreshed, err := store.Get(ctx, w.ID)
+		require.NoError(t, err)
+		require.NotNil(t, refreshed.NextDueAt, "failed cron fire must still advance next_due_at")
+		return refreshed.NextDueAt
+	}
+
+	sched := NewScheduler(store, nil)
+
+	// Failure #1 via the scan lane: recorded, schedule pushed out by
+	// at least the backoff floor, and rescans do not re-fire.
+	forceDue()
+	sched.ScanDue(ctx)
+	require.GreaterOrEqual(t, nextDue().Sub(time.Now().UTC()), 55*time.Second,
+		"first failure must respect the 60 s backoff floor")
+	assert.Equal(t, 0, sched.ScanDue(ctx), "failing wake must not re-fire every tick")
+
+	// Failure #2: backoff doubles (>= ~120 s).
+	forceDue()
+	before := time.Now().UTC()
+	_, err := sched.FireWake(ctx, w, "cron", nil)
+	require.Error(t, err, "dispatch to the dead forge must fail")
+	assert.GreaterOrEqual(t, nextDue().Sub(before), 115*time.Second,
+		"second consecutive failure must double the backoff")
+
+	// Failure #3: doubles again (>= ~240 s).
+	forceDue()
+	before = time.Now().UTC()
+	_, err = sched.FireWake(ctx, w, "cron", nil)
+	require.Error(t, err)
+	assert.GreaterOrEqual(t, nextDue().Sub(before), 235*time.Second,
+		"third consecutive failure must double the backoff again")
+
+	// Every failed dispatch kept a wake_log row (ok=false, error set).
+	logs, err := store.Log(ctx, w.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, logs, 3)
+	for i, l := range logs {
+		require.NotNil(t, l.OK, "log %d", i)
+		assert.False(t, *l.OK)
+		require.NotNil(t, l.Error, "log %d", i)
+		assert.NotEmpty(t, *l.Error)
+	}
+
+	// Success resets the counter: fix the target, fire ok, break it
+	// again — the next failure backs off from the floor, not 240 s.
+	setTarget(forgeTarget(srv.URL, "agent-1"))
+	forceDue()
+	require.Equal(t, 1, sched.ScanDue(ctx))
+	setTarget(deadTarget)
+	forceDue()
+	before = time.Now().UTC()
+	_, err = sched.FireWake(ctx, w, "cron", nil)
+	require.Error(t, err)
+	since := nextDue().Sub(before)
+	assert.GreaterOrEqual(t, since, 55*time.Second, "post-success failure uses the floor again")
+	assert.Less(t, since, 115*time.Second, "counter must have reset on success")
+}

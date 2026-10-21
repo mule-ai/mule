@@ -22,6 +22,15 @@ const CronScanInterval = 30 * time.Second
 // submit). Wakes are cheap fire-and-forget calls; nothing longer.
 const fireTimeout = 30 * time.Second
 
+// Failed-dispatch backoff (F-002): consecutive failed dispatches of
+// the SAME wake are spaced by at least FailBackoffFloor, doubling per
+// consecutive failure up to FailBackoffMax, so a persistently broken
+// target cannot hot-loop the scan lane.
+const (
+	FailBackoffFloor = 60 * time.Second
+	FailBackoffMax   = time.Hour
+)
+
 // EventBus is an in-process pub/sub bus: a bounded FIFO channel that
 // drops the OLDEST event with a warning when full (a slow consumer
 // must never block publishers; a full bus means the consumer is stuck
@@ -73,16 +82,32 @@ func (b *EventBus) C() <-chan Event { return b.ch }
 //
 // memory / agent_signal wakes are inert in H3 (registered, validated,
 // stored; never fired — H4 wires them).
+// wakeStore is the Scheduler's dependency surface on the PostgreSQL
+// store (*Store implements it). Tests inject a fake to exercise the
+// scheduling logic (cadence advance, backoff, rate limiting) without
+// a database.
+type wakeStore interface {
+	DueCronWakes(ctx context.Context, now time.Time) ([]*Wake, error)
+	MatchingWebhookWakes(ctx context.Context, source, tag string) ([]*Wake, error)
+	MatchingEventWakes(ctx context.Context, eventType, workflowID, status string) ([]*Wake, error)
+	CountRecentFires(ctx context.Context, wakeID string, now time.Time) (int, error)
+	RecordFire(ctx context.Context, wakeID string, payload map[string]interface{}, jobID *string, ok bool, errMsg *string, nextDue *time.Time) error
+}
+
 type Scheduler struct {
-	store        *Store
+	store        wakeStore
 	engine       *engine.Engine // may be nil (tests; workflow targets then fail)
 	bus          *EventBus
 	scanInterval time.Duration
+	now          func() time.Time // injectable clock (tests)
 
 	mu      sync.Mutex
 	started bool
 	stopCh  chan struct{}
 	wg      sync.WaitGroup
+
+	failMu   sync.Mutex
+	failures map[string]int // wake_id -> consecutive failed dispatches
 }
 
 // NewScheduler creates a scheduler. The engine is required for
@@ -93,11 +118,24 @@ func NewScheduler(store *Store, eng *engine.Engine) *Scheduler {
 		engine:       eng,
 		bus:          NewEventBus(1024),
 		scanInterval: CronScanInterval,
+		now:          time.Now,
 	}
 }
 
+// newSchedulerWithStore builds a scheduler over any wakeStore
+// implementation (tests exercise the scheduling logic with a fake
+// store and no database).
+func newSchedulerWithStore(store wakeStore, eng *engine.Engine) *Scheduler {
+	s := NewScheduler(nil, eng)
+	s.store = store
+	return s
+}
+
 // Store exposes the scheduler's store (handlers CRUD wakes through it).
-func (s *Scheduler) Store() *Store { return s.store }
+func (s *Scheduler) Store() *Store {
+	st, _ := s.store.(*Store)
+	return st
+}
 
 // EventBus exposes the event bus (tests publish into it directly).
 func (s *Scheduler) EventBus() *EventBus { return s.bus }
@@ -176,7 +214,7 @@ func (s *Scheduler) scanLoop() {
 // ScanDue fires every enabled cron wake whose next_due_at <= now and
 // returns the number it fired (ok or rate-limited-dropped).
 func (s *Scheduler) ScanDue(ctx context.Context) int {
-	wakes, err := s.store.DueCronWakes(ctx, time.Now().UTC())
+	wakes, err := s.store.DueCronWakes(ctx, s.now().UTC())
 	if err != nil {
 		log.Printf("wake cron scan: %v", err)
 		return 0
@@ -311,14 +349,17 @@ func (s *Scheduler) fireMatched(ctx context.Context, w *Wake, source string, pay
 //     and, for cron wakes, advance last_fired_at/next_due_at — in the
 //     same transaction (RecordFire).
 //
-// Cron wakes advance next_due_at even on submission failure: the
-// schedule stays on cadence and the rate limit bounds a broken target
-// to rate_limit_per_hour error rows per hour.
+// Cron wakes advance next_due_at unconditionally — on success, on a
+// rate-limited drop, and on submission failure (F-002): a fire that
+// leaves the wake due re-fires on every scan tick. Failed dispatches
+// additionally honor an exponential backoff floor (see cronAdvance),
+// and the rate limit bounds a broken target to rate_limit_per_hour
+// error rows per hour.
 func (s *Scheduler) FireWake(ctx context.Context, w *Wake, source string, payload map[string]interface{}) (FireResult, error) {
 	if payload == nil {
 		payload = map[string]interface{}{}
 	}
-	firedAt := time.Now().UTC()
+	firedAt := s.now().UTC()
 
 	recent, err := s.store.CountRecentFires(ctx, w.ID, firedAt)
 	if err != nil {
@@ -326,7 +367,11 @@ func (s *Scheduler) FireWake(ctx context.Context, w *Wake, source string, payloa
 	}
 	if recent >= w.RateLimitPerHour {
 		errMsg := "rate_limited"
-		if recErr := s.store.RecordFire(ctx, w.ID, payload, nil, false, &errMsg, nil); recErr != nil {
+		// A rate-limited cron fire STILL advances next_due_at (F-002):
+		// otherwise the scan lane re-fires the wake on every tick while
+		// the limiter drops it, flooding wake_log with rate_limited rows.
+		if recErr := s.store.RecordFire(ctx, w.ID, payload, nil, false, &errMsg,
+			s.cronAdvance(w, firedAt, false)); recErr != nil {
 			log.Printf("wake %s: failed to record rate-limited drop: %v", w.ID, recErr)
 		}
 		return FireResult{WakeID: w.ID, RateLimited: true, Error: "rate_limited"}, nil
@@ -343,7 +388,9 @@ func (s *Scheduler) FireWake(ctx context.Context, w *Wake, source string, payloa
 	prompt, err := renderFireTemplate(w.PromptTemplate, data)
 	if err != nil {
 		errMsg := err.Error()
-		_ = s.store.RecordFire(ctx, w.ID, payload, nil, false, &errMsg, nil)
+		_ = s.store.RecordFire(ctx, w.ID, payload, nil, false, &errMsg,
+			s.cronAdvance(w, firedAt, true))
+		s.bumpFailures(w.ID)
 		return FireResult{WakeID: w.ID, Error: err.Error()}, err
 	}
 
@@ -354,42 +401,34 @@ func (s *Scheduler) FireWake(ctx context.Context, w *Wake, source string, payloa
 	var convID string
 	if wfID, _ := w.Target["workflow_id"].(string); wfID != "" {
 		if s.engine == nil {
-			return s.recordFailure(ctx, w, payload, "no engine configured for workflow target")
+			return s.recordFailure(ctx, w, payload, firedAt, "no engine configured for workflow target")
 		}
 		j, err := s.engine.SubmitJob(submitCtx, wfID, map[string]interface{}{
 			"prompt":  prompt,
 			"payload": payload,
 		})
 		if err != nil {
-			return s.recordFailure(ctx, w, payload, fmt.Sprintf("failed to submit workflow job: %v", err))
+			return s.recordFailure(ctx, w, payload, firedAt, fmt.Sprintf("failed to submit workflow job: %v", err))
 		}
 		jobID = &j.ID
 	} else {
 		fc, ok := w.Target["forge_conversation"].(map[string]interface{})
 		if !ok {
-			return s.recordFailure(ctx, w, payload, "wake target has neither workflow_id nor forge_conversation")
+			return s.recordFailure(ctx, w, payload, firedAt, "wake target has neither workflow_id nor forge_conversation")
 		}
 		sub, err := engine.ParseForgeSubmission(fc)
 		if err != nil {
-			return s.recordFailure(ctx, w, payload, err.Error())
+			return s.recordFailure(ctx, w, payload, firedAt, err.Error())
 		}
 		content := "[mule wake " + w.ID + "] " + prompt
 		convID, err = sub.PostMessage(submitCtx, content)
 		if err != nil {
-			return s.recordFailure(ctx, w, payload, err.Error())
+			return s.recordFailure(ctx, w, payload, firedAt, err.Error())
 		}
 	}
 
-	var nextDue *time.Time
-	if w.Kind == KindCron {
-		if expr, _ := w.Spec["expr"].(string); expr != "" {
-			nd, err := CronNext(expr, firedAt)
-			if err == nil {
-				t := nd.UTC()
-				nextDue = &t
-			}
-		}
-	}
+	s.resetFailures(w.ID)
+	nextDue := s.cronAdvance(w, firedAt, false)
 	if err := s.store.RecordFire(ctx, w.ID, payload, jobID, true, nil, nextDue); err != nil {
 		return FireResult{WakeID: w.ID, OK: true, JobID: deref(jobID), ConversationID: convID, Prompt: prompt,
 			Error: "submission succeeded but wake_log record failed: " + err.Error()}, err
@@ -397,15 +436,85 @@ func (s *Scheduler) FireWake(ctx context.Context, w *Wake, source string, payloa
 	return FireResult{WakeID: w.ID, OK: true, JobID: deref(jobID), ConversationID: convID, Prompt: prompt}, nil
 }
 
-// recordFailure logs a failed submission (ok=false, error message)
-// WITHOUT advancing the cron schedule.
-func (s *Scheduler) recordFailure(ctx context.Context, w *Wake, payload map[string]interface{}, msg string) (FireResult, error) {
+// recordFailure logs a failed submission (ok=false, error message).
+// Cron wakes STILL advance next_due_at (F-002), pushed out by the
+// failed-dispatch backoff so a persistently failing target cannot
+// hot-loop the scan lane.
+func (s *Scheduler) recordFailure(ctx context.Context, w *Wake, payload map[string]interface{}, firedAt time.Time, msg string) (FireResult, error) {
 	err := errors.New(msg)
 	errMsg := msg
-	if recErr := s.store.RecordFire(ctx, w.ID, payload, nil, false, &errMsg, nil); recErr != nil {
+	nextDue := s.cronAdvance(w, firedAt, true)
+	s.bumpFailures(w.ID)
+	if recErr := s.store.RecordFire(ctx, w.ID, payload, nil, false, &errMsg, nextDue); recErr != nil {
 		log.Printf("wake %s: failed to record fire failure: %v", w.ID, recErr)
 	}
 	return FireResult{WakeID: w.ID, Error: msg}, err
+}
+
+// cronAdvance returns the next_due_at to persist with a fire of a
+// cron wake (nil for non-cron kinds). It NEVER returns nil for a cron
+// wake with a usable expr — successful, rate-limited-dropped, and
+// failed fires all advance the cadence (F-002). On a failed dispatch
+// the advance is pushed to at least firedAt + backoff (exponential
+// from FailBackoffFloor, capped at FailBackoffMax); on success or a
+// rate-limited drop it is exactly the next cron slot. A cron wake
+// whose expr is missing/unparseable still advances by the backoff
+// floor so it can never sit permanently due.
+func (s *Scheduler) cronAdvance(w *Wake, firedAt time.Time, failed bool) *time.Time {
+	if w.Kind != KindCron {
+		return nil
+	}
+	var next time.Time
+	if expr, _ := w.Spec["expr"].(string); expr != "" {
+		if nd, err := CronNext(expr, firedAt); err == nil {
+			next = nd.UTC()
+		}
+	}
+	if failed {
+		if floor := firedAt.Add(s.failBackoff(w.ID)); next.IsZero() || next.Before(floor) {
+			next = floor
+		}
+	} else if next.IsZero() {
+		next = firedAt.Add(FailBackoffFloor)
+	}
+	if next.IsZero() {
+		return nil
+	}
+	return &next
+}
+
+// failBackoff returns the backoff for the NEXT consecutive failure of
+// wakeID (60 s, 120 s, 240 s, ... capped at FailBackoffMax) without
+// mutating the counter (bumpFailures drives the state).
+func (s *Scheduler) failBackoff(wakeID string) time.Duration {
+	s.failMu.Lock()
+	defer s.failMu.Unlock()
+	n := s.failures[wakeID] // count of failures already recorded
+	backoff := FailBackoffFloor
+	for i := 0; i < n && backoff < FailBackoffMax; i++ {
+		backoff *= 2
+	}
+	if backoff > FailBackoffMax {
+		backoff = FailBackoffMax
+	}
+	return backoff
+}
+
+// bumpFailures records one more consecutive failed dispatch of wakeID.
+func (s *Scheduler) bumpFailures(wakeID string) {
+	s.failMu.Lock()
+	defer s.failMu.Unlock()
+	if s.failures == nil {
+		s.failures = map[string]int{}
+	}
+	s.failures[wakeID]++
+}
+
+// resetFailures clears the failed-dispatch counter on success.
+func (s *Scheduler) resetFailures(wakeID string) {
+	s.failMu.Lock()
+	defer s.failMu.Unlock()
+	delete(s.failures, wakeID)
 }
 
 func deref(s *string) string {
