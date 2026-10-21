@@ -104,6 +104,60 @@ func (f *ForgeClient) PostMessage(ctx context.Context, sessionID, content string
 	return nil
 }
 
+// MatchProfile resolves a user-chosen voice-model label (profile name,
+// id, or model — e.g. "Laguna (dev)" or just "laguna") against forge's
+// profiles.
+func (f *ForgeClient) MatchProfile(ctx context.Context, want string) (*VoiceProfile, error) {
+	return f.rest.matchProfile(ctx, want)
+}
+
+// SetModel re-points a conversation's live model via forge's session
+// model switcher (PATCH /sessions/:id — rebinds the attached harness
+// conversation via pi-durable setModel).
+func (f *ForgeClient) SetModel(ctx context.Context, sessionID string, p *VoiceProfile) error {
+	if p == nil {
+		return fmt.Errorf("nil profile")
+	}
+	return f.rest.setModelOverrides(ctx, sessionID, p.Provider, p.Model, p.BaseURL)
+}
+
+// SessionContext is the slice of GET /sessions/:id/context the voice
+// loop's pre-call budget check consumes.
+type SessionContext struct {
+	Source             string `json:"source"`
+	ActiveContextChars int64  `json:"active_context_chars"`
+	ActiveEntryCount   int    `json:"active_entry_count"`
+}
+
+// CatalogModel is one entry of GET /v1/models/catalog (forge's
+// models.json): the id plus the contextWindow the harness compacts
+// against.
+type CatalogModel struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	ContextWindow uint64 `json:"context_window"`
+}
+
+// SessionContext fetches the session's ACTIVE context (chars; the
+// harness source reflects post-compaction reality).
+func (f *ForgeClient) SessionContext(ctx context.Context, sessionID string) (SessionContext, error) {
+	return f.rest.sessionContext(ctx, sessionID)
+}
+
+// CompactSession submits a background compaction (forge POST
+// /sessions/:id/compact). It runs as a conversation-owned task; an
+// in-flight turn is never interrupted and the summary lands at the
+// next turn boundary at the latest.
+func (f *ForgeClient) CompactSession(ctx context.Context, sessionID string) error {
+	return f.rest.compactSession(ctx, sessionID)
+}
+
+// ModelCatalog returns the machine's declared models (id +
+// contextWindow) from forge's models.json.
+func (f *ForgeClient) ModelCatalog(ctx context.Context) ([]CatalogModel, error) {
+	return f.rest.modelCatalog(ctx)
+}
+
 // Transcribe sends 16 kHz mono s16le PCM bytes wrapped as WAV to forge's
 // STT proxy (POST /v1/audio/transcriptions — the same multipart shape
 // the H6.2 mobile voice input and the forge web UI send) and returns

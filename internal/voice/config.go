@@ -35,17 +35,33 @@ package voice
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // CallConfig is the parsed+validated voice_call step config.
 type CallConfig struct {
-	ForgeURL          string
-	APIKey            string
-	AgentID           string
-	ConversationID    string
-	Mode              string // "steer" (default), "message"
+	ForgeURL       string
+	APIKey         string
+	AgentID        string
+	ConversationID string
+	Mode           string // "steer" (default), "message"
+	// Model is the per-call "voice model" choice: a forge profile name,
+	// id, or model label (e.g. "Laguna (dev)"). Empty = the agent's
+	// default profile. Applied once per call (before the first turn) by
+	// Call.ensureModel via forge's session model switcher; it can also
+	// arrive per-job via input_data {"model": …} (Hub.StartCall).
+	Model string
+	// CompactBeforeCall forces a background compaction of the
+	// conversation before the first turn (config "compact": true).
+	Compact bool
+	// CompactRatio: when the session's ACTIVE context would exceed
+	// this fraction of the TARGET model's context window, a background
+	// compaction is submitted before the first turn (config
+	// "compact_ratio", default 0.5). chars/4 ≈ tokens (the same
+	// heuristic forge's own threshold uses).
+	CompactRatio      float64
 	TTSVoice          string
 	TTSResponseFormat string
 	TTSRate           int
@@ -73,6 +89,9 @@ func ParseCallConfig(cfg map[string]interface{}) (CallConfig, error) {
 	var c CallConfig
 	c.ForgeURL = strings.TrimRight(strOr(cfg, "forge_url"), "/")
 	c.APIKey = strOr(cfg, "api_key")
+	c.Model = strings.TrimSpace(strOr(cfg, "model"))
+	c.Compact = boolOr(cfg, "compact", false)
+	c.CompactRatio = floatOr(cfg, "compact_ratio", 0.5)
 	c.AgentID = strings.TrimSpace(strOr(cfg, "agent_id"))
 	c.ConversationID = strings.TrimSpace(strOr(cfg, "conversation_id"))
 	c.Mode = "steer"
@@ -175,6 +194,21 @@ func floatOr(cfg map[string]interface{}, key string, def float64) float64 {
 		return n
 	case int:
 		return float64(n)
+	}
+	return def
+}
+
+func boolOr(cfg map[string]interface{}, key string, def bool) bool {
+	if cfg == nil {
+		return def
+	}
+	switch b := cfg[key].(type) {
+	case bool:
+		return b
+	case string:
+		if v, err := strconv.ParseBool(b); err == nil {
+			return v
+		}
 	}
 	return def
 }

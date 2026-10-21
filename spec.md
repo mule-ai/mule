@@ -900,7 +900,25 @@ Two WebSockets, addressed by the mule job id (the job id is the
   caller is told why the agent went quiet instead of sitting in
   silence (2026-10-16: the WAV-magic STT bug made every mic call
   silently dead; surfaces print notices as a ⚠ transcript line); a
+  text frame `{"user": …}` carries what the caller just said (final
+  STT or typed line) so their own words show up on screen while the
+  agent composes; a text frame `{"state": …}` carries the call phase
+  (`listening` / `utterance` / `thinking` / `speaking` / `greeting`) —
+  the caller's "is it working?" status lane (2026-10-17: between
+  dialling and the first answer nothing on screen moved, so calls
+  looked dead); surfaces that do not implement them must at least
+  ignore the frames; a
   final text frame `{"done":true}` marks the end.
+
+**Answer-the-call.** When the IN socket attaches, the call runs one
+agent turn ahead of any caller speech — a short system-ish prompt
+asking the agent to greet the caller — and captions + speaks the reply
+("the agent answers your call"). It doubles as prefix-cache warm-up:
+the system prompt, tools, and conversation history reach the model
+while the caller settles in, so the first real utterance is a cache hit
+on the conversation prefix. Speech during the greeting prompt is
+buffered, not steered (the greeting owns the speaker), and runs as a
+normal turn immediately after. A job nobody dials never greets.
 
 The voice sockets can attach before the engine worker starts the step
 (job poll interval ~1 s); the handlers wait for the call to be
@@ -994,9 +1012,46 @@ The `voice_call` step's `config` JSONB:
   "frame_ms": 30,                  // nominal in-frame duration
   "vad_threshold": 300,            // RMS: "the user speaks"
   "barge_in_threshold": 600,       // RMS: "the user talks over the agent"
+  "model": "Laguna (dev)",         // optional per-call "voice model": a
+                                   // forge profile name/id/model (fuzzy
+                                   // match); wins over the agent's default
+                                   // profile for the CALL only
+  "compact": false,               // force a background compaction before
+                                   // the first turn
+  "compact_ratio": 0.5,           // auto-compact when the ACTIVE context
+                                   // exceeds this fraction of the target
+                                   // model's declared contextWindow
   "turn_timeout_secs": 120
 }
 ```
+
+**Voice model selection.** `config.model` (or a per-job override via
+`POST /api/v1/jobs {"input_data": {"model": "laguna"}}` — the
+phone/CLI picker) re-points the call's conversation once, before the
+first agent turn: mule matches the label against `GET /profiles`
+(exact name/id/model, else unique substring) and PATCHes
+`/sessions/{id}` (forge's model switcher → live pi-durable `setModel`).
+Unresolvable labels degrade not-dead: a `{"notice":"model: …"}` frame
+rides the out socket (listing the available profiles) and the call
+proceeds on the agent's default profile. The switch happens inside the
+turn-wait lock, so no agent turn can post before it lands. Note the
+prompt cache is per-model: switching invalidates what the greeting
+warmed (that call pays the cold-start on its first turn — inherent to
+choosing a different brain mid-conversation).
+
+**Context budget + pre-call compaction.** A conversation that fits one
+brain overflows another (Bob's default Spark declares 262k tokens;
+Laguna on vram is capped at 120k). After the model switch, ensureModel
+checks the session's ACTIVE context (`GET /sessions/{id}/context`,
+chars/4 ≈ tokens — forge's own heuristic) against `compact_ratio ×`
+the target model's `contextWindow` (from `GET /v1/models/catalog`, the
+machine's models.json) and submits a background compaction
+(`POST /sessions/{id}/compact`) when over budget; `"compact": true`
+(or per-job `input_data.compact`) forces one regardless. Degraded
+not-dead: any failure is a logged ⚠ notice and the call proceeds —
+pi-durable's own generation-prep threshold (which reads the same
+models.json window) is the backstop. Below `keepRecentTokens`
+(pi-durable's 20k) a compaction is a legitimate no-op.
 
 ### v1 limits
 
@@ -1172,3 +1227,36 @@ All three keep their v1 defaults if omitted except `silence_ms`
 
 1. **Scope Creep**: Feature additions during implementation
    - Mitigation: Strict feature freeze after spec approval
+
+## Call reliability (2026-10-17 phone report)
+
+Real-phone testing surfaced three call-quality bugs; the fixes are
+part of the loop's contract:
+
+- **Out-socket liveness.** The out-socket handler pings every 20 s.
+  The transport path (Cloudflare edge / cloudflared) ages out idle
+  WebSockets at ~100 s — and an idle OUT socket (the caller simply
+  listening) was silently dropped, after which every later turn came
+  back with no audio and no captions. A failed ping write is the
+  client-gone signal (`MarkOutClosed` → TTS stops streaming into the
+  void). Attach sets `MarkOutOpen`: **a client that re-dials the out
+  socket mid-call resumes its audio lane** (the Kotlin client retries
+  three times on socket failure).
+- **Greeting lock cap.** The greeting's agent-turn wait holds
+  `turnMu` for at most `greetingLockCap` (45 s). Past the cap the
+  wait is abandoned (the turn keeps running server-side; its late
+  reply is never spoken) so the caller's first real turn is never
+  queued behind a slow answer-the-call prompt. Output reports
+  `greeting: "timeout"`.
+- **Phase settle is an invariant.** `handleFrame` drops frames while
+  the phase is Thinking/Speaking, so every turn path settles back to
+  Listening (the `runTurnFrom` defer); an early return that skips it
+  leaves the call permanently deaf. Barge-in (PhaseUtterance) is the
+  only phase a turn may hand back to the loop.
+
+Client-side (Kotlin CallActivity): the echo guard only ducks the
+player on a hot mic when no audio played in the last 700 ms (the
+agent's OWN speaker voice used to mute itself into silence) with a
+2.5 s watchdog; speakerphone + media focus are held for the call; the
+AudioTrack buffer is 4× min for per-sentence TTS jitter; both call
+WebSockets ride a pingInterval=25 s client.

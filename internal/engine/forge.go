@@ -42,6 +42,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -262,7 +263,12 @@ func (c *forgeStepClient) lastMessageSeq(ctx context.Context, sessionID string) 
 }
 
 // latestAssistantAfter returns the content of the most recent
-// assistant row with sequence > afterSeq ("" when none).
+// assistant row with sequence > afterSeq ("" when none). The content
+// is thinking-stripped: reasoning models (Qwen3.8 et al.) emit
+// chain-of-thought as inline <think>…</think> INSIDE the content text
+// (pi projects it verbatim; it is not a separate thinking block), and
+// a voice caller must never hear "The user sent … I should respond
+// briefly." read aloud.
 func (c *forgeStepClient) latestAssistantAfter(ctx context.Context, sessionID string, afterSeq int) (string, error) {
 	msgs, err := c.listMessages(ctx, sessionID)
 	if err != nil {
@@ -274,13 +280,154 @@ func (c *forgeStepClient) latestAssistantAfter(ctx context.Context, sessionID st
 			content = m.Content
 		}
 	}
-	return content, nil
+	return StripThinking(content), nil
+}
+
+// thinkRe matches an inline reasoning segment: <think>…</think> (the
+// usual form, possibly multiline) or a dangling <think> with no
+// closer — everything to EOF is reasoning then (a truncated turn).
+var thinkRe = regexp.MustCompile(`(?s)<think>.*?</think>|<think>.*$`)
+
+// StripThinking removes inline reasoning from assistant content and
+// trims. Safe on clean text: it returns it unchanged.
+//
+// Form handled, in order:
+//  1. <think>…</think> pairs (multiline) — removed.
+//  2. A dangling <think> with no closer — everything from the opener
+//     to EOF is reasoning (a truncated turn) — removed.
+//  3. The template-opened form Qwen3.8 actually emits on the wire: a
+//     reasoning PREFIX with no opening tag, closed by </think> — the
+//     answer is everything after the LAST closer. Only applied when
+//     no <think> opener is present (form 1 handled that case).
+func StripThinking(content string) string {
+	if content == "" {
+		return ""
+	}
+	if strings.Contains(content, "<think>") {
+		content = thinkRe.ReplaceAllString(content, "")
+	} else if i := strings.LastIndex(content, "</think>"); i >= 0 {
+		content = content[i+len("</think>"):]
+	}
+	return strings.TrimSpace(strings.TrimPrefix(content, "</think>"))
 }
 
 // postMessage is POST /messages {"session_id", "content"} -> 202.
 func (c *forgeStepClient) postMessage(ctx context.Context, sessionID, content string) error {
 	body := map[string]interface{}{"session_id": sessionID, "content": content}
 	return c.doRequest(ctx, http.MethodPost, "/messages", body, nil)
+}
+
+// VoiceProfile is the slice of a forge profile the voice loop needs to
+// re-point a conversation's model (GET /profiles).
+type VoiceProfile struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"base_url"`
+}
+
+// listProfiles is GET /profiles (owner scope: the caller's own).
+func (c *forgeStepClient) listProfiles(ctx context.Context) ([]VoiceProfile, error) {
+	var out struct {
+		Profiles []VoiceProfile `json:"profiles"`
+	}
+	if err := c.doRequest(ctx, http.MethodGet, "/profiles", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Profiles, nil
+}
+
+// matchProfile resolves a user-chosen "voice model" label against the
+// forge profiles: exact (case-insensitive) match on name, id, or
+// model; then a unique-substring match on name (so "laguna" picks
+// "Laguna (dev)"). An unknown label lists what IS available.
+func (c *forgeStepClient) matchProfile(ctx context.Context, want string) (*VoiceProfile, error) {
+	profiles, err := c.listProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lc := strings.ToLower(strings.TrimSpace(want))
+	if lc == "" {
+		return nil, fmt.Errorf("empty voice model")
+	}
+	for _, p := range profiles {
+		if strings.EqualFold(p.Name, lc) || strings.EqualFold(p.ID, lc) || strings.EqualFold(p.Model, lc) {
+			pp := p
+			return &pp, nil
+		}
+	}
+	var hits []VoiceProfile
+	var names []string
+	for _, p := range profiles {
+		names = append(names, p.Name)
+		if strings.Contains(strings.ToLower(p.Name), lc) {
+			hits = append(hits, p)
+		}
+	}
+	if len(hits) == 1 {
+		return &hits[0], nil
+	}
+	if len(hits) > 1 {
+		return nil, fmt.Errorf("voice model %q is ambiguous (matches %d profiles)", want, len(hits))
+	}
+	return nil, fmt.Errorf("voice model %q not found (available: %s)", want, strings.Join(names, ", "))
+}
+
+// setModelOverrides is PATCH /sessions/{id} {provider, model,
+// base_url} — forge's model switcher: the effective override rebinds
+// the LIVE harness conversation via pi-durable setModel, effective
+// from the next provider request. (api_key is deliberately untouched:
+// forge redacts it in the API, and the lab's voice models — SGLang /
+// vram llama.cpp — need none.)
+func (c *forgeStepClient) setModelOverrides(ctx context.Context, sessionID, provider, model, baseURL string) error {
+	body := map[string]interface{}{}
+	if provider != "" {
+		body["provider"] = provider
+	}
+	if model != "" {
+		body["model"] = model
+	}
+	if baseURL != "" {
+		body["base_url"] = baseURL
+	}
+	return c.doRequest(ctx, http.MethodPatch, "/sessions/"+sessionID, body, nil)
+}
+
+// sessionContext is GET /sessions/:id/context — the ACTIVE context
+// (harness source: post-compaction chars; unmigrated sessions fall
+// back to a chars/4 estimate over the messages table).
+func (c *forgeStepClient) sessionContext(ctx context.Context, sessionID string) (SessionContext, error) {
+	var out SessionContext
+	if err := c.doRequest(ctx, http.MethodGet, "/sessions/"+sessionID+"/context", nil, &out); err != nil {
+		return SessionContext{}, err
+	}
+	return out, nil
+}
+
+// compactSession is POST /sessions/:id/compact — submit a background
+// compaction (the harness CompactionTask; summary lands at the next
+// turn boundary at the latest).
+func (c *forgeStepClient) compactSession(ctx context.Context, sessionID string) error {
+	return c.doRequest(ctx, http.MethodPost, "/sessions/"+sessionID+"/compact", map[string]interface{}{}, nil)
+}
+
+// modelCatalog is GET /v1/models/catalog — the machine's models.json
+// (id + contextWindow per model, secrets stripped).
+func (c *forgeStepClient) modelCatalog(ctx context.Context) ([]CatalogModel, error) {
+	var out struct {
+		Providers map[string]struct {
+			Models []CatalogModel `json:"models"`
+		} `json:"providers"`
+	}
+	if err := c.doRequest(ctx, http.MethodGet, "/v1/models/catalog", nil, &out); err != nil {
+		return nil, err
+	}
+	var models []CatalogModel
+	for _, p := range out.Providers {
+		models = append(models, p.Models...)
+	}
+	return models, nil
 }
 
 // waitForTurn blocks until the turn started after the given pre-turn

@@ -44,6 +44,15 @@ type fakeForge struct {
 	agentDelay time.Duration
 	ttsDelay   time.Duration
 	sttDelay   time.Duration
+	// voice-model selection (PATCH /sessions/{id}) capture
+	lastPatch string
+	patches   int
+	// pre-call compaction (POST /sessions/{id}/compact) capture
+	compactions int
+	// GET /v1/models/catalog body (models.json shape)
+	catalog string
+	// GET /sessions/{id}/context: active_context_chars served
+	contextChars int64
 }
 
 func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge, *httptest.Server) {
@@ -63,6 +72,21 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 		}
 		fmt.Fprintf(w, `{"busy":false,"current_conversation":%q}`, activeConv)
 	})
+
+	// GET /profiles — the voice-model picker source (voice model
+	// selection): two profiles mirroring the lab (Spark/SGLang, Laguna/
+	// vram llama.cpp).
+	mux.HandleFunc("/profiles", func(w http.ResponseWriter, r *http.Request) {
+		logReq("GET /profiles")
+		fmt.Fprint(w, `{"profiles":[
+			{"id":"p-spark","name":"Spark (Qwen3.8-27B)","provider":"spark","model":"spark/qwen3.8-sglang","base_url":"http://spark:8001/v1"},
+			{"id":"p-laguna","name":"Laguna (dev)","provider":"proxy","model":"llamacpp/laguna-xs-2.1","base_url":"http://vram:8080/v1"}
+		]}`)
+	})
+
+	// PATCH /sessions/{id} — forge's model switcher (records the last
+	// override body for assertions); handled inside the /sessions/
+	// handler below (mux allows one pattern per path prefix).
 
 	// POST /messages — 202; append the user row + canned assistant
 	// reply (the synchronous fake "agent").
@@ -105,7 +129,37 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 
 	// GET /sessions/{id}/events?since=N&oneshot=true — SSE: message
 	// rows after since, then turn_ended, then the connection closes.
+	mux.HandleFunc("/v1/models/catalog", func(w http.ResponseWriter, r *http.Request) {
+		logReq("GET /v1/models/catalog")
+		fmt.Fprint(w, fg.catalog)
+	})
+
+	// GET /sessions/{id}/context + POST /sessions/{id}/compact — the
+	// pre-call context-budget gate (the voice loop's ensureModel).
+	mux.HandleFunc("/sessions/{id}/context", func(w http.ResponseWriter, r *http.Request) {
+		logReq("GET /sessions/context")
+		fmt.Fprint(w, `{"session_id":"conv-1","source":"harness","active_context_chars":`, fg.contextChars, `}`)
+	})
+	mux.HandleFunc("/sessions/{id}/compact", func(w http.ResponseWriter, r *http.Request) {
+		logReq("POST /sessions/compact")
+		fg.mu.Lock()
+		fg.compactions++
+		fg.mu.Unlock()
+		fmt.Fprint(w, `{"status":"submitted"}`)
+	})
+
 	mux.HandleFunc("/sessions/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			// forge's model switcher (voice model selection)
+			logReq("PATCH /sessions")
+			body, _ := io.ReadAll(r.Body)
+			fg.mu.Lock()
+			fg.lastPatch = string(body)
+			fg.patches++
+			fg.mu.Unlock()
+			fmt.Fprint(w, `{"session":{"id":"s"},"profile":{}}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		since, _ := strconv.Atoi(r.URL.Query().Get("since"))
 		fg.mu.Lock()

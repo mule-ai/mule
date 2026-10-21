@@ -55,7 +55,8 @@ import (
 	"github.com/mule-ai/mule/internal/engine"
 )
 
-// Phase is the call's audio pipeline state.
+// Phase is the call's audio pipeline state (plus PhaseGreeting, a
+// client-facing label for the answer-the-call process).
 type Phase string
 
 const (
@@ -63,12 +64,26 @@ const (
 	PhaseUtterance Phase = "utterance" // buffering the user's speech
 	PhaseThinking  Phase = "thinking"  // STT + agent turn in flight
 	PhaseSpeaking  Phase = "speaking"  // TTS streaming to the out socket
+	// PhaseGreeting: the answer-the-call turn is running — the caller
+	// may talk over it (that cancels it; see startGreeting).
+	PhaseGreeting Phase = "greeting"
 )
 
 // Sentinel hop outcomes (pollHop): they are not real failures.
 var (
 	errBargeIn   = errors.New("barge-in: user speech interrupted the turn")
 	errCallEnded = errors.New("call ended")
+	// errGreetingCap abandons the greeting's turnMu hold after
+	// greetingLockCap (the agent turn may still be running server-side;
+	// nobody waits on it or speaks it — the caller's turns own the
+	// conversation from there).
+	errGreetingCap = errors.New("greeting lock cap")
+	// greetingLockCap bounds how long the greeting's agent-turn wait
+	// may hold turnMu. A slow answer must never queue the caller's
+	// first real turn behind it (2026-10-17 phone report: multi-turn
+	// felt dead after a slow greeting). The greeting is opportunistic —
+	// mute-on-speech already exists; this bounds the worst-case wait.
+	greetingLockCap = 45 * time.Second
 )
 
 // Call is one voice-loop call, bound to one mule job.
@@ -96,13 +111,43 @@ type Call struct {
 	// pendingTexts: typed in-frames that arrived while a turn was in
 	// flight; run after the turn (Run-goroutine only).
 	pendingTexts []string
-	sessionID    string // mu-guarded (steer goroutines read it)
-	turns        int    // mu-guarded
-	bargeIns     int    // mu-guarded
-	steers       int    // mu-guarded: overlap utterances submitted mid-turn
-	outDropped   int64  // atomic: out events dropped (slow client / flush)
-	dropped      []string
-	outOpen      int32 // 1 while the out-socket handler is draining
+	// lastState dedupes the out-socket {"state": …} events (mu-guarded:
+	// the greeting goroutine and the Run loop both emit).
+	lastState Phase
+	// Answer-the-call greeting (2026-10-17): a simple async, cancellable
+	// process started when the in socket attaches. It never gates the
+	// call — the caller can speak immediately (first prompts can run
+	// 5 min+ on the model side) — and "cancellable" cancels its SPEAKING
+	// (a greeting nobody waited for is stale news), while its agent turn
+	// keeps warming the prompt cache server-side either way. mu-guarded:
+	// greetCancel non-nil while the process is alive; greetMuted closed
+	// when caller activity cancelled it.
+	greetCancel   context.CancelFunc
+	greetMuted    chan struct{}
+	greetMuteOnce *sync.Once
+	greetState    string // none|pending|answered|cancelled|failed (Output)
+	// modelApplied: the per-call voice-model switch has been attempted
+	// (mu-guarded; one shot — see ensureModel).
+	modelApplied bool
+	// turnMu serializes AGENT-TURN WAITS (greeting vs user turns; hold
+	// around agentTurn only, never around TTS). Two concurrent
+	// PostAndWait calls on one conversation race illegitimately: turn B's
+	// waiter can settle on turn A's late-landing assistant row (messages
+	// carry no request id — forge cannot say which reply answers what).
+	// Queueing the wait behind the greeting also keeps the user's POST
+	// from landing mid-greeting-turn server-side, which is the same
+	// crossing. The caller never notices: pollHop keeps in-frames
+	// flowing while the wait blocks on the lock (status lane: thinking).
+	turnMu      sync.Mutex
+	inReady     chan struct{}
+	inReadyOnce sync.Once
+	sessionID   string // mu-guarded (steer goroutines read it)
+	turns       int    // mu-guarded
+	bargeIns    int    // mu-guarded
+	steers      int    // mu-guarded: overlap utterances submitted mid-turn
+	outDropped  int64  // atomic: out events dropped (slow client / flush)
+	dropped     []string
+	outOpen     int32 // 1 while the out-socket handler is draining
 }
 
 // NewCall builds a call from a parsed config, rooted at ctx (the
@@ -114,19 +159,21 @@ func NewCall(ctx context.Context, cfg CallConfig) (*Call, error) {
 	vad.RatioThreshold = cfg.EndpointRatio
 	vad.MaxUtteranceDur = cfg.MaxUtterance
 	return &Call{
-		cfg:     cfg,
-		client:  engine.NewForgeClient(cfg.ForgeURL, cfg.APIKey),
-		jobCtx:  ctx,
-		ctx:     dctx,
-		cancel:  cancel,
-		done:    make(chan struct{}),
-		inCh:    make(chan []byte, 128), // ~4 s of 30 ms frames
-		textCh:  make(chan string, 16),
-		outCh:   make(chan engine.VoiceOutChunk, 64),
-		vad:     vad,
-		barge:   NewBargeIn(cfg.BargeInThreshold, 3),
-		phase:   PhaseListening,
-		outOpen: 1,
+		cfg:       cfg,
+		client:    engine.NewForgeClient(cfg.ForgeURL, cfg.APIKey),
+		jobCtx:    ctx,
+		ctx:       dctx,
+		cancel:    cancel,
+		done:      make(chan struct{}),
+		inCh:      make(chan []byte, 128), // ~4 s of 30 ms frames
+		textCh:    make(chan string, 16),
+		outCh:     make(chan engine.VoiceOutChunk, 64),
+		vad:       vad,
+		barge:     NewBargeIn(cfg.BargeInThreshold, 3),
+		phase:     PhaseListening,
+		lastState: PhaseListening,
+		inReady:   make(chan struct{}),
+		outOpen:   1,
 	}, nil
 }
 
@@ -134,6 +181,16 @@ func NewCall(ctx context.Context, cfg CallConfig) (*Call, error) {
 // goes away: TTS synthesis stops (no point streaming audio nobody is
 // listening to) while the call itself continues listening to the user.
 func (c *Call) MarkOutClosed() { atomic.StoreInt32(&c.outOpen, 0) }
+
+// MarkOutOpen re-arms the out lane when an out-socket handler attaches
+// (initial dial AND a client re-attach after a dropped socket): TTS
+// streaming resumes for later turns.
+func (c *Call) MarkOutOpen() { atomic.StoreInt32(&c.outOpen, 1) }
+
+// OnInAttached is called by the in-socket handler once the caller's
+// WebSocket is up: it fires the answer-the-call greeting exactly once
+// (Run's greetCh case).
+func (c *Call) OnInAttached() { c.inReadyOnce.Do(func() { close(c.inReady) }) }
 
 // Phase reports the current audio pipeline phase (surfaces' status
 // line).
@@ -195,8 +252,17 @@ func (c *Call) Run() error {
 	defer close(c.outCh)
 	defer close(c.done)
 
+	// answer-the-call (2026-10-17): once the caller's in socket is up,
+	// start the greeting PROCESS (async: a 5-minute first prompt must
+	// never gate the call — see startGreeting). A call nobody dials
+	// never greets.
+	var greetCh <-chan struct{} = c.inReady
+
 	for {
 		select {
+		case <-greetCh:
+			greetCh = nil
+			c.startGreeting()
 		case <-c.ctx.Done():
 			// Our context was cancelled: either a clean HangUp or a
 			// Kill (flagged below) — or the job's context ended, which
@@ -221,6 +287,8 @@ func (c *Call) Run() error {
 			if text == "" {
 				continue
 			}
+			// Real caller news beats the greeting.
+			c.cancelGreeting()
 			if c.phase == PhaseListening {
 				c.runTurnFrom(text)
 			} else {
@@ -237,6 +305,9 @@ func (c *Call) handleFrame(frame []byte) {
 	case PhaseListening:
 		ev := c.vad.Feed(frame)
 		if ev.SpeechStarted {
+			// The caller has started talking: the greeting (if still
+			// coming) is cancelled — it will not speak.
+			c.cancelGreeting()
 			c.phase = PhaseUtterance
 			c.buf = append([]byte(nil), frame...)
 		}
@@ -265,6 +336,7 @@ func (c *Call) handleFrame(frame []byte) {
 // STT hop is polled too, so in-frames keep flowing while it runs.
 func (c *Call) runTurn(utterance []byte) {
 	c.phase = PhaseThinking
+	c.emitState(PhaseThinking) // "…" the moment the endpoint fires
 	text, err := pollHop(c, func() (string, error) { return c.transcribe(utterance) })
 	if err != nil {
 		if err != errCallEnded {
@@ -273,6 +345,7 @@ func (c *Call) runTurn(utterance []byte) {
 		if c.phase != PhaseUtterance {
 			c.phase = PhaseListening
 			c.buf = nil
+			c.emitState(PhaseListening)
 		}
 		c.drainPendingTexts()
 		return
@@ -291,10 +364,17 @@ func (c *Call) runTurnFrom(text string) {
 		// utterance, blank typed line) — back to listening.
 		c.phase = PhaseListening
 		c.buf = nil
+		c.emitState(PhaseListening)
 		c.drainPendingTexts()
 		return
 	}
 	c.phase = PhaseThinking
+	c.emitState(PhaseThinking)
+	// Live transcript: the caller sees their own words (final STT or
+	// typed line) while the agent is still composing.
+	if atomic.LoadInt32(&c.outOpen) != 0 {
+		c.emitOut(engine.VoiceOutChunk{User: text})
+	}
 	c.vad.Reset() // fresh overlap tracking for the duration of the turn
 	c.turnBufActive = false
 	c.buf = nil
@@ -304,11 +384,18 @@ func (c *Call) runTurnFrom(text string) {
 		if c.phase != PhaseUtterance {
 			c.phase = PhaseListening
 			c.buf = nil
+			c.emitState(PhaseListening)
 		}
 		c.drainPendingTexts()
 	}()
 
-	assistant, err := pollHop(c, func() (string, error) { return c.agentTurn(text) })
+	assistant, err := pollHop(c, func() (string, error) {
+		// Serialize agent-turn waits (see Call.turnMu): a greeting or a
+		// previous user turn still being waited on owns the conversation.
+		c.turnMu.Lock()
+		defer c.turnMu.Unlock()
+		return c.agentTurn(c.ctx, text)
+	})
 	if err == errBargeIn {
 		return // phase is PhaseUtterance, VAD primed, buf intact
 	}
@@ -316,11 +403,11 @@ func (c *Call) runTurnFrom(text string) {
 		if err != errCallEnded {
 			c.noteDropped("agent", err)
 		}
-		return
+		return // defer settles the phase
 	}
 	assistant = strings.TrimSpace(assistant)
 	if assistant == "" {
-		return
+		return // defer settles the phase
 	}
 	// The out-socket assistant-text event (non-audio surfaces print it;
 	// audio surfaces may also show it — it is metadata, not audio).
@@ -329,12 +416,18 @@ func (c *Call) runTurnFrom(text string) {
 	}
 
 	c.phase = PhaseSpeaking
+	c.emitState(PhaseSpeaking)
 	c.barge.Reset()
 	for _, sentence := range splitSentences(assistant) {
 		if atomic.LoadInt32(&c.outOpen) == 0 {
-			return // out socket gone: stop TTS, keep listening
+			// Out socket gone: stop TTS, keep listening. (The defer
+			// settles the phase — a stuck Speaking phase would drop
+			// every later in-frame and leave the call permanently
+			// deaf; the defer is the invariant, do not early-return
+			// past it.)
+			return
 		}
-		audio, err := pollHop(c, func() ([]byte, error) { return c.synthesize(sentence) })
+		audio, err := pollHop(c, func() ([]byte, error) { return c.synthesize(c.ctx, sentence) })
 		if err == errBargeIn {
 			return // phase is PhaseUtterance, VAD primed, buf intact
 		}
@@ -342,7 +435,7 @@ func (c *Call) runTurnFrom(text string) {
 			if err != errCallEnded {
 				c.noteDropped("tts", err)
 			}
-			return
+			return // defer settles the phase
 		}
 		c.emitOut(engine.VoiceOutChunk{Audio: audio})
 	}
@@ -375,6 +468,7 @@ func (c *Call) handleActiveFrame(f []byte) bool {
 		c.mu.Lock()
 		c.bargeIns++
 		c.mu.Unlock()
+		c.cancelGreeting() // a barge-in buries the greeting too
 		c.barge.Reset()
 		c.flushOut() // drain the out queue + {"flush":true} control
 		c.vad.Reset()
@@ -387,6 +481,7 @@ func (c *Call) handleActiveFrame(f []byte) bool {
 	case PhaseThinking:
 		ev := c.vad.Feed(f)
 		if ev.SpeechStarted {
+			c.cancelGreeting() // caller speech beats the greeting
 			c.turnBufActive = true
 			c.buf = append([]byte(nil), f...)
 		} else if c.turnBufActive {
@@ -419,6 +514,194 @@ func (c *Call) drainPendingTexts() {
 	next := c.pendingTexts[0]
 	c.pendingTexts = c.pendingTexts[1:]
 	c.runTurnFrom(next)
+}
+
+// drainPendingUtterances is gone (2026-10-17 redesign): the async
+// greeting never captures caller speech — utterances during it run as
+// normal turns (their agent-turn WAIT queues behind the greeting's via
+// turnMu, which is both honest and crossing-proof).
+
+// greetingWaitTimeout bounds the greeting's AGENT-TURN WAIT only (the
+// TTS that follows is bounded per sentence). First prompts can run
+// minutes (cold harness, big context); past this the greeting is no
+// longer worth answering a call with — HangUp cancels it sooner anyway.
+const greetingWaitTimeout = 10 * time.Minute
+
+// greetingPrompt asks the agent to answer the call. The [voice call]
+// tag is prepended by agentTurn (prefix continuity with real turns).
+const greetingPrompt = "(system) The voice call just connected; the caller is listening. Answer the call with a brief, warm greeting — one short sentence at most. The caller's words will arrive as [voice call] messages."
+
+// startGreeting launches the answer-the-call process (async, never
+// blocks the Run loop): one agent turn whose reply is captioned +
+// spoken as "the agent answers your call", warming the conversation's
+// prompt cache (system prompt, tools, history) so the first real
+// utterance is a cache hit. Cancellation is SPEAKING-level and
+// one-way: the first VAD speech or typed line from the caller mutes
+// the greeting (stale news; queued audio is flushed), while the agent
+// turn itself keeps running server-side — the cache warm-up stands
+// even when nobody waits for the greeting. Hang-up (c.ctx) kills it
+// outright.
+func (c *Call) startGreeting() {
+	c.mu.Lock()
+	if c.greetCancel != nil || c.hungUp || c.killErr != nil {
+		c.mu.Unlock()
+		return
+	}
+	gctx, cancel := context.WithTimeout(c.ctx, greetingWaitTimeout)
+	muted := make(chan struct{})
+	once := &sync.Once{}
+	c.greetCancel = cancel
+	c.greetMuted = muted
+	c.greetMuteOnce = once
+	c.greetState = "pending"
+	c.mu.Unlock()
+
+	c.emitState(PhaseGreeting)
+
+	go func() {
+		defer cancel() // release gctx only once the whole process has finished
+		isMuted := func() bool {
+			select {
+			case <-muted:
+				return true
+			default:
+				return false
+			}
+		}
+		settle := func(state string) {
+			c.mu.Lock()
+			if c.greetMuted == muted { // still OURS (CancelFuncs are uncomparable)
+				c.greetCancel = nil
+				c.greetMuted = nil
+				c.greetMuteOnce = nil
+				if c.greetState == "pending" {
+					c.greetState = state
+				}
+			}
+			c.mu.Unlock()
+		}
+
+		// The agent-turn wait holds the conversation (turnMu) — user
+		// turns queue behind it (see the Call.turnMu comment). The
+		// voice-model switch (if chosen) lands FIRST, inside the same
+		// lock hold: no agent turn can post before the conversation's
+		// model is re-pointed. The hold is CAPPED (greetingLockCap):
+		// the caller must not queue behind a slow greeting for minutes
+		// — past the cap the wait is abandoned (the agent turn keeps
+		// running server-side; its late reply is dropped, and the
+		// greeting is muted anyway if the caller already spoke).
+		reply, err := func() (string, error) {
+			c.turnMu.Lock()
+			defer c.turnMu.Unlock()
+			c.ensureModel(gctx)
+			type turnResult struct {
+				reply string
+				err   error
+			}
+			ch := make(chan turnResult, 1)
+			go func() {
+				r, e := c.agentTurn(gctx, greetingPrompt)
+				ch <- turnResult{r, e}
+			}()
+			select {
+			case res := <-ch:
+				return res.reply, res.err
+			case <-time.After(greetingLockCap):
+				return "", errGreetingCap
+			case <-gctx.Done():
+				return "", gctx.Err()
+			}
+		}()
+		if err == errGreetingCap {
+			log.Printf("voice loop: greeting abandoned after %v (caller turns unblocked)", greetingLockCap)
+			settle("timeout")
+			return
+		}
+		if gctx.Err() != nil {
+			settle("cancelled") // call ended / wait timed out
+			return
+		}
+		if err != nil {
+			if !isMuted() {
+				c.noteDropped("greeting", err)
+				c.emitState(PhaseListening)
+			}
+			settle("failed")
+			return
+		}
+		reply = strings.TrimSpace(reply)
+		if isMuted() || reply == "" {
+			settle("cancelled")
+			return
+		}
+		settle("answered")
+		if atomic.LoadInt32(&c.outOpen) != 0 {
+			c.emitOut(engine.VoiceOutChunk{Text: reply})
+		}
+		c.emitState(PhaseSpeaking)
+		for _, sentence := range splitSentences(reply) {
+			if isMuted() || gctx.Err() != nil || atomic.LoadInt32(&c.outOpen) == 0 {
+				break
+			}
+			audio, err := c.synthesize(gctx, sentence)
+			if err != nil {
+				if gctx.Err() == nil && !isMuted() {
+					c.noteDropped("tts", err)
+					c.emitState(PhaseListening)
+				}
+				break
+			}
+			// Re-check after the (slow) synth: speech during it must not
+			// be followed by greeting audio.
+			if isMuted() || gctx.Err() != nil {
+				break
+			}
+			c.emitOut(engine.VoiceOutChunk{Audio: audio})
+		}
+		if !isMuted() && gctx.Err() == nil {
+			c.emitState(PhaseListening)
+		}
+	}()
+}
+
+// cancelGreeting mutes the greeting (idempotent; any goroutine may
+// call it — the Run loop on caller speech, now and forever). The
+// agent-turn WAIT is deliberately NOT cancelled: it holds turnMu and
+// its completion is what keeps later user turns from posting mid-
+// greeting-turn (and its reply warms the cache). Queued greeting audio
+// IS flushed so a half-spoken greeting stops at the mule boundary.
+func (c *Call) cancelGreeting() {
+	c.mu.Lock()
+	once := c.greetMuteOnce
+	muted := c.greetMuted
+	alive := c.greetCancel != nil
+	if alive {
+		c.greetState = "cancelled"
+	}
+	c.mu.Unlock()
+	if !alive || once == nil {
+		return
+	}
+	once.Do(func() {
+		close(muted)
+		c.flushOut()
+	})
+}
+
+// emitState pushes a deduped phase-change event ({"state": …}) on the
+// out stream — the client's live "is it working?" lane (listening /
+// thinking / speaking / greeting).
+func (c *Call) emitState(p Phase) {
+	c.mu.Lock()
+	if c.lastState == p {
+		c.mu.Unlock()
+		return
+	}
+	c.lastState = p
+	c.mu.Unlock()
+	if atomic.LoadInt32(&c.outOpen) != 0 {
+		c.emitOut(engine.VoiceOutChunk{State: string(p)})
+	}
 }
 
 // pollHop runs f in a sub-goroutine and pumps the in-frame/text
@@ -562,6 +845,104 @@ func (c *Call) steerPost(content string) error {
 	return c.client.PostMessage(sctx, session, content)
 }
 
+// ensureModel applies the per-call "voice model" choice once: resolve
+// the conversation, match the label against forge's profiles, and
+// PATCH the session (forge rebinds the live harness conversation via
+// pi-durable setModel). Failures are DEGRADED-NOT-DEAD: a ⚠ notice
+// rides the out socket and the call proceeds on the agent's default
+// profile — a wrong model is better than no call.
+func (c *Call) ensureModel(ctx context.Context) {
+	c.mu.Lock()
+	model, applied := c.cfg.Model, c.modelApplied
+	c.mu.Unlock()
+	if model == "" || applied {
+		return
+	}
+	c.mu.Lock()
+	c.modelApplied = true // one shot per call (no per-turn retry spam)
+	session := c.sessionID
+	c.mu.Unlock()
+	if session == "" {
+		id, err := c.client.ResolveConversation(ctx, c.cfg.AgentID, c.cfg.ConversationID)
+		if err != nil {
+			c.noteDropped("model", err)
+			return
+		}
+		c.mu.Lock()
+		if c.sessionID == "" {
+			c.sessionID = id
+		}
+		session = c.sessionID
+		c.mu.Unlock()
+	}
+	profile, err := c.client.MatchProfile(ctx, model)
+	if err != nil {
+		c.noteDropped("model", err)
+		return
+	}
+	if err := c.client.SetModel(ctx, session, profile); err != nil {
+		c.noteDropped("model", err)
+		return
+	}
+	log.Printf("voice loop: call model set to %s (%s @ %s)", profile.Name, profile.Model, profile.BaseURL)
+	// Context-budget gate: the target model may declare a much
+	// smaller contextWindow than the conversation has accumulated
+	// (Bob's default is a 262k-token Spark; Laguna on vram is 120k
+	// after its 2026-10-17 cap). A conversation that fits one brain
+	// overflows the other. chars/4 ≈ tokens (forge's own compaction
+	// heuristic), and compaction is DEGRADED-NOT-DEAD: a background
+	// CompactionTask is submitted and its summary lands at the next
+	// turn boundary — the first turn may still ride the pre-summary
+	// context, which the harness's generation-prep threshold (now
+	// seeing the 120k window) would catch anyway. Best effort.
+	c.maybeCompact(ctx, session, profile)
+}
+
+// maybeCompact submits a background compaction when the session's
+// active context (chars) exceeds compactRatio × the target model's
+// context window (tokens ≈ chars/4), or unconditionally when the call
+// config asks for one ("compact": true). Failures are logged, never
+// fatal — the call proceeds.
+func (c *Call) maybeCompact(ctx context.Context, session string, profile *engine.VoiceProfile) {
+	do := func(why string) {
+		if err := c.client.CompactSession(ctx, session); err != nil {
+			c.noteDropped("compact", err)
+			return
+		}
+		log.Printf("voice loop: pre-call compaction submitted (%s)", why)
+	}
+	if c.cfg.Compact {
+		do("requested")
+		return
+	}
+	ratio := c.cfg.CompactRatio
+	if ratio <= 0 || ratio >= 1 {
+		ratio = 0.5
+	}
+	catalog, err := c.client.ModelCatalog(ctx)
+	if err != nil {
+		return // no catalog, no budget — the harness threshold still guards
+	}
+	var window uint64
+	for _, m := range catalog {
+		if m.ID == profile.Model && m.ContextWindow > 0 {
+			window = m.ContextWindow
+			break
+		}
+	}
+	if window == 0 {
+		return
+	}
+	sc, err := c.client.SessionContext(ctx, session)
+	if err != nil {
+		return
+	}
+	usedTokens := sc.ActiveContextChars / 4
+	if uint64(usedTokens) > uint64(float64(window)*ratio) {
+		do(fmt.Sprintf("%d tok est > %.0f%% of %s window %d", usedTokens, ratio*100, profile.Model, window))
+	}
+}
+
 // transcribe wraps the utterance PCM in a WAV and calls the forge STT
 // proxy (POST /v1/audio/transcriptions).
 func (c *Call) transcribe(pcm []byte) (string, error) {
@@ -573,12 +954,12 @@ func (c *Call) transcribe(pcm []byte) (string, error) {
 // as a plain POST /messages to the target conversation (the forge API
 // has no separate mid-turn delivery surface yet); the mode label is
 // kept so the upgrade to a real steer endpoint is config-only.
-func (c *Call) agentTurn(text string) (string, error) {
+func (c *Call) agentTurn(ctx context.Context, text string) (string, error) {
 	c.mu.Lock()
 	session := c.sessionID
 	c.mu.Unlock()
 	if session == "" {
-		id, err := c.client.ResolveConversation(c.ctx, c.cfg.AgentID, c.cfg.ConversationID)
+		id, err := c.client.ResolveConversation(ctx, c.cfg.AgentID, c.cfg.ConversationID)
 		if err != nil {
 			return "", err
 		}
@@ -593,7 +974,7 @@ func (c *Call) agentTurn(text string) (string, error) {
 	c.turns++
 	c.mu.Unlock()
 
-	tctx, cancel := context.WithTimeout(c.ctx, c.cfg.TurnTimeout)
+	tctx, cancel := context.WithTimeout(ctx, c.cfg.TurnTimeout)
 	defer cancel()
 	content := fmt.Sprintf("[voice call] %s", text)
 	assistant, err := c.client.PostAndWait(tctx, session, content, c.cfg.TurnTimeout)
@@ -605,8 +986,8 @@ func (c *Call) agentTurn(text string) (string, error) {
 
 // synthesize speaks one sentence via the forge TTS proxy (the response
 // content-type is whatever the backend returns; v1 requests PCM).
-func (c *Call) synthesize(sentence string) ([]byte, error) {
-	tctx, cancel := context.WithTimeout(c.ctx, 60*time.Second)
+func (c *Call) synthesize(ctx context.Context, sentence string) ([]byte, error) {
+	tctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	_, audio, err := c.client.Speech(tctx, sentence, c.cfg.TTSVoice, c.cfg.TTSResponseFormat)
 	return audio, err
@@ -639,6 +1020,7 @@ func (c *Call) Output() map[string]interface{} {
 	return map[string]interface{}{
 		"status":             "hung_up",
 		"turns":              c.turns,
+		"greeting":           c.greetState,
 		"barge_ins":          c.bargeIns,
 		"steers":             c.steers,
 		"out_dropped":        atomic.LoadInt64(&c.outDropped),
@@ -708,10 +1090,23 @@ func NewHub() *Hub {
 // StartCall implements the engine's voice-executor seam: it builds the
 // call for a voice_call step and registers it under the job id (the
 // job id is the call's address on the voice sockets).
-func (h *Hub) StartCall(jobCtx context.Context, jobID string, stepConfig map[string]interface{}, _ map[string]interface{}) (engine.VoiceCall, error) {
+func (h *Hub) StartCall(jobCtx context.Context, jobID string, stepConfig map[string]interface{}, jobInput map[string]interface{}) (engine.VoiceCall, error) {
 	cfg, err := ParseCallConfig(stepConfig)
 	if err != nil {
 		return nil, err
+	}
+	// Per-job overrides (POST /api/v1/jobs input_data): the caller's
+	// chosen "voice model" wins over the step config (the phone/CLI
+	// picker). Other knobs stay step-owned. "compact"/
+	// "compact_ratio" ride along for the pre-call budget check.
+	if m, ok := jobInput["model"].(string); ok && strings.TrimSpace(m) != "" {
+		cfg.Model = strings.TrimSpace(m)
+	}
+	if b, ok := jobInput["compact"].(bool); ok {
+		cfg.Compact = b
+	}
+	if r, ok := jobInput["compact_ratio"].(float64); ok && r > 0 && r < 1 {
+		cfg.CompactRatio = r
 	}
 	call, err := NewCall(jobCtx, cfg)
 	if err != nil {
