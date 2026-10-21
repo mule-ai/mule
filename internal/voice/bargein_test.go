@@ -37,7 +37,12 @@ func TestBargeInTriggersAfterConsecutiveHotFrames(t *testing.T) {
 		t.Error("triggered again without Reset")
 	}
 	b.Reset()
-	if b.Feed(900) || b.Feed(900) || !b.Feed(900) {
+	for i := 0; i < 2; i++ {
+		if b.Feed(900) {
+			t.Error("post-Reset machine triggered before the 3rd hot frame")
+		}
+	}
+	if !b.Feed(900) {
 		t.Error("post-Reset machine should re-trigger on 3 hot frames")
 	}
 }

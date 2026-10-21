@@ -319,7 +319,7 @@ func (f *MemoryTriggerForwarder) markConsumed(ctx context.Context, agentID, trig
 		return false
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("memory trigger %s: ACK returned %d", triggerID, resp.StatusCode)
 		return false

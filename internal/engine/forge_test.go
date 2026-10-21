@@ -227,7 +227,7 @@ func (f *fakeForge) handler() http.Handler {
 		sessionID := r.PathValue("id")
 		since := 0
 		if q := r.URL.Query().Get("since"); q != "" {
-			fmt.Sscanf(q, "%d", &since)
+			_, _ = fmt.Sscanf(q, "%d", &since)
 		}
 		f.mu.Lock()
 		f.record(http.MethodGet, r.URL.String())

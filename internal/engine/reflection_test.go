@@ -137,6 +137,12 @@ var reflBuildMu sync.Mutex
 func buildReflectionWasm(t *testing.T, name string) []byte {
 	t.Helper()
 	distPath := filepath.Join("..", "..", "examples", "reflection", "dist", name+".wasm")
+	// go build runs with cmd.Dir = repo root, so a RELATIVE -o would be
+	// resolved against the root, not the test cwd — prebuilt artifacts
+	// (dist/ present) masked this; a fresh CI tree built the wasm outside
+	// the repo and every read ENOENT'd. Pin the -o to an absolute path.
+	absDist, absErr := filepath.Abs(distPath)
+	require.NoError(t, absErr, "resolve dist path")
 	if b, err := os.ReadFile(distPath); err == nil {
 		return b
 	}
@@ -145,10 +151,10 @@ func buildReflectionWasm(t *testing.T, name string) []byte {
 	if b, err := os.ReadFile(distPath); err == nil {
 		return b
 	}
-	require.NoError(t, os.MkdirAll(filepath.Dir(distPath), 0o755), "create dist dir")
+	require.NoError(t, os.MkdirAll(filepath.Dir(absDist), 0o755), "create dist dir")
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", distPath,
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", absDist,
 		filepath.Join("examples", "reflection", name, "main.go"))
 	cmd.Dir = filepath.Join("..", "..")
 	cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
