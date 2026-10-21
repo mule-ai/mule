@@ -122,6 +122,15 @@ func NewScheduler(store *Store, eng *engine.Engine) *Scheduler {
 	}
 }
 
+// newSchedulerWithStore builds a scheduler over any wakeStore
+// implementation (tests exercise the scheduling logic with a fake
+// store and no database).
+func newSchedulerWithStore(store wakeStore, eng *engine.Engine) *Scheduler {
+	s := NewScheduler(nil, eng)
+	s.store = store
+	return s
+}
+
 // Store exposes the scheduler's store (handlers CRUD wakes through it).
 func (s *Scheduler) Store() *Store {
 	st, _ := s.store.(*Store)

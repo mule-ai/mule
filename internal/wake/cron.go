@@ -28,7 +28,6 @@ import (
 // no dependency on a cron library in the static build).
 
 type cronField struct {
-	value    string
 	min, max uint
 }
 
