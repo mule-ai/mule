@@ -123,12 +123,6 @@ func ownerIDFrom(ctx context.Context) string {
 	return ""
 }
 
-// principalAdmin reports whether ctx carries an admin tenancy principal.
-func principalAdmin(ctx context.Context) bool {
-	p, ok := primitive.PrincipalFrom(ctx)
-	return ok && p.Admin
-}
-
 // jobOwnerDenied reports whether the caller (when non-admin and
 // authenticated) does not own the job. Admins and unauthenticated-
 // context callers (background paths) pass. Ownerless jobs (NULL

@@ -175,9 +175,7 @@ func (v *Validator) ValidateWorkflowStep(step *primitive.WorkflowStep) Validatio
 	}
 
 	if step.StepType == "forge_conversation" {
-		for _, err := range v.ValidateForgeConversationStep(step.Config) {
-			errors = append(errors, err)
-		}
+		errors = append(errors, v.ValidateForgeConversationStep(step.Config)...)
 	}
 
 	if step.StepType == "voice_call" && len(step.Config) == 0 {

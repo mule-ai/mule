@@ -409,7 +409,7 @@ func (c *forgeStepClient) readTurnEvent(ctx context.Context, sessionID string, s
 		}
 		if eventName == "message" && data.Len() > 0 {
 			var m forgeMessage
-			if jsonErr := json.Unmarshal([]byte(data.String()), &m); jsonErr == nil && m.Sequence > lastSeq {
+			if jsonErr := json.Unmarshal(data.Bytes(), &m); jsonErr == nil && m.Sequence > lastSeq {
 				lastSeq = m.Sequence
 			}
 		}
