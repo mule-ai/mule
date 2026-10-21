@@ -88,6 +88,8 @@ func (b *EventBus) C() <-chan Event { return b.ch }
 // a database.
 type wakeStore interface {
 	DueCronWakes(ctx context.Context, now time.Time) ([]*Wake, error)
+	AdoptableCronWakes(ctx context.Context) ([]*Wake, error)
+	Update(ctx context.Context, w *Wake, nextDueAt *time.Time) error
 	MatchingWebhookWakes(ctx context.Context, source, tag string) ([]*Wake, error)
 	MatchingEventWakes(ctx context.Context, eventType, workflowID, status string) ([]*Wake, error)
 	CountRecentFires(ctx context.Context, wakeID string, now time.Time) (int, error)
@@ -214,6 +216,7 @@ func (s *Scheduler) scanLoop() {
 // ScanDue fires every enabled cron wake whose next_due_at <= now and
 // returns the number it fired (ok or rate-limited-dropped).
 func (s *Scheduler) ScanDue(ctx context.Context) int {
+	s.adoptNullDue(ctx)
 	wakes, err := s.store.DueCronWakes(ctx, s.now().UTC())
 	if err != nil {
 		log.Printf("wake cron scan: %v", err)
@@ -235,6 +238,37 @@ func (s *Scheduler) ScanDue(ctx context.Context) int {
 		log.Printf("wake cron scan: fired %d due wake(s)", n)
 	}
 	return n
+}
+
+// adoptNullDue gives first-computed slots to enabled cron wakes whose
+// next_due_at is NULL. Such rows are born outside the API — direct
+// SQL inserts, restored tables, seed scripts (the API's create path
+// computes the first slot) — and DueCronWakes filters NULLs out, so
+// without adoption they sit silently unfired forever (observed
+// 2026-10-21: a psql-inserted heartbeat wake never fired).
+//
+// Adopted wakes are NOT fired on the spot — they receive their next
+// slot (same math as every fire, so a missing/unparseable expr lands
+// on the FailBackoffFloor rather than staying due) and the following
+// scan picks them up on schedule.
+func (s *Scheduler) adoptNullDue(ctx context.Context) {
+	ados, err := s.store.AdoptableCronWakes(ctx)
+	if err != nil {
+		log.Printf("wake cron adopt: %v", err)
+		return
+	}
+	now := s.now().UTC()
+	for _, w := range ados {
+		next := s.cronAdvance(w, now, false)
+		if next == nil {
+			continue
+		}
+		if err := s.store.Update(ctx, w, next); err != nil {
+			log.Printf("wake %s (%s): adopt schedule failed: %v", w.ID, w.Name, err)
+			continue
+		}
+		log.Printf("wake %s (%s): adopted NULL next_due_at -> scheduled %s", w.ID, w.Name, next.Format(time.RFC3339))
+	}
 }
 
 func (s *Scheduler) eventLoop() {

@@ -812,8 +812,8 @@ func TestFailedCronDispatchBackoff(t *testing.T) {
 
 	deadTarget := forgeTarget("http://127.0.0.1:1", "agent-1")
 	w := &Wake{
-		Name:             "broken cron",
-		Kind:             KindCron,
+		Name: "broken cron",
+		Kind: KindCron,
 		// every minute: the cron slot is always <= 60 s out, so the
 		// backoff floor always dominates it and the assertions below
 		// measure the backoff itself
@@ -891,4 +891,59 @@ func TestFailedCronDispatchBackoff(t *testing.T) {
 	since := nextDue().Sub(before)
 	assert.GreaterOrEqual(t, since, 55*time.Second, "post-success failure uses the floor again")
 	assert.Less(t, since, 115*time.Second, "counter must have reset on success")
+}
+
+// TestAdoptNullNextDueWake covers the adoption lane: an enabled cron
+// wake whose next_due_at is NULL (direct SQL insert, restored table,
+// seed script — anything that bypassed the API's create-time
+// computation) must be picked up by the scheduler instead of sitting
+// silently unfired forever. Adoption schedules the first slot without
+// firing; the following scan fires it on cadence.
+func TestAdoptNullNextDueWake(t *testing.T) {
+	db := wakeDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+	forg := newFakeForge("agent-1")
+	srv := httptest.NewServer(forg.handler())
+	defer srv.Close()
+
+	w := &Wake{
+		Name:             "heartbeat",
+		Kind:             KindCron,
+		Spec:             map[string]interface{}{"expr": "*/30 * * * *"},
+		Target:           forgeTarget(srv.URL, "agent-1"),
+		PromptTemplate:   "heartbeat",
+		Enabled:          true,
+		RateLimitPerHour: 2,
+		// NextDueAt nil -> NULL row, exactly like a psql INSERT.
+	}
+	mustCreate(t, store, w)
+
+	sched := NewScheduler(store, nil)
+
+	// Scan 1: adopt. Not fired, but scheduled to the next real slot.
+	require.Equal(t, 0, sched.ScanDue(ctx), "adopting must not fire the wake")
+	var nextDue *time.Time
+	err := db.QueryRow(`SELECT next_due_at FROM wakes WHERE id = $1`, w.ID).Scan(&nextDue)
+	require.NoError(t, err)
+	require.NotNil(t, nextDue, "adopt must compute first next_due_at")
+	assert.True(t, nextDue.After(time.Now().UTC()), "adopted slot must be in the future")
+	// */30 cadence: within the next 30 minutes.
+	assert.LessOrEqual(t, nextDue.Sub(time.Now().UTC()), 30*time.Minute+time.Second)
+	forg.mu.Lock()
+	require.Equal(t, 0, len(forg.posts), "no dispatch during adoption")
+	forg.mu.Unlock()
+
+	// Force the adopted wake due: the normal lane fires it and the
+	// F-002 advance takes over (no longer NULL).
+	_, err = db.Exec(`UPDATE wakes SET next_due_at = NOW() - INTERVAL '60 seconds' WHERE id = $1`, w.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, sched.ScanDue(ctx))
+	forg.mu.Lock()
+	require.Equal(t, 1, len(forg.posts), "adopted wake must fire once due")
+	forg.mu.Unlock()
+	err = db.QueryRow(`SELECT next_due_at FROM wakes WHERE id = $1`, w.ID).Scan(&nextDue)
+	require.NoError(t, err)
+	require.NotNil(t, nextDue)
+	assert.True(t, nextDue.After(time.Now().UTC()), "fire must advance cadence (F-002)")
 }
