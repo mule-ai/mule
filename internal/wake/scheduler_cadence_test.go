@@ -56,6 +56,29 @@ func (f *fakeWakeStore) MatchingWebhookWakes(ctx context.Context, source, tag st
 	return nil, nil
 }
 
+// AdoptableCronWakes mirrors the store: rows born with a NULL
+// next_due_at (seed/SQL-style) await their first computed slot.
+func (f *fakeWakeStore) AdoptableCronWakes(ctx context.Context) ([]*Wake, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*Wake
+	for _, w := range f.due {
+		if w.NextDueAt == nil {
+			out = append(out, w)
+		}
+	}
+	return out, nil
+}
+
+// Update records the scheduler-computed slot so tests can assert on
+// adoption without a database.
+func (f *fakeWakeStore) Update(ctx context.Context, w *Wake, nextDueAt *time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	w.NextDueAt = nextDueAt
+	return nil
+}
+
 func (f *fakeWakeStore) MatchingEventWakes(ctx context.Context, eventType, workflowID, status string) ([]*Wake, error) {
 	return nil, nil
 }

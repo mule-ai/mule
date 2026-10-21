@@ -219,6 +219,20 @@ func (s *Store) queryWakes(ctx context.Context, query string, args ...interface{
 	return out, rows.Err()
 }
 
+// AdoptableCronWakes returns enabled cron wakes whose next_due_at is
+// NULL — rows created outside the API (direct SQL, restores, seeds)
+// whose first slot was never computed. The scheduler adopts them
+// (Scheduler.adoptNullDue); without that they would never be scanned
+// due, since DueCronWakes filters NULLs out.
+func (s *Store) AdoptableCronWakes(ctx context.Context) ([]*Wake, error) {
+	return s.queryWakes(ctx, `
+		SELECT `+wakeColumns+` FROM wakes
+		WHERE enabled = TRUE AND kind = 'cron'
+		  AND next_due_at IS NULL
+		ORDER BY created_at ASC
+		LIMIT 100`)
+}
+
 // DueCronWakes returns enabled cron wakes whose next_due_at has passed
 // (the cron lane's scan input). Not owner-scoped: the scheduler runs in
 // a background context and wakes are fleet-level.
