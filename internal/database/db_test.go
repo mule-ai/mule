@@ -1,11 +1,13 @@
 package database
 
 import (
+	"database/sql"
 	"os"
 	"testing"
 
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDatabaseSchema(t *testing.T) {
@@ -229,6 +231,75 @@ func TestDatabaseSchema(t *testing.T) {
 
 	assert.NoError(t, err, "Should be able to check constraint")
 	assert.True(t, checkExists, "Check constraint on workflow_steps.type should exist")
+}
+
+// TestWorkflowStepTypeCheckConstraint verifies migration 0013: the
+// workflow_steps.step_type CHECK admits 'forge_conversation' (Herd
+// H3.2) and still rejects unknown types. Uses a dedicated scratch DB
+// (dropped + recreated) so the migration runs fresh, the same
+// contract as the tenancy tests.
+func TestWorkflowStepTypeCheckConstraint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping migration test that requires PostgreSQL")
+	}
+
+	admin, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
+	if err != nil {
+		t.Skipf("could not open admin connection: %v", err)
+	}
+	defer admin.Close()
+	if err := admin.Ping(); err != nil {
+		t.Skipf("could not connect to test PostgreSQL: %v", err)
+	}
+	if _, err := admin.Exec(`DROP DATABASE IF EXISTS mule_forge_step WITH (FORCE)`); err != nil {
+		t.Skipf("could not drop mule_forge_step: %v", err)
+	}
+	if _, err := admin.Exec(`CREATE DATABASE mule_forge_step`); err != nil {
+		t.Skipf("could not create mule_forge_step: %v", err)
+	}
+
+	db, err := NewDB(Config{
+		Host: "localhost", Port: 5432, User: "postgres",
+		Password: "postgres", DBName: "mule_forge_step", SSLMode: "disable",
+	})
+	require.NoError(t, err)
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Logf("Error closing database: %v", closeErr)
+		}
+	}()
+	require.NoError(t, db.InitSchema())
+
+	// The constraint clause must now list forge_conversation.
+	var clause string
+	err = db.QueryRow(`
+		SELECT cc.check_clause FROM information_schema.check_constraints cc
+		JOIN information_schema.constraint_column_usage ccu
+			ON cc.constraint_name = ccu.constraint_name
+		WHERE ccu.table_name = 'workflow_steps'
+			AND ccu.column_name = 'step_type'
+			AND cc.check_clause ILIKE '%FORGE_CONVERSATION%'
+	`).Scan(&clause)
+	assert.NoError(t, err, "step_type CHECK should admit forge_conversation; got: %v", err)
+
+	// A forge_conversation row must insert; an unknown type must be
+	// rejected by the CHECK.
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	_, err = tx.Exec(`INSERT INTO workflows (id, name, description, is_async) VALUES ('wf-step-check', 'x', 'x', FALSE)`)
+	require.NoError(t, err)
+	_, err = tx.Exec(`INSERT INTO workflow_steps (id, workflow_id, step_order, step_type, config)
+		VALUES ('step-forge-ok', 'wf-step-check', 1, 'forge_conversation', '{}'::jsonb)`)
+	require.NoError(t, err, "forge_conversation step_type must be accepted")
+
+	var checkViolated bool
+	_, err = tx.Exec(`INSERT INTO workflow_steps (id, workflow_id, step_order, step_type, config)
+		VALUES ('step-forge-bad', 'wf-step-check', 2, 'teleport', '{}'::jsonb)`)
+	if err != nil {
+		checkViolated = true
+	}
+	require.NoError(t, tx.Rollback())
+	assert.True(t, checkViolated, "unknown step_type must be rejected by the CHECK constraint")
 }
 
 func TestDatabaseConnection(t *testing.T) {

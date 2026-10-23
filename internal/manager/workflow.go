@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/mule-ai/mule/internal/database"
+	"github.com/mule-ai/mule/internal/primitive"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 )
 
@@ -38,6 +39,14 @@ func (wm *WorkflowManager) CreateWorkflow(ctx context.Context, name, description
 	}
 
 	query := `INSERT INTO workflows (id, name, description, is_async, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
+	if pr, ok := primitive.PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query = `INSERT INTO workflows (id, name, description, is_async, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		_, err := wm.db.ExecContext(ctx, query, workflow.ID, workflow.Name, workflow.Description, workflow.IsAsync, pr.UserID, workflow.CreatedAt, workflow.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert workflow: %w", err)
+		}
+		return workflow, nil
+	}
 	_, err := wm.db.ExecContext(ctx, query, workflow.ID, workflow.Name, workflow.Description, workflow.IsAsync, workflow.CreatedAt, workflow.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert workflow: %w", err)
@@ -49,8 +58,13 @@ func (wm *WorkflowManager) CreateWorkflow(ctx context.Context, name, description
 // GetWorkflow retrieves a workflow by ID
 func (wm *WorkflowManager) GetWorkflow(ctx context.Context, id string) (*dbmodels.Workflow, error) {
 	query := `SELECT id, name, description, is_async, created_at, updated_at FROM workflows WHERE id = $1`
+	args := []interface{}{id}
+	if clause, arg := primitive.OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
 	workflow := &dbmodels.Workflow{}
-	err := wm.db.QueryRowContext(ctx, query, id).Scan(
+	err := wm.db.QueryRowContext(ctx, query, args...).Scan(
 		&workflow.ID,
 		&workflow.Name,
 		&workflow.Description,
@@ -70,8 +84,14 @@ func (wm *WorkflowManager) GetWorkflow(ctx context.Context, id string) (*dbmodel
 
 // ListWorkflows lists all workflows
 func (wm *WorkflowManager) ListWorkflows(ctx context.Context) ([]*dbmodels.Workflow, error) {
-	query := `SELECT id, name, description, is_async, created_at, updated_at FROM workflows ORDER BY created_at DESC`
-	rows, err := wm.db.QueryContext(ctx, query)
+	query := `SELECT id, name, description, is_async, created_at, updated_at FROM workflows`
+	args := []interface{}{}
+	if clause, arg := primitive.OwnerScope(ctx, 1); clause != "" {
+		query += " WHERE " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY created_at DESC"
+	rows, err := wm.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflows: %w", err)
 	}
@@ -110,7 +130,12 @@ func (wm *WorkflowManager) UpdateWorkflow(ctx context.Context, id, name, descrip
 	workflow.UpdatedAt = time.Now()
 
 	query := `UPDATE workflows SET name = $1, description = $2, is_async = $3, updated_at = $4 WHERE id = $5`
-	_, err = wm.db.ExecContext(ctx, query, workflow.Name, workflow.Description, workflow.IsAsync, workflow.UpdatedAt, workflow.ID)
+	args := []interface{}{workflow.Name, workflow.Description, workflow.IsAsync, workflow.UpdatedAt, workflow.ID}
+	if clause, arg := primitive.OwnerScope(ctx, 6); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	_, err = wm.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update workflow: %w", err)
 	}
@@ -121,7 +146,12 @@ func (wm *WorkflowManager) UpdateWorkflow(ctx context.Context, id, name, descrip
 // DeleteWorkflow deletes a workflow
 func (wm *WorkflowManager) DeleteWorkflow(ctx context.Context, id string) error {
 	query := `DELETE FROM workflows WHERE id = $1`
-	result, err := wm.db.ExecContext(ctx, query, id)
+	args := []interface{}{id}
+	if clause, arg := primitive.OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	result, err := wm.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to delete workflow: %w", err)
 	}
@@ -170,8 +200,14 @@ func (wm *WorkflowManager) CreateWorkflowStep(ctx context.Context, workflowID st
 
 // GetWorkflowSteps gets all steps for a workflow
 func (wm *WorkflowManager) GetWorkflowSteps(ctx context.Context, workflowID string) ([]*dbmodels.WorkflowStep, error) {
-	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order ASC`
-	rows, err := wm.db.QueryContext(ctx, query, workflowID)
+	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1`
+	args := []interface{}{workflowID}
+	if clause, arg := primitive.WorkflowOwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY step_order ASC"
+	rows, err := wm.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflow steps: %w", err)
 	}
@@ -229,8 +265,13 @@ func (wm *WorkflowManager) UpdateWorkflowStep(ctx context.Context, id string, st
 // GetWorkflowStep retrieves a workflow step by ID
 func (wm *WorkflowManager) GetWorkflowStep(ctx context.Context, id string) (*dbmodels.WorkflowStep, error) {
 	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE id = $1`
+	args := []interface{}{id}
+	if clause, arg := primitive.WorkflowOwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
 	step := &dbmodels.WorkflowStep{}
-	err := wm.db.QueryRowContext(ctx, query, id).Scan(
+	err := wm.db.QueryRowContext(ctx, query, args...).Scan(
 		&step.ID,
 		&step.WorkflowID,
 		&step.StepOrder,
@@ -281,7 +322,12 @@ func (wm *WorkflowManager) DeleteWorkflowStep(ctx context.Context, id string) er
 
 	// Then, delete the workflow step itself
 	deleteStepQuery := `DELETE FROM workflow_steps WHERE id = $1`
-	result, err := tx.ExecContext(ctx, deleteStepQuery, id)
+	deleteStepArgs := []interface{}{id}
+	if clause, arg := primitive.WorkflowOwnerScope(ctx, 2); clause != "" {
+		deleteStepQuery += " AND " + clause
+		deleteStepArgs = append(deleteStepArgs, arg)
+	}
+	result, err := tx.ExecContext(ctx, deleteStepQuery, deleteStepArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to delete workflow step: %w", err)
 	}
@@ -336,7 +382,12 @@ func (wm *WorkflowManager) ReorderWorkflowSteps(ctx context.Context, workflowID 
 
 	// Verify all step IDs belong to the workflow
 	query := `SELECT id FROM workflow_steps WHERE workflow_id = $1 AND id = ANY($2)`
-	rows, err := tx.QueryContext(ctx, query, workflowID, pq.Array(stepIDs))
+	args := []interface{}{workflowID, pq.Array(stepIDs)}
+	if clause, arg := primitive.WorkflowOwnerScope(ctx, 3); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to verify step IDs: %w", err)
 	}

@@ -1,0 +1,101 @@
+{
+  "_readme": [
+    "Herd H4.4 reflection workflow — the exact payloads seed.sh POSTs to the mule API.",
+    "This file is documentation-first: seed.sh (this directory) builds the .wasm artifacts and",
+    "creates every resource below idempotently. JSON has no comments, so the _-prefixed keys",
+    "carry the notes the comments would.",
+    "",
+    "The loop:  wake (cron 0 3 * * * or event) -> job on this workflow ->",
+    "  1. pull   (wasm)  forge memory API -> episodes + active beliefs [+ forge creds, v1]",
+    "  2. agent  (step)  cheap model proposes belief diffs as STRICT JSON",
+    "  3. check  (wasm)  deterministic gate: duplicate / contradiction / decay (lambda)",
+    "  4. submit (wasm)  POST /agents/:id/memory/beliefs/proposals (safe + needs-review;",
+    "                    exact duplicates skipped; decay report lands in the job output)",
+    "Governance after step 4 is forge's: pending beliefs get memory_review approval cards on",
+    "ranch surfaces (Keep / Forget / Edit). See README.md in this directory."
+  ],
+  "agent": {
+    "_note": "mule agent that performs step 2. Needs a provider + model of the mule instance (seed.sh picks the first provider and MULE_MODEL or the first /v1/models entry).",
+    "name": "reflection-proposer",
+    "description": "H4.4 memory reflection: turns an agent's episodes into reviewed belief diffs (cheap model, no tools).",
+    "provider_id": "<first provider id on this mule>",
+    "model_id": "<cheap model, e.g. the first /v1/models entry>",
+    "system_prompt": "You are a memory reflection loop. You receive one JSON object; under its \"prompt\" key are the recent EPISODES and current BELIEFS of the agent you reflect on (plus transport fields you must ignore and never repeat). Review the episodes and propose belief diffs they support. Reply with a STRICT JSON array (optionally inside a ```json fence) of AT MOST 10 objects of the exact shape {\"op\": \"add\"|\"strengthen\"|\"weaken\"|\"forget\"|\"supersede\", \"belief\": \"one sentence the agent can act on\", \"confidence\": number between 0 and 1, \"rationale\": \"why, citing the episodes\", \"source_episodes\": [\"episode uuid from the input\"]}. Rules: only propose what the episodes support; use \"add\" for new durable facts or preferences; cite only episode ids that appear in the input; if nothing is durable, reply with [] . No prose outside the JSON array."
+  },
+  "wasm_modules": {
+    "_note": "config is merged into every step's stdin (step input wins). forge_url/forge_api_key/agent_id here are the v1 creds flow — a secrets table + api_key_ref is the documented upgrade path (same stance as the H3.2 forge_conversation step). The engine also injects mule_time (host wall clock; WASI has none).",
+    "pull": {
+      "name": "reflection-pull",
+      "description": "H4.4 step 1: pull episodes (recall queries) + active beliefs from the forge memory API.",
+      "config": {
+        "forge_url": "<FORGE_URL>",
+        "forge_api_key": "<FORGE_API_KEY>",
+        "agent_id": "<AGENT_ID>",
+        "recall_queries": ["work session", "what happened today", "preferences and feedback"],
+        "k": 50
+      }
+    },
+    "check": {
+      "name": "reflection-check",
+      "description": "H4.4 step 3: deterministic gate — duplicate, contradiction (v1 heuristic), confidence decay.",
+      "config": {
+        "forge_url": "<FORGE_URL>",
+        "forge_api_key": "<FORGE_API_KEY>",
+        "agent_id": "<AGENT_ID>",
+        "lambda_per_day": 0.02
+      }
+    },
+    "submit": {
+      "name": "reflection-submit",
+      "description": "H4.4 step 4: POST the gated diffs to the forge proposals endpoint (safe as-is, needs-review with rationale prefix, exact duplicates skipped).",
+      "config": {
+        "forge_url": "<FORGE_URL>",
+        "forge_api_key": "<FORGE_API_KEY>",
+        "agent_id": "<AGENT_ID>",
+        "actor": "reflection"
+      }
+    },
+    "stub": {
+      "_note": "Step-2 stand-in (fixed agent-style output). The SHIPPED workflow's step 2 is the agent above; stub is used by the engine e2e test (internal/engine/reflection_test.go) and for no-LLM manual runs.",
+      "name": "reflection-stub",
+      "description": "H4.4 step-2 stand-in: emits a fixed agent-style message with a fenced proposals array.",
+      "config": {}
+    }
+  },
+  "workflow": {
+    "name": "agent-reflection",
+    "description": "H4.4: turns the agent's episodes into reviewed belief diffs. pull -> agent -> check -> submit.",
+    "is_async": true,
+    "steps": [
+      { "step_order": 1, "type": "wasm_module", "wasm_module_id": "<id: reflection-pull>" },
+      { "step_order": 2, "type": "agent", "agent_id": "<id: reflection-proposer>" },
+      { "step_order": 3, "type": "wasm_module", "wasm_module_id": "<id: reflection-check>" },
+      { "step_order": 4, "type": "wasm_module", "wasm_module_id": "<id: reflection-submit>" }
+    ]
+  },
+  "wakes": [
+    {
+      "_note": "Nightly reflection. Target = the workflow: the fire submits a mule job whose input is {prompt: <rendered template>, payload: <fire payload>}; pull ignores both and uses its module config.",
+      "name": "reflection-nightly",
+      "kind": "cron",
+      "spec": { "expr": "0 3 * * *" },
+      "target": { "workflow_id": "<id: agent-reflection>" },
+      "prompt_template": "Nightly reflection over the agent's recent episodes.",
+      "enabled": true
+    },
+    {
+      "_note": "Manual/episodic trigger: fire when a burst of new episodes has landed (v1: POST /api/v1/wakes/fire {kind:\"event\", source:\"episodes_ready\"} — see README). Automatic N-new-episodes counting is a documented follow-up (H4.5 memory trigger).",
+      "name": "reflection-episodes-ready",
+      "kind": "event",
+      "spec": { "type": "episodes_ready" },
+      "target": { "workflow_id": "<id: agent-reflection>" },
+      "prompt_template": "Episode burst detected: {{.payload}}",
+      "enabled": true
+    }
+  ],
+  "sample_run": {
+    "_note": "Manual run (bypasses wakes):",
+    "POST /api/v1/jobs": { "workflow_id": "<id: agent-reflection>", "input_data": {} },
+    "manual_event_fire": { "POST /api/v1/wakes/fire": { "kind": "event", "source": "episodes_ready", "payload": { "new_episodes": 20 } } }
+  }
+}

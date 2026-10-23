@@ -1,0 +1,25 @@
+{
+  "name": "voice-call",
+  "description": "Herd H6.3 voice loop: one job = one push-to-talk call (VAD -> STT -> agent steer -> TTS, barge-in v1). Stays RUNNING until hang-up.",
+  "is_async": true,
+  "steps": [
+    {
+      "type": "voice_call",
+      "step_order": 1,
+      "config": {
+        "forge_url": "http://127.0.0.1:8080",
+        "api_key": "sk_forge_REPLACE_ME",
+        "agent_id": "REPLACE_WITH_FORGE_AGENT_ID",
+        "mode": "steer",
+        "tts_voice": "af_heart",
+        "tts_response_format": "pcm",
+        "tts_sample_rate": 24000,
+        "silence_ms": 600,
+        "frame_ms": 30,
+        "vad_threshold": 300,
+        "barge_in_threshold": 600,
+        "turn_timeout_secs": 120
+      }
+    }
+  ]
+}

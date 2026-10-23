@@ -121,6 +121,9 @@ type MockPrimitiveStore struct {
 	Agents        []*primitive.Agent
 	Providers     []*primitive.Provider
 	WasmModules   []*primitive.WasmModuleListItem
+	// WasmModuleData optionally carries the module bytes per WasmModules
+	// ID so tests can run real WASM steps (H3.2 forge-step integration).
+	WasmModuleData map[string][]byte
 }
 
 func (m *MockPrimitiveStore) CreateProvider(ctx context.Context, p *primitive.Provider) error {
@@ -291,10 +294,17 @@ func (m *MockPrimitiveStore) GetWasmModule(ctx context.Context, id string) (*pri
 	for _, w := range m.WasmModules {
 		if w.ID == id {
 			// Return a mock WasmModule with the ID
-			return &primitive.WasmModule{
+			mod := &primitive.WasmModule{
 				ID:   w.ID,
 				Name: w.Name,
-			}, nil
+			}
+			if w.Config != nil {
+				mod.Config = w.Config
+			}
+			if data, ok := m.WasmModuleData[id]; ok {
+				mod.ModuleData = data
+			}
+			return mod, nil
 		}
 	}
 	return nil, primitive.ErrNotFound
@@ -353,8 +363,9 @@ func (m *MockPrimitiveStore) SetAgentSkills(ctx context.Context, agentID string,
 // mu guards Jobs: the engine's poller/worker goroutines call into the mock
 // concurrently with the test's main goroutine.
 type MockJobStore struct {
-	mu   sync.Mutex
-	Jobs map[string]*job.Job
+	mu     sync.Mutex
+	Jobs   map[string]*job.Job
+	Errors map[string]string // MarkJobFailed reasons by job id (nil = not recorded)
 }
 
 func (m *MockJobStore) CreateJob(j *job.Job) error {
@@ -517,6 +528,9 @@ func (m *MockJobStore) MarkJobFailed(jobID string, err error) error {
 	defer m.mu.Unlock()
 	if jobItem, exists := m.Jobs[jobID]; exists {
 		jobItem.Status = job.StatusFailed
+		if m.Errors != nil {
+			m.Errors[jobID] = err.Error()
+		}
 		return nil
 	}
 	return job.ErrJobNotFound
@@ -718,7 +732,7 @@ func TestProcessWASMStepWithWorkingDir(t *testing.T) {
 		WasmModuleID: &[]string{"wasm-module-1"}[0],
 		StepOrder:    1,
 	}
-	_, err := engineWithNilWasm.processStepWithWorkingDir(ctx, stepWithNilExecutor, nil, "")
+	_, err := engineWithNilWasm.processStepWithWorkingDir(ctx, "job-test", stepWithNilExecutor, nil, "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not available")
 }
@@ -750,7 +764,7 @@ func TestProcessStepWithWorkingDir(t *testing.T) {
 			StepType:   "unknown_type",
 			StepOrder:  1,
 		}
-		_, err := engine.processStepWithWorkingDir(ctx, unknownStep, nil, "")
+		_, err := engine.processStepWithWorkingDir(ctx, "job-test", unknownStep, nil, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown step type")
 	})
@@ -763,7 +777,7 @@ func TestProcessStepWithWorkingDir(t *testing.T) {
 			AgentID:    nil,
 			StepOrder:  1,
 		}
-		_, err := engine.processStepWithWorkingDir(ctx, agentStepNilID, nil, "")
+		_, err := engine.processStepWithWorkingDir(ctx, "job-test", agentStepNilID, nil, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "agent_id not found")
 	})

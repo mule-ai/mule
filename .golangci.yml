@@ -1,0 +1,12 @@
+# golangci-lint configuration (default linters, golangci-lint v1.64).
+run:
+  tests: true
+
+issues:
+  exclude-rules:
+    # Pre-existing unused test helper in the voice package, out of
+    # scope for the F-002 (wake scheduler) work; remove this exclusion
+    # when the voice package owner cleans it up.
+    - path: internal/voice/call_test\.go
+      linters:
+        - unused

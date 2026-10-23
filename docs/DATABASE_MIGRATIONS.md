@@ -32,6 +32,8 @@ Migration files are stored in `internal/database/migrations/` and executed in or
 | `0008_add_skills_table.sql` | Creates skills system (skills, agent_skills tables, pi_config on agents) |
 | `0009_optimize_job_queries.sql` | Adds indexes for job query performance |
 | `0010_add_query_optimization_indexes.sql` | Adds composite indexes for workflow_steps, job_steps, agents, and workflows queries |
+| `0011_add_external_ref_to_agents.sql` | Adds `external_ref` to agents (Herd H1.5 cross-system addressing) |
+| `0012_tenancy.sql` | Tenancy parity (Herd H3.1): `users` + `api_keys` tables, `owner_id` on agents/workflows/jobs/skills/providers, backfill to the default admin, owner indexes — see `docs/TENANCY.md` |
 
 ## Schema Details
 

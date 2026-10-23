@@ -25,6 +25,11 @@ func (s *PGStore) CreateProvider(ctx context.Context, p *Provider) error {
 	if p.ID == "" {
 		p.ID = uuid.New().String()
 	}
+	if pr, ok := PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query := `INSERT INTO providers (id, name, api_base_url, api_key_encrypted, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
+		_, err := s.db.ExecContext(ctx, query, p.ID, p.Name, p.APIBaseURL, []byte(p.APIKeyEnc), pr.UserID)
+		return err
+	}
 	query := `INSERT INTO providers (id, name, api_base_url, api_key_encrypted, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())`
 	_, err := s.db.ExecContext(ctx, query, p.ID, p.Name, p.APIBaseURL, []byte(p.APIKeyEnc))
 	return err
@@ -34,7 +39,12 @@ func (s *PGStore) GetProvider(ctx context.Context, id string) (*Provider, error)
 	p := &Provider{}
 	var apiKeyEncrypted []byte
 	query := `SELECT id, name, api_base_url, api_key_encrypted, created_at, updated_at FROM providers WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
 		&p.ID, &p.Name, &p.APIBaseURL, &apiKeyEncrypted, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -47,8 +57,14 @@ func (s *PGStore) GetProvider(ctx context.Context, id string) (*Provider, error)
 }
 
 func (s *PGStore) ListProviders(ctx context.Context) ([]*Provider, error) {
-	query := `SELECT id, name, api_base_url, api_key_encrypted, created_at, updated_at FROM providers ORDER BY name`
-	rows, err := s.db.QueryContext(ctx, query)
+	query := `SELECT id, name, api_base_url, api_key_encrypted, created_at, updated_at FROM providers`
+	args := []interface{}{}
+	if clause, arg := OwnerScope(ctx, 1); clause != "" {
+		query += " WHERE " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY name"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +86,12 @@ func (s *PGStore) ListProviders(ctx context.Context) ([]*Provider, error) {
 
 func (s *PGStore) UpdateProvider(ctx context.Context, p *Provider) error {
 	query := `UPDATE providers SET name = $1, api_base_url = $2, api_key_encrypted = $3, updated_at = NOW() WHERE id = $4`
-	res, err := s.db.ExecContext(ctx, query, p.Name, p.APIBaseURL, []byte(p.APIKeyEnc), p.ID)
+	args := []interface{}{p.Name, p.APIBaseURL, []byte(p.APIKeyEnc), p.ID}
+	if clause, arg := OwnerScope(ctx, 5); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -86,7 +107,12 @@ func (s *PGStore) UpdateProvider(ctx context.Context, p *Provider) error {
 
 func (s *PGStore) DeleteProvider(ctx context.Context, id string) error {
 	query := `DELETE FROM providers WHERE id = $1`
-	res, err := s.db.ExecContext(ctx, query, id)
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -205,16 +231,30 @@ func (s *PGStore) CreateAgent(ctx context.Context, a *Agent) error {
 	} else {
 		piConfigJSON = []byte("null")
 	}
-	query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`
-	_, err := s.db.ExecContext(ctx, query, a.ID, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON)
+	if pr, ok := PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, pi_config, external_ref, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`
+		_, err := s.db.ExecContext(ctx, query, a.ID, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ExternalRef, pr.UserID)
+		return err
+	}
+	query := `INSERT INTO agents (id, name, description, provider_id, model_id, system_prompt, pi_config, external_ref, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`
+	_, err := s.db.ExecContext(ctx, query, a.ID, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ExternalRef)
 	return err
 }
 
 func (s *PGStore) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	a := &Agent{}
 	var piConfigJSON []byte
-	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at FROM agents WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &a.CreatedAt, &a.UpdatedAt)
+	var externalRef sql.NullString
+	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, external_ref, created_at, updated_at FROM agents WHERE id = $1`
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &externalRef, &a.CreatedAt, &a.UpdatedAt)
+	if externalRef.Valid {
+		a.ExternalRef = externalRef.String
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -231,8 +271,14 @@ func (s *PGStore) GetAgent(ctx context.Context, id string) (*Agent, error) {
 }
 
 func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
-	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, created_at, updated_at FROM agents ORDER BY name`
-	rows, err := s.db.QueryContext(ctx, query)
+	query := `SELECT id, name, description, provider_id, model_id, system_prompt, pi_config, external_ref, created_at, updated_at FROM agents`
+	args := []interface{}{}
+	if clause, arg := OwnerScope(ctx, 1); clause != "" {
+		query += " WHERE " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY name"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +288,11 @@ func (s *PGStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	for rows.Next() {
 		a := &Agent{}
 		var piConfigJSON []byte
-		err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &a.CreatedAt, &a.UpdatedAt)
+		var externalRef sql.NullString
+		err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.ProviderID, &a.ModelID, &a.SystemPrompt, &piConfigJSON, &externalRef, &a.CreatedAt, &a.UpdatedAt)
+		if externalRef.Valid {
+			a.ExternalRef = externalRef.String
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -269,8 +319,13 @@ func (s *PGStore) UpdateAgent(ctx context.Context, a *Agent) error {
 	} else {
 		piConfigJSON = []byte("null")
 	}
-	query := `UPDATE agents SET name = $1, description = $2, provider_id = $3, model_id = $4, system_prompt = $5, pi_config = $6, updated_at = NOW() WHERE id = $7`
-	res, err := s.db.ExecContext(ctx, query, a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ID)
+	query := `UPDATE agents SET name = $1, description = $2, provider_id = $3, model_id = $4, system_prompt = $5, pi_config = $6, external_ref = $7, updated_at = NOW() WHERE id = $8`
+	args := []interface{}{a.Name, a.Description, a.ProviderID, a.ModelID, a.SystemPrompt, piConfigJSON, a.ExternalRef, a.ID}
+	if clause, arg := OwnerScope(ctx, 9); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -286,7 +341,12 @@ func (s *PGStore) UpdateAgent(ctx context.Context, a *Agent) error {
 
 func (s *PGStore) DeleteAgent(ctx context.Context, id string) error {
 	query := `DELETE FROM agents WHERE id = $1`
-	res, err := s.db.ExecContext(ctx, query, id)
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -304,6 +364,11 @@ func (s *PGStore) CreateWorkflow(ctx context.Context, w *Workflow) error {
 	if w.ID == "" {
 		w.ID = uuid.New().String()
 	}
+	if pr, ok := PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query := `INSERT INTO workflows (id, name, description, is_async, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
+		_, err := s.db.ExecContext(ctx, query, w.ID, w.Name, w.Description, w.IsAsync, pr.UserID)
+		return err
+	}
 	query := `INSERT INTO workflows (id, name, description, is_async, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())`
 	_, err := s.db.ExecContext(ctx, query, w.ID, w.Name, w.Description, w.IsAsync)
 	return err
@@ -312,7 +377,12 @@ func (s *PGStore) CreateWorkflow(ctx context.Context, w *Workflow) error {
 func (s *PGStore) GetWorkflow(ctx context.Context, id string) (*Workflow, error) {
 	w := &Workflow{}
 	query := `SELECT id, name, description, is_async, created_at, updated_at FROM workflows WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&w.ID, &w.Name, &w.Description, &w.IsAsync, &w.CreatedAt, &w.UpdatedAt)
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&w.ID, &w.Name, &w.Description, &w.IsAsync, &w.CreatedAt, &w.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -320,8 +390,14 @@ func (s *PGStore) GetWorkflow(ctx context.Context, id string) (*Workflow, error)
 }
 
 func (s *PGStore) ListWorkflows(ctx context.Context) ([]*Workflow, error) {
-	query := `SELECT id, name, description, is_async, created_at, updated_at FROM workflows ORDER BY name`
-	rows, err := s.db.QueryContext(ctx, query)
+	query := `SELECT id, name, description, is_async, created_at, updated_at FROM workflows`
+	args := []interface{}{}
+	if clause, arg := OwnerScope(ctx, 1); clause != "" {
+		query += " WHERE " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY name"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +417,12 @@ func (s *PGStore) ListWorkflows(ctx context.Context) ([]*Workflow, error) {
 
 func (s *PGStore) UpdateWorkflow(ctx context.Context, w *Workflow) error {
 	query := `UPDATE workflows SET name = $1, description = $2, is_async = $3, updated_at = NOW() WHERE id = $4`
-	res, err := s.db.ExecContext(ctx, query, w.Name, w.Description, w.IsAsync, w.ID)
+	args := []interface{}{w.Name, w.Description, w.IsAsync, w.ID}
+	if clause, arg := OwnerScope(ctx, 5); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -357,7 +438,12 @@ func (s *PGStore) UpdateWorkflow(ctx context.Context, w *Workflow) error {
 
 func (s *PGStore) DeleteWorkflow(ctx context.Context, id string) error {
 	query := `DELETE FROM workflows WHERE id = $1`
-	res, err := s.db.ExecContext(ctx, query, id)
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -385,8 +471,14 @@ func (s *PGStore) CreateWorkflowStep(ctx context.Context, step *WorkflowStep) er
 }
 
 func (s *PGStore) ListWorkflowSteps(ctx context.Context, workflowID string) ([]*WorkflowStep, error) {
-	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_order`
-	rows, err := s.db.QueryContext(ctx, query, workflowID)
+	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE workflow_id = $1`
+	args := []interface{}{workflowID}
+	if clause, arg := WorkflowOwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY step_order"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +505,12 @@ func (s *PGStore) GetWorkflowStep(ctx context.Context, id string) (*WorkflowStep
 	step := &WorkflowStep{}
 	var configJSON []byte
 	query := `SELECT id, workflow_id, step_order, step_type, agent_id, wasm_module_id, config, created_at FROM workflow_steps WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&step.ID, &step.WorkflowID, &step.StepOrder, &step.StepType, &step.AgentID, &step.WasmModuleID, &configJSON, &step.CreatedAt)
+	args := []interface{}{id}
+	if clause, arg := WorkflowOwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&step.ID, &step.WorkflowID, &step.StepOrder, &step.StepType, &step.AgentID, &step.WasmModuleID, &configJSON, &step.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -433,10 +530,17 @@ func (s *PGStore) GetAgentTools(ctx context.Context, agentID string) ([]*Tool, e
 		FROM tools t
 		JOIN agent_tools at ON t.id = at.tool_id
 		WHERE at.agent_id = $1
+	`
+	args := []interface{}{agentID}
+	if clause, arg := AgentOwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	query += `
 		ORDER BY t.created_at DESC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, agentID)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent tools: %w", err)
 	}
@@ -753,6 +857,11 @@ func (s *PGStore) CreateSkill(ctx context.Context, skill *Skill) error {
 		skill.ID = uuid.New().String()
 	}
 	query := `INSERT INTO skills (id, name, description, path, enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
+	if pr, ok := PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query = `INSERT INTO skills (id, name, description, path, enabled, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`
+		_, err := s.db.ExecContext(ctx, query, skill.ID, skill.Name, skill.Description, skill.Path, skill.Enabled, pr.UserID)
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, query, skill.ID, skill.Name, skill.Description, skill.Path, skill.Enabled)
 	return err
 }
@@ -760,7 +869,12 @@ func (s *PGStore) CreateSkill(ctx context.Context, skill *Skill) error {
 func (s *PGStore) GetSkill(ctx context.Context, id string) (*Skill, error) {
 	skill := &Skill{}
 	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
 		&skill.ID, &skill.Name, &skill.Description, &skill.Path, &skill.Enabled,
 		&skill.CreatedAt, &skill.UpdatedAt,
 	)
@@ -774,8 +888,14 @@ func (s *PGStore) GetSkill(ctx context.Context, id string) (*Skill, error) {
 }
 
 func (s *PGStore) ListSkills(ctx context.Context) ([]*Skill, error) {
-	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills ORDER BY name`
-	rows, err := s.db.QueryContext(ctx, query)
+	query := `SELECT id, name, description, path, enabled, created_at, updated_at FROM skills`
+	args := []interface{}{}
+	if clause, arg := OwnerScope(ctx, 1); clause != "" {
+		query += " WHERE " + clause
+		args = append(args, arg)
+	}
+	query += " ORDER BY name"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -798,7 +918,12 @@ func (s *PGStore) ListSkills(ctx context.Context) ([]*Skill, error) {
 
 func (s *PGStore) UpdateSkill(ctx context.Context, skill *Skill) error {
 	query := `UPDATE skills SET name = $1, description = $2, path = $3, enabled = $4, updated_at = NOW() WHERE id = $5`
-	res, err := s.db.ExecContext(ctx, query, skill.Name, skill.Description, skill.Path, skill.Enabled, skill.ID)
+	args := []interface{}{skill.Name, skill.Description, skill.Path, skill.Enabled, skill.ID}
+	if clause, arg := OwnerScope(ctx, 6); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -814,7 +939,12 @@ func (s *PGStore) UpdateSkill(ctx context.Context, skill *Skill) error {
 
 func (s *PGStore) DeleteSkill(ctx context.Context, id string) error {
 	query := `DELETE FROM skills WHERE id = $1`
-	res, err := s.db.ExecContext(ctx, query, id)
+	args := []interface{}{id}
+	if clause, arg := OwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -835,10 +965,17 @@ func (s *PGStore) GetAgentSkills(ctx context.Context, agentID string) ([]*Skill,
 		FROM skills s
 		JOIN agent_skills ast ON s.id = ast.skill_id
 		WHERE ast.agent_id = $1
+	`
+	args := []interface{}{agentID}
+	if clause, arg := AgentOwnerScope(ctx, 2); clause != "" {
+		query += " AND " + clause
+		args = append(args, arg)
+	}
+	query += `
 		ORDER BY s.name
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, agentID)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent skills: %w", err)
 	}

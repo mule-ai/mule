@@ -22,17 +22,83 @@ type Engine struct {
 	jobStore     job.JobStore
 	agentRuntime *agent.Runtime
 	wasmExecutor *WASMExecutor
+	voice        VoiceExecutor
 	workers      int
 	jobQueue     chan string
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
 	mu           sync.RWMutex
 	running      bool
+	jobEventSink func(JobEvent)
 }
 
 // Config holds engine configuration
+// JobEvent is a terminal-state notification for a job, emitted to the
+// sink registered via SetJobEventSink (the wakes event lane, H3.3).
+type JobEvent struct {
+	Event      string // "job.completed" or "job.failed"
+	JobID      string
+	WorkflowID string
+}
+
 type Config struct {
 	Workers int
+	// Voice implements the voice_call step type (Herd H6.3). Nil is
+	// legal: engines built without it fail voice_call steps with a
+	// clear error instead of panicking.
+	Voice VoiceExecutor
+}
+
+// VoiceExecutor is the seam between the engine and the voice-loop
+// orchestrator (H6.3). The voice package's Hub implements it; the
+// engine only sees this interface so it never imports the voice
+// package (the voice package imports the engine for its forge client).
+type VoiceExecutor interface {
+	// StartCall builds and registers the call for a voice_call step.
+	// stepConfig is the step's raw config JSONB; jobInput the job's
+	// input map (v1: unused, reserved for templates like the
+	// forge_conversation step has).
+	StartCall(ctx context.Context, jobID string, stepConfig map[string]interface{}, jobInput map[string]interface{}) (VoiceCall, error)
+	// ForgetCall drops the job's call from the hub when the step
+	// finishes. (The hub's concrete type also exposes Get/WaitCall —
+	// the API layer's voice-socket handlers use those before the step
+	// has started.)
+	ForgetCall(jobID string)
+}
+
+// VoiceOutChunk is one out-socket event (H6.3): an audio byte slice
+// (TTS chunk), a text metadata frame (the turn's assistant text, for
+// non-audio surfaces), or — H6.4 — a flush control frame (drop the
+// out queue + the client's playback buffer on barge-in). Exactly one
+// of the three is set.
+type VoiceOutChunk struct {
+	Audio  []byte
+	Text   string
+	Flush  bool   // H6.4 barge-in control: the out handler writes {"flush":true}
+	Notice string // degraded-hop status: the out handler writes {"notice": …}
+	// so the caller can see "I could not hear you" instead of silence
+	// (2026-10-16: STT 415s surfaced as silently-dead mic calls).
+}
+
+// VoiceCall is one live voice loop (a mule job stays RUNNING for its
+// whole duration until hang-up).
+type VoiceCall interface {
+	// Run blocks until the call ends: nil = clean hang-up (job
+	// COMPLETED), error = dropped/killed (job FAILED).
+	Run() error
+	// Output is the step's terminal output.
+	Output() map[string]interface{}
+	// FeedIn pushes one in-socket PCM frame; FeedText one in-socket
+	// typed utterance (the CLI text fallback, skips STT); Out is the
+	// out-socket event stream (TTS audio + assistant-text frames);
+	// MarkOutClosed stops TTS when the out client goes away. HangUp
+	// ends cleanly; Kill fails the job.
+	FeedIn(pcm []byte)
+	FeedText(text string)
+	Out() <-chan VoiceOutChunk
+	MarkOutClosed()
+	HangUp()
+	Kill(err error)
 }
 
 // NewEngine creates a new workflow engine
@@ -42,10 +108,22 @@ func NewEngine(store primitive.PrimitiveStore, jobStore job.JobStore, agentRunti
 		jobStore:     jobStore,
 		agentRuntime: agentRuntime,
 		wasmExecutor: wasmExecutor,
+		voice:        config.Voice,
 		workers:      config.Workers,
 		jobQueue:     make(chan string, 100), // Buffered channel for job IDs
 		stopCh:       make(chan struct{}),
 	}
+}
+
+// SetJobEventSink registers a callback invoked with a JobEvent for every
+// job that reaches a terminal state in this process (completed or
+// failed — the cancelled/timed-out paths surface as failed). It must be
+// called before Start for the sink to see jobs submitted during the
+// engine's life.
+func (e *Engine) SetJobEventSink(fn func(JobEvent)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.jobEventSink = fn
 }
 
 // Start starts the workflow engine
@@ -175,10 +253,35 @@ func (e *Engine) worker(ctx context.Context, workerID int) {
 	}
 }
 
-// processJob executes one job: marks it RUNNING, runs the workflow steps
+// processJob executes one job and emits its terminal-state JobEvent to
+// the registered sink (if any) before returning.
+func (e *Engine) processJob(ctx context.Context, jobID string) error {
+	err := e.runJob(ctx, jobID)
+	e.emitJobEvent(jobID, err)
+	return err
+}
+
+func (e *Engine) emitJobEvent(jobID string, err error) {
+	e.mu.RLock()
+	sink := e.jobEventSink
+	e.mu.RUnlock()
+	if sink == nil {
+		return
+	}
+	ev := JobEvent{JobID: jobID, Event: "job.failed"}
+	if err == nil {
+		ev.Event = "job.completed"
+	}
+	if j, getErr := e.jobStore.GetJob(jobID); getErr == nil && j != nil {
+		ev.WorkflowID = j.WorkflowID
+	}
+	sink(ev)
+}
+
+// runJob executes one job: marks it RUNNING, runs the workflow steps
 // sequentially (AGENT or WASM_MODULE) within the job timeout, and marks the
 // job COMPLETED or FAILED. Cancellation is checked between steps.
-func (e *Engine) processJob(ctx context.Context, jobID string) error {
+func (e *Engine) runJob(ctx context.Context, jobID string) error {
 	// Mark job as running
 	if err := e.jobStore.MarkJobRunning(jobID); err != nil {
 		return fmt.Errorf("failed to mark job as running: %w", err)
@@ -306,7 +409,7 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 		default:
 		}
 
-		stepResult, err := e.processStepWithWorkingDir(jobCtx, step, stepOutput, updatedJob.WorkingDirectory)
+		stepResult, err := e.processStepWithWorkingDir(jobCtx, jobID, step, stepOutput, updatedJob.WorkingDirectory)
 		if err != nil {
 			jobStep.Status = "failed"
 			jobStep.ErrorMessage = err.Error()
@@ -353,16 +456,47 @@ func (e *Engine) processJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-// processStepWithWorkingDir processes a single workflow step with working directory context
-func (e *Engine) processStepWithWorkingDir(ctx context.Context, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
+// processStepWithWorkingDir processes a single workflow step with working directory context.
+// jobID is used by the forge_conversation step to tag its mule-origin
+// message.
+func (e *Engine) processStepWithWorkingDir(ctx context.Context, jobID string, step *primitive.WorkflowStep, inputData map[string]interface{}, workingDir string) (map[string]interface{}, error) {
 	switch step.StepType {
 	case "agent":
 		return e.processAgentStepWithWorkingDir(ctx, step, inputData, workingDir)
 	case "wasm_module":
 		return e.processWASMStepWithWorkingDir(ctx, step, inputData, workingDir)
+	case "forge_conversation":
+		return e.processForgeConversationStep(ctx, step, jobID, inputData, workingDir)
+	case "voice_call":
+		return e.processVoiceStep(ctx, step, jobID, inputData)
 	default:
 		return nil, fmt.Errorf("unknown step type: %s", step.StepType)
 	}
+}
+
+// processVoiceStep runs a voice-loop call (Herd H6.3): it starts the
+// call via the voice executor seam and blocks until the call is
+// hung up (success → the job completes with the call's stats) or
+// dropped/killed (error → the job is marked FAILED, which is how
+// both surfaces see "call dropped").
+func (e *Engine) processVoiceStep(ctx context.Context, step *primitive.WorkflowStep, jobID string, inputData map[string]interface{}) (map[string]interface{}, error) {
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("voice_call step cancelled: %w", ctx.Err())
+	default:
+	}
+	if e.voice == nil {
+		return nil, fmt.Errorf("voice_call step requires a voice executor (this engine was built without voice support)")
+	}
+	call, err := e.voice.StartCall(ctx, jobID, step.Config, inputData)
+	if err != nil {
+		return nil, err
+	}
+	defer e.voice.ForgetCall(jobID)
+	if err := call.Run(); err != nil {
+		return nil, err
+	}
+	return call.Output(), nil
 }
 
 // processAgentStepWithWorkingDir processes an agent step with working directory context

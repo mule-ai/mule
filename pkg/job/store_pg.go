@@ -40,10 +40,10 @@ func (s *PGStore) CreateJob(job *Job) error {
 		workflowID = nil
 	}
 
-	query := `INSERT INTO jobs (id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, created_at)
-			  VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`
+	query := `INSERT INTO jobs (id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, owner_id, created_at)
+			  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`
 
-	_, err = s.db.Exec(query, job.ID, workflowID, job.WasmModuleID, job.Status, inputDataJSON, outputDataJSON, job.WorkingDirectory)
+	_, err = s.db.Exec(query, job.ID, workflowID, job.WasmModuleID, job.Status, inputDataJSON, outputDataJSON, job.WorkingDirectory, job.OwnerID)
 	return err
 }
 
@@ -53,12 +53,13 @@ func (s *PGStore) GetJob(id string) (*Job, error) {
 	var inputDataJSON, outputDataJSON []byte
 	var workflowID sql.NullString
 	var workingDirectory sql.NullString
+	var ownerID sql.NullString
 
-	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, created_at, started_at, completed_at
+	query := `SELECT id, workflow_id, wasm_module_id, status, input_data, output_data, working_directory, owner_id, created_at, started_at, completed_at
 			  FROM jobs WHERE id = $1`
 
 	err := s.db.QueryRow(query, id).Scan(
-		&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON, &workingDirectory,
+		&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON, &workingDirectory, &ownerID,
 		&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
 
 	// Convert NULL workflow_id to empty string
@@ -73,6 +74,13 @@ func (s *PGStore) GetJob(id string) (*Job, error) {
 		job.WorkingDirectory = workingDirectory.String
 	} else {
 		job.WorkingDirectory = ""
+	}
+
+	// Convert NULL owner_id to empty string
+	if ownerID.Valid {
+		job.OwnerID = ownerID.String
+	} else {
+		job.OwnerID = ""
 	}
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -104,7 +112,7 @@ func (s *PGStore) ListJobs(opts ListJobsOptions) ([]*Job, int, error) {
 	}
 
 	// Base query
-	baseQuery := `SELECT j.id, j.workflow_id, j.wasm_module_id, j.status, j.input_data, j.output_data, j.working_directory, j.created_at, j.started_at, j.completed_at
+	baseQuery := `SELECT j.id, j.workflow_id, j.wasm_module_id, j.status, j.input_data, j.output_data, j.working_directory, j.owner_id, j.created_at, j.started_at, j.completed_at
 				  FROM jobs j`
 	countQuery := `SELECT COUNT(*) FROM jobs j`
 
@@ -112,6 +120,14 @@ func (s *PGStore) ListJobs(opts ListJobsOptions) ([]*Job, int, error) {
 	whereClause := ""
 	args := []interface{}{}
 	argIndex := 1
+
+	// Owner scope (tenancy): non-admin callers only see their own jobs
+	if opts.OwnerID != "" && !opts.Admin {
+		whereClause = " WHERE"
+		whereClause += fmt.Sprintf(" j.owner_id = $%d", argIndex)
+		args = append(args, opts.OwnerID)
+		argIndex++
+	}
 
 	// Status filter
 	if opts.Status != nil {
@@ -184,8 +200,9 @@ func (s *PGStore) ListJobs(opts ListJobsOptions) ([]*Job, int, error) {
 		var inputDataJSON, outputDataJSON []byte
 		var workflowID sql.NullString
 		var workingDirectory sql.NullString
+		var ownerID sql.NullString
 
-		err := rows.Scan(&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON, &workingDirectory,
+		err := rows.Scan(&job.ID, &workflowID, &job.WasmModuleID, &job.Status, &inputDataJSON, &outputDataJSON, &workingDirectory, &ownerID,
 			&job.CreatedAt, &job.StartedAt, &job.CompletedAt)
 
 		// Convert NULL workflow_id to empty string
@@ -200,6 +217,13 @@ func (s *PGStore) ListJobs(opts ListJobsOptions) ([]*Job, int, error) {
 			job.WorkingDirectory = workingDirectory.String
 		} else {
 			job.WorkingDirectory = ""
+		}
+
+		// Convert NULL owner_id to empty string
+		if ownerID.Valid {
+			job.OwnerID = ownerID.String
+		} else {
+			job.OwnerID = ""
 		}
 
 		if err != nil {

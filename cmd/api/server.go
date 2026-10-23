@@ -21,6 +21,8 @@ import (
 	"github.com/mule-ai/mule/internal/frontend"
 	"github.com/mule-ai/mule/internal/initialization"
 	"github.com/mule-ai/mule/internal/manager"
+	"github.com/mule-ai/mule/internal/primitive"
+	"github.com/mule-ai/mule/internal/wake"
 	"github.com/mule-ai/mule/pkg/job"
 )
 
@@ -110,6 +112,15 @@ func main() {
 	}
 	log.Println("Database schema initialized successfully")
 
+	// Tenancy bootstrap (docs/TENANCY.md): on first boot create the
+	// operator's admin user + API key from MULE_ADMIN_* (generated and
+	// logged once when unset). Idempotent: a boot with existing users
+	// is a no-op.
+	bootInfo, err := api.BootstrapAdmin(context.Background(), db.DB)
+	if err != nil {
+		log.Fatalf("failed to bootstrap tenancy admin: %v", err)
+	}
+
 	// Encryption secret for provider API keys. Set MULE_ENCRYPTION_SECRET to a
 	// 16/24/32-byte value; without it we fall back to a built-in default so
 	// local development works, but the key provides no real secrecy then.
@@ -125,7 +136,11 @@ func main() {
 	agentMgr := manager.NewAgentManager(db)
 	workflowMgr := manager.NewWorkflowManager(db)
 
-	initCtx := context.Background()
+	// Carries the bootstrap admin as principal so the default
+	// provider/agent/workflow rows created below are owned by the
+	// admin (visible to everyone, editable only by the admin).
+	initCtx := primitive.WithPrincipal(context.Background(),
+		primitive.Principal{UserID: bootInfo.AdminID, Admin: true})
 	defaults, err := initialization.EnsureAllDefaults(initCtx, providerMgr, agentMgr, workflowMgr)
 	if err != nil {
 		log.Printf("Warning: failed to ensure default primitives: %v", err)
@@ -140,6 +155,14 @@ func main() {
 	router.Use(api.LoggingMiddleware)
 	router.Use(api.RecoveryMiddleware)
 	router.Use(api.CORSMiddleware)
+	// Tenancy auth for /api/v1/* and /v1/*. /health, /ws and the
+	// frontend catch-all stay unauthenticated (docs/TENANCY.md).
+	router.Use(api.AuthMiddleware(db.DB))
+
+	// Create the API handler early: the voice-loop routes below
+	// (H6.3) need its voice hub, and they must register BEFORE the
+	// timeout middleware (WebSocket upgrade), same constraint as /ws.
+	handler := NewAPIHandler(db)
 
 	// Register WebSocket endpoint BEFORE timeout middleware
 	// This is critical because the timeout middleware wraps the ResponseWriter
@@ -156,6 +179,14 @@ func main() {
 	// WebSocket endpoint - registered BEFORE timeout middleware
 	wsHandler := api.NewWebSocketHandler(wsHub)
 	router.Handle("/ws", wsHandler)
+
+	// Voice-loop call transport (Herd H6.3): per-call audio sockets
+	// addressed by mule job id. Registered before the timeout
+	// middleware like /ws (WebSocket upgrade needs the raw
+	// ResponseWriter); like /ws these are unauthenticated — the 128-
+	// bit job id is the capability (spec.md "Voice loop (H6.3)").
+	router.Handle("/voice/{job_id}/in", handler.NewVoiceInHandler())
+	router.Handle("/voice/{job_id}/out", handler.NewVoiceOutHandler())
 
 	// NOW apply the timeout middleware - it won't affect the WebSocket endpoint
 	// because it was registered before this middleware
@@ -203,8 +234,6 @@ func main() {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	handler := NewAPIHandler(db)
-
 	// Start the workflow engine
 	var ctx context.Context
 	ctx = context.Background()
@@ -212,6 +241,23 @@ func main() {
 		log.Fatalf("Failed to start workflow engine: %v", err)
 	}
 	defer handler.workflowEngine.Stop()
+
+	// Start the wake scheduler (Herd H3.3): registers the engine's
+	// job-event sink and runs the cron scan + event lanes.
+	handler.wakeScheduler.Start()
+	defer handler.wakeScheduler.Stop()
+
+	// Memory trigger forwarder lane (Herd H4.5): when FORGE_TRIGGER_*
+	// is set, poll the forge memory_trigger_queue every 30 s and fire
+	// the corresponding mule wake in-process (disabled when
+	// FORGE_TRIGGER_AGENTS is empty — no loop, no HTTP).
+	memoryTriggerFwd := wake.NewMemoryTriggerForwarder(
+		handler.wakeScheduler.Store(),
+		handler.wakeScheduler,
+		wake.NewMemoryTriggerForwarderConfigFromEnv(),
+	)
+	memoryTriggerFwd.Start()
+	defer memoryTriggerFwd.Stop()
 
 	router.HandleFunc("/v1/models", handler.modelsHandler).Methods("GET")
 	router.HandleFunc("/v1/chat/completions", handler.chatCompletionsHandler).Methods("POST")
@@ -278,6 +324,32 @@ func main() {
 	router.HandleFunc("/api/v1/jobs/{id}", handler.getJobHandler).Methods("GET")
 	router.HandleFunc("/api/v1/jobs/{id}", handler.cancelJobHandler).Methods("DELETE")
 	router.HandleFunc("/api/v1/jobs/{id}/steps", handler.listJobStepsHandler).Methods("GET")
+
+	// Wake engine (Herd H3.3): fleet wake policies + external fire ingress.
+	router.HandleFunc("/api/v1/wakes", handler.listWakesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wakes", handler.createWakesHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wakes/fire", handler.fireWakesHandler).Methods("POST")
+	// H5.3 kill-switch + activity feed — static segments, registered
+	// before the {id} routes (mux matches in registration order).
+	router.HandleFunc("/api/v1/wakes/pause", handler.pauseWakesHandler).Methods("POST")
+	router.HandleFunc("/api/v1/wakes/activity", handler.activityWakesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wakes/{id}", handler.getWakesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/wakes/{id}", handler.patchWakesHandler).Methods("PATCH")
+	router.HandleFunc("/api/v1/wakes/{id}", handler.deleteWakesHandler).Methods("DELETE")
+	router.HandleFunc("/api/v1/wakes/{id}/log", handler.wakeLogHandler).Methods("GET")
+
+	// Policy engine (Herd H3.5): owner-scoped CRUD + the synchronous
+	// evaluate hook surface + the agent-proposal flow. The static
+	// evaluate/proposals routes register BEFORE the {id} routes.
+	router.HandleFunc("/api/v1/policies", handler.listPoliciesHandler).Methods("GET")
+	router.HandleFunc("/api/v1/policies", handler.createPoliciesHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/evaluate", handler.evaluatePolicyHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/memo", handler.memoPolicyHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/proposals", handler.createProposalHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/proposals/{id}/approve", handler.approveProposalHandler).Methods("POST")
+	router.HandleFunc("/api/v1/policies/{id}", handler.getPolicyHandler).Methods("GET")
+	router.HandleFunc("/api/v1/policies/{id}", handler.patchPolicyHandler).Methods("PATCH")
+	router.HandleFunc("/api/v1/policies/{id}", handler.deletePolicyHandler).Methods("DELETE")
 
 	// WASM module APIs - Order matters! Specific routes before generic {id} routes
 	router.HandleFunc("/api/v1/wasm-modules", handler.listWasmModulesHandler).Methods("GET")

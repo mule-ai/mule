@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mule-ai/mule/internal/database"
+	"github.com/mule-ai/mule/internal/primitive"
 	dbmodels "github.com/mule-ai/mule/pkg/database"
 )
 
@@ -49,6 +50,14 @@ func (pm *ProviderManager) CreateProvider(ctx context.Context, name, apiBaseURL,
 	}
 
 	query := `INSERT INTO providers (id, name, api_base_url, api_key_encrypted, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
+	if pr, ok := primitive.PrincipalFrom(ctx); ok && pr.UserID != "" {
+		query = `INSERT INTO providers (id, name, api_base_url, api_key_encrypted, owner_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		_, err = pm.db.ExecContext(ctx, query, provider.ID, provider.Name, provider.APIBaseURL, provider.APIKeyEncrypted, pr.UserID, provider.CreatedAt, provider.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert provider: %w", err)
+		}
+		return provider, nil
+	}
 	_, err = pm.db.ExecContext(ctx, query, provider.ID, provider.Name, provider.APIBaseURL, provider.APIKeyEncrypted, provider.CreatedAt, provider.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert provider: %w", err)

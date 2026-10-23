@@ -2,6 +2,41 @@
 
 Mule is an AI workflow platform that enables users to create, configure, and execute complex AI-powered workflows. It combines the power of AI agents, custom tools, and WebAssembly modules to create flexible and extensible automation pipelines.
 
+## The behavior plane (Herd)
+
+In the Herd division of labor, **mule scripts agent behavior**: forge
+hosts the agents' lives (the agent entity, the durable runtime,
+memory), ranch is everywhere agents can be seen and heard, and mule
+is the control plane that decides WHEN and HOW they act — from the
+outside, so it cannot be talked out of:
+
+- **Wakes** — the wake-policy engine (`internal/wake`, migration
+  0014): cron / webhook / event / job / memory-trigger conditions
+  that fire an agent's conversation (`POST /api/v1/wakes`,
+  `…/wakes/fire`, `wake_log` audit, per-wake `rate_limit_per_hour`
+  guardrail, `…/wakes/pause` kill-switch leg, `…/wakes/activity`
+  feed for ranch's Activity View).
+- **Policies** — the policy engine (`internal/policy`, migration
+  0015): versioned owner-scoped rules over tool calls
+  (allow/deny/ask), deterministic + memoized, enforced by forge's
+  `before_tool` hook; every verdict is audited. An agent's own
+  restricted key can `evaluate` and `memo` (record a human's
+  answer) but cannot write policies.
+- **Reflection** — the learning loop ships as a real mule workflow
+  (`examples/reflection/`): pull episodes, gate them (dup /
+  contradiction / decay), submit belief proposals that surface as
+  human-approval cards.
+- **Voice loop** — the voice "call" state machine (`internal/voice`,
+  the `voice_call` step): host/phone ⇄ mule WebSockets, energy VAD,
+  ratio endpointing, barge-in with the `flush` control; see spec.md
+  "Voice loop (H6.3)" + "Voice loop v2 (H6.4)" and
+  `examples/voice-loop/`.
+
+Phases H3–H6 status: see `plan.md` ("Key Technical Decisions" items
+6–14: tenancy H3.1, `forge_conversation` step H3.2, wakes H3.3,
+per-job WS H3.4, policy engine H3.5, reflection H4.4, memory
+trigger lane H4.5, wakes pause/activity H5.3, voice loop H6.3/H6.4).
+
 ## Quick Start with Docker
 
 The easiest way to get started is using Docker Compose:
