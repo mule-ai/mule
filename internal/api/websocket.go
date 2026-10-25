@@ -41,6 +41,15 @@ type WebSocketClient struct {
 	closeOnce sync.Once
 	closed    chan struct{}
 
+	// writeMu serializes every write to conn. gorilla/websocket allows
+	// exactly ONE concurrent writer per connection — violating it
+	// panics inside NextWriter ("concurrent write to websocket
+	// connection", websocket.go:187). This hub has three writer
+	// goroutines per client: the hub broadcast loop, the ping ticker,
+	// and the read loop's subscription acks. All of them write
+	// exclusively through WriteJSON/WritePing below.
+	writeMu sync.Mutex
+
 	// H3.4 per-job subscription state.
 	mu             sync.RWMutex
 	subscribed     map[string]bool
@@ -76,6 +85,33 @@ func (wsc *WebSocketClient) Close() error {
 // Conn returns the underlying websocket connection
 func (wsc *WebSocketClient) Conn() *websocket.Conn {
 	return wsc.conn
+}
+
+// writeDeadline bounds every serialized write so one stuck peer can't
+// hold writeMu (and thus the broadcast loop) forever.
+const writeDeadline = 10 * time.Second
+
+// WriteJSON writes one JSON frame, serialized against every other
+// writer on this connection (broadcasts, pings, acks). NEVER write to
+// Conn() directly — use this or WritePing.
+func (wsc *WebSocketClient) WriteJSON(v interface{}) error {
+	wsc.writeMu.Lock()
+	defer wsc.writeMu.Unlock()
+	if err := wsc.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+		return err
+	}
+	return wsc.conn.WriteJSON(v)
+}
+
+// WritePing sends a keepalive ping through the same write mutex as
+// data frames.
+func (wsc *WebSocketClient) WritePing() error {
+	wsc.writeMu.Lock()
+	defer wsc.writeMu.Unlock()
+	if err := wsc.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+		return err
+	}
+	return wsc.conn.WriteMessage(websocket.PingMessage, nil)
 }
 
 // AddSubscription subscribes this client to a job's update stream.
@@ -169,28 +205,48 @@ func (h *WebSocketHub) Run() {
 			log.Printf("WebSocket client disconnected. Total clients: %d", n)
 
 		case message := <-h.broadcast:
+			// Snapshot the eligible clients under the read lock, then
+			// write OUTSIDE it: the old code called delete(h.clients,
+			// client) while holding RLock — a map mutation under a read
+			// lock (itself a data race / concurrent-map-write panic
+			// waiting to happen) — and blocked every writer on slow
+			// peers' WriteJSON.
 			h.mutex.RLock()
 			jobID, hasJob := jobIDOfMessage(message)
+			targets := make([]*WebSocketClient, 0, len(h.clients))
 			for client := range h.clients {
 				// H3.4 per-job filter (default: clients that never
 				// subscribed receive everything).
-				if !client.ShouldReceive(jobID, hasJob) {
-					continue
-				}
-				// Bound each write so one stuck client can't stall the
-				// broadcast loop for everyone else.
-				if err := client.Conn().SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-					delete(h.clients, client)
-					_ = client.Close()
-					continue
-				}
-				if err := client.Conn().WriteJSON(message); err != nil {
-					log.Printf("Error writing to WebSocket client: %v", err)
-					delete(h.clients, client)
-					_ = client.Close()
+				if client.ShouldReceive(jobID, hasJob) {
+					targets = append(targets, client)
 				}
 			}
 			h.mutex.RUnlock()
+
+			var dead []*WebSocketClient
+			for _, client := range targets {
+				// Writes are serialized per client (writeMu) and each
+				// bounded so one stuck client can't stall the broadcast
+				// loop for everyone else. A client concurrently
+				// unregistered mid-write just fails its write and is
+				// collected here.
+				if err := client.WriteJSON(message); err != nil {
+					log.Printf("Error writing to WebSocket client: %v", err)
+					dead = append(dead, client)
+				}
+			}
+			if len(dead) > 0 {
+				h.mutex.Lock()
+				for _, client := range dead {
+					if _, ok := h.clients[client]; ok {
+						delete(h.clients, client)
+						_ = client.Close()
+					}
+				}
+				n := len(h.clients)
+				h.mutex.Unlock()
+				log.Printf("WebSocket client dropped on write error. Total clients: %d", n)
+			}
 		}
 	}
 }
@@ -322,11 +378,7 @@ func (h *WebSocketHandler) handleConnection(client *WebSocketClient) {
 		for {
 			select {
 			case <-ticker.C:
-				if err := client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-					log.Printf("Error setting write deadline: %v", err)
-					return
-				}
-				if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				if err := client.WritePing(); err != nil {
 					// Don't log ping errors as they're expected when the connection is closed
 					return
 				}
@@ -359,19 +411,19 @@ func (h *WebSocketHandler) handleConnection(client *WebSocketClient) {
 			if op.JobID != "" {
 				client.AddSubscription(op.JobID)
 			}
-			if err := client.conn.WriteJSON(map[string]interface{}{"op": "subscribed", "job_id": op.JobID}); err != nil {
+			if err := client.WriteJSON(map[string]interface{}{"op": "subscribed", "job_id": op.JobID}); err != nil {
 				return
 			}
 		case "unsubscribe":
 			if op.JobID != "" {
 				client.RemoveSubscription(op.JobID)
 			}
-			if err := client.conn.WriteJSON(map[string]interface{}{"op": "unsubscribed", "job_id": op.JobID}); err != nil {
+			if err := client.WriteJSON(map[string]interface{}{"op": "unsubscribed", "job_id": op.JobID}); err != nil {
 				return
 			}
 		case "subscribe_all":
 			client.SubscribeAll()
-			if err := client.conn.WriteJSON(map[string]interface{}{"op": "subscribed_all"}); err != nil {
+			if err := client.WriteJSON(map[string]interface{}{"op": "subscribed_all"}); err != nil {
 				return
 			}
 		}

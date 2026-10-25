@@ -16,8 +16,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,4 +201,80 @@ func expectUpdateForStep(t *testing.T, c *websocket.Conn, wantJobID string) {
 	var data map[string]interface{}
 	require.NoError(t, json.Unmarshal(dataJSON(m.Data), &data))
 	assert.Equal(t, wantJobID, data["job_id"])
+}
+
+// TestWebSocketConcurrentWrites exercises the per-connection write
+// path under -race: the hub broadcast loop and the read loop's
+// subscription acks write the same connection concurrently (the pair
+// that panicked in CI at gorilla websocket.go:187 — three
+// unsynchronized write sites, fixed by WebSocketClient.writeMu). A
+// regression re-exposes the race detector report or the panic.
+func TestWebSocketConcurrentWrites(t *testing.T) {
+	hub, srv := startWSHub(t)
+	c := dialWS(t, srv.URL)
+
+	// Drain frames continuously so server writes never block on the
+	// test client's read buffer (and vice versa). gorilla allows one
+	// reader per connection, so the drainer must be fully stopped
+	// before the final assertion reads.
+	done := make(chan struct{})
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_ = c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			if _, _, err := c.ReadMessage(); err != nil {
+				var ne net.Error
+				if errors.As(err, &ne) && ne.Timeout() {
+					continue
+				}
+				return
+			}
+		}
+	}()
+
+	jobA := &job.Job{ID: "job-A", Status: job.StatusRunning}
+
+	var wg sync.WaitGroup
+	// Broadcast writers hammering the hub loop.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for k := 0; k < 200; k++ {
+				hub.BroadcastJobUpdate(jobA)
+				if k%32 == 0 {
+					hub.BroadcastAgentEvent("agent_event", map[string]any{"k": k})
+				}
+			}
+		}()
+	}
+	// A control-writer driving server-side ack writes (read loop) in
+	// flight with the broadcasts. The test-conn write is single-
+	// goroutine — gorilla's one-writer rule applies to us too.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for k := 0; k < 150; k++ {
+			if err := c.WriteJSON(map[string]string{"op": "subscribe", "job_id": "job-A"}); err != nil {
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	close(done)
+	<-drained
+
+	// Still alive after the storm: one more op must produce a frame
+	// (ack or update — anything proves the server write path survived).
+	require.NoError(t, c.SetWriteDeadline(time.Now().Add(2*time.Second)))
+	require.NoError(t, c.WriteJSON(map[string]string{"op": "subscribe_all"}))
+	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, _, err := c.ReadMessage()
+	require.NoError(t, err, "server write path must remain functional under concurrent writes")
 }
