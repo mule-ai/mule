@@ -53,6 +53,9 @@ TTS_RATE="${TTS_RATE:-24000}"
 VAD_THRESHOLD="${VAD_THRESHOLD:-450}"
 BARGE_IN_THRESHOLD="${BARGE_IN_THRESHOLD:-1400}"
 SILENCE_MS="${SILENCE_MS:-700}"
+# Audible "heard you" cue: one ack line is synthesized when an agent
+# turn exceeds this many milliseconds (0 disables).
+VOICE_ACK_MS="${VOICE_ACK_MS:-3000}"
 WF_NAME="${MULE_WORKFLOW_NAME:-voice-call}"
 
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
@@ -98,6 +101,7 @@ else
     --argjson silence_ms "$SILENCE_MS" \
     --argjson vad_threshold "$VAD_THRESHOLD" \
     --argjson barge_in_threshold "$BARGE_IN_THRESHOLD" \
+    --argjson voice_ack_ms "$VOICE_ACK_MS" \
     '{
       forge_url: $forge_url,
       api_key: $api_key,
@@ -110,7 +114,8 @@ else
       frame_ms: 30,
       vad_threshold: $vad_threshold,
       barge_in_threshold: $barge_in_threshold,
-      turn_timeout_secs: 120
+      turn_timeout_secs: 120,
+      voice_ack_ms: $voice_ack_ms
     }')"
   api POST "/api/v1/workflows/${WF_ID}/steps" \
     "{\"type\":\"voice_call\",\"step_order\":1,\"config\":$STEP_CONFIG}" \

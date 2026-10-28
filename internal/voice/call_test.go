@@ -384,6 +384,83 @@ func TestParseCallConfig(t *testing.T) {
 	}
 }
 
+func TestCallAckCueOnSlowTurn(t *testing.T) {
+	// The "heard you, working on it" affordance: a turn whose agent
+	// hop exceeds voice_ack_ms speaks ONE rotating ack line on the out
+	// socket before the answer; a fast turn speaks no ack at all.
+	fg, srv := newFakeForge(t, fakeConv, []string{"Slow answer lands."})
+	fg.agentDelay = 600 * time.Millisecond
+	cfg := testCfg(srv.URL)
+	cfg.VoiceAckMs = 120
+	call, err := NewCall(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- call.Run() }()
+	call.FeedText("take your time")
+
+	deadline := time.After(5 * time.Second)
+	var acks, answers int
+	for acks == 0 || answers == 0 {
+		select {
+		case chunk, ok := <-call.Out():
+			if !ok {
+				t.Fatalf("out closed; acks=%d answers=%d", acks, answers)
+			}
+			if chunk.Text != "" {
+				continue // assistant-text metadata
+			}
+			// Audio chunk: classify by the most recent synthesis.
+			texts := fg.SynthesizedTexts()
+			if len(texts) > 0 && isAckPhrase(texts[len(texts)-1]) {
+				acks++
+			} else {
+				answers++
+			}
+		case <-deadline:
+			t.Fatalf("timed out; acks=%d answers=%d texts=%v", acks, answers, fg.SynthesizedTexts())
+		}
+	}
+	if got := fg.AnswerTTSCount(); got != 1 {
+		t.Errorf("answer TTS = %d, want exactly 1", got)
+	}
+	call.HangUp()
+	<-done
+
+	// Fast turn: same fake without the agent delay must NOT ack.
+	fg2, srv2 := newFakeForge(t, fakeConv, []string{"Instant reply."})
+	cfg2 := testCfg(srv2.URL)
+	cfg2.VoiceAckMs = 120
+	call2, err := NewCall(context.Background(), cfg2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go call2.Run()
+	call2.FeedText("quick one")
+	fast := time.After(3 * time.Second)
+	for fg2.AnswerTTSCount() == 0 {
+		select {
+		case <-fast:
+			t.Fatal("fast turn produced no answer TTS")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if n := len(fg2.SynthesizedTexts()) - fg2.AnswerTTSCount(); n != 0 {
+		t.Errorf("fast turn emitted %d ack line(s), want 0", n)
+	}
+	call2.HangUp()
+}
+
+func isAckPhrase(s string) bool {
+	for _, p := range ackPhrases {
+		if s == p {
+			return true
+		}
+	}
+	return false
+}
+
 func TestCallTypedTextUtterance(t *testing.T) {
 	// The CLI's key-typed-text fallback: no audio in, no STT — the
 	// typed line goes straight to the agent turn, and the answer still

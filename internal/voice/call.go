@@ -103,6 +103,12 @@ type Call struct {
 	outDropped   int64  // atomic: out events dropped (slow client / flush)
 	dropped      []string
 	outOpen      int32 // 1 while the out-socket handler is draining
+	// turnInFlight is 1 while an agent turn is awaited; the ack
+	// watchdog re-checks it before emitting so a turn that lands at
+	// the same moment the timer fires cannot speak a stale
+	// "still working" over the answer that already arrived.
+	turnInFlight int32
+	ackSeq       uint64 // atomic: rotation index into ackPhrases
 }
 
 // NewCall builds a call from a parsed config, rooted at ctx (the
@@ -608,11 +614,79 @@ func (c *Call) agentTurn(text string) (string, error) {
 	tctx, cancel := context.WithTimeout(c.ctx, c.cfg.TurnTimeout)
 	defer cancel()
 	content := voiceTag(false) + text
+
+	// Audible "heard you, working on it" cue (2026-10-28): a turn's
+	// agent hop can take tens of seconds while the only out-socket
+	// traffic is silence, so callers hang up believing the call died
+	// (phone report: "not getting responses" — every reply had in
+	// fact landed seconds after the hang-up). The cue is a LATENCY
+	// watchdog, not a preamble: a turn that answers inside
+	// VoiceAckMs emits no ack at all, so fast exchanges stay clean.
+	ackDone := make(chan struct{})
+	if c.cfg.VoiceAckMs > 0 {
+		atomic.StoreInt32(&c.turnInFlight, 1)
+		// LIFO order matters: clear turnInFlight BEFORE closing
+		// ackDone, so a timer that fires in that window finds the
+		// flag already down and stays quiet.
+		defer close(ackDone)
+		defer atomic.StoreInt32(&c.turnInFlight, 0)
+		go func() {
+			timer := time.NewTimer(time.Duration(c.cfg.VoiceAckMs) * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-ackDone:
+				return
+			case <-c.ctx.Done():
+				return
+			case <-timer.C:
+				c.emitAck()
+			}
+		}()
+	}
+
 	assistant, err := c.client.PostAndWait(tctx, session, content, c.cfg.TurnTimeout)
 	if err != nil {
 		return "", err
 	}
 	return assistant, nil
+}
+
+// ackPhrases are the short "heard you" lines the out-socket speaks
+// while a slow agent hop is in flight. Kept deliberately plain: they
+// ride the same TTS voice as the answer and rotate so back-to-back
+// turns do not loop one canned sentence. No markdown, no emoji —
+// these are synthesized verbatim.
+var ackPhrases = []string{
+	"Got it, I'm on it.",
+	"Okay, let me work that out.",
+	"Right, give me a moment.",
+	"On it.",
+}
+
+// emitAck synthesizes and queues one rotating ack line. Errors are
+// recorded via noteDropped (the caller sees a {"notice": …} frame) and
+// never fail the turn: the ack is a courtesy, and the answer is the
+// contract.
+func (c *Call) emitAck() {
+	if atomic.LoadInt32(&c.turnInFlight) != 1 {
+		return // the turn already answered; a stale cue is worse than none
+	}
+	if atomic.LoadInt32(&c.outOpen) == 0 {
+		return
+	}
+	n := atomic.AddUint64(&c.ackSeq, 1) - 1
+	text := ackPhrases[n%uint64(len(ackPhrases))]
+
+	audio, err := c.synthesize(text)
+	if err != nil {
+		c.noteDropped("ack", err)
+		return
+	}
+	// Re-check: the turn may have completed while we synthesized.
+	if atomic.LoadInt32(&c.turnInFlight) != 1 || atomic.LoadInt32(&c.outOpen) == 0 {
+		return
+	}
+	c.emitOut(engine.VoiceOutChunk{Audio: audio})
 }
 
 // synthesize speaks one sentence via the forge TTS proxy (the response
