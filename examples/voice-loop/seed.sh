@@ -45,6 +45,14 @@ FORGE_URL="${FORGE_URL%/}"
 TTS_VOICE="${TTS_VOICE:-af_heart}"
 TTS_FORMAT="${TTS_FORMAT:-pcm}"
 TTS_RATE="${TTS_RATE:-24000}"
+# VAD/barge-in levels. The defaults are tuned for PHONE calls on
+# speakerphone: the mic hears the assistant's own voice out of the
+# speaker, and 300/600 let that echo barge-in over the answer (2026-10-28
+# "no audio" report: every turn flushed at playback start, out_dropped 0
+# but barge_ins == turns). Loud human interruption still clears 1400.
+VAD_THRESHOLD="${VAD_THRESHOLD:-450}"
+BARGE_IN_THRESHOLD="${BARGE_IN_THRESHOLD:-1400}"
+SILENCE_MS="${SILENCE_MS:-700}"
 WF_NAME="${MULE_WORKFLOW_NAME:-voice-call}"
 
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
@@ -87,6 +95,9 @@ else
     --arg tts_voice "$TTS_VOICE" \
     --arg tts_format "$TTS_FORMAT" \
     --argjson tts_rate "$TTS_RATE" \
+    --argjson silence_ms "$SILENCE_MS" \
+    --argjson vad_threshold "$VAD_THRESHOLD" \
+    --argjson barge_in_threshold "$BARGE_IN_THRESHOLD" \
     '{
       forge_url: $forge_url,
       api_key: $api_key,
@@ -95,10 +106,10 @@ else
       tts_voice: $tts_voice,
       tts_response_format: $tts_format,
       tts_sample_rate: $tts_rate,
-      silence_ms: 600,
+      silence_ms: $silence_ms,
       frame_ms: 30,
-      vad_threshold: 300,
-      barge_in_threshold: 600,
+      vad_threshold: $vad_threshold,
+      barge_in_threshold: $barge_in_threshold,
       turn_timeout_secs: 120
     }')"
   api POST "/api/v1/workflows/${WF_ID}/steps" \
