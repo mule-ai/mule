@@ -529,14 +529,26 @@ func (c *Call) submitSteer(utterance []byte, partial bool) {
 		c.mu.Lock()
 		c.steers++
 		c.mu.Unlock()
-		tag := "[voice call] "
-		if partial {
-			tag += "(partial; the complete utterance follows) "
-		}
-		if err := c.steerPost(tag + text); err != nil {
+		if err := c.steerPost(voiceTag(partial) + text); err != nil {
 			c.noteDropped("steer", err)
 		}
 	}()
+}
+
+// voiceStyleDirective is appended to the [voice call] tag on every
+// voice-derived user row. Verbosity is the #1 voice-call UX killer:
+// the whole turn must complete before TTS streams (PostAndWait), so a
+// lecture-length answer leaves the caller in dead silence and invites
+// hang-up. The agent's chat persona stays untouched — the directive
+// rides per-message, not in the system prompt.
+const voiceStyleDirective = "(voice mode: reply conversationally — one to three short spoken sentences, plain language, no lists, markdown, code, or emoji; answer directly, no preamble or meta-commentary)"
+
+func voiceTag(partial bool) string {
+	tag := "[voice call] " + voiceStyleDirective + " "
+	if partial {
+		tag += "(partial; the complete utterance follows) "
+	}
+	return tag
 }
 
 // steerPost posts content to the agent's conversation fire-and-forget
@@ -595,7 +607,7 @@ func (c *Call) agentTurn(text string) (string, error) {
 
 	tctx, cancel := context.WithTimeout(c.ctx, c.cfg.TurnTimeout)
 	defer cancel()
-	content := fmt.Sprintf("[voice call] %s", text)
+	content := voiceTag(false) + text
 	assistant, err := c.client.PostAndWait(tctx, session, content, c.cfg.TurnTimeout)
 	if err != nil {
 		return "", err

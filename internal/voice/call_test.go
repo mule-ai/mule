@@ -433,8 +433,11 @@ func TestCallTypedTextUtterance(t *testing.T) {
 	if fg.SttCount() != 0 {
 		t.Errorf("sttCalls = %d, want 0 for a typed utterance", fg.SttCount())
 	}
-	if got := fg.postedContents(); len(got) != 1 || got[0] != "[voice call] check the deploy logs" {
-		t.Errorf("posted = %q, want the trimmed typed line", got)
+	if got := fg.postedContents(); len(got) != 1 ||
+		!strings.HasPrefix(got[0], "[voice call] ") ||
+		!strings.Contains(got[0], "reply conversationally") ||
+		!strings.HasSuffix(got[0], "check the deploy logs") {
+		t.Errorf("posted = %q, want the trimmed typed line carrying the [voice call] tag + conversational style directive", got)
 	}
 }
 
@@ -824,6 +827,9 @@ func TestCallOverlapSteerDuringThinking(t *testing.T) {
 	for _, p := range contents {
 		if !strings.Contains(p, "[voice call] ") {
 			t.Errorf("post %q missing the voice-call tag", p)
+		}
+		if !strings.Contains(p, "reply conversationally") {
+			t.Errorf("post %q missing the conversational style directive", p)
 		}
 		if strings.Contains(p, "(partial; the complete utterance follows)") {
 			partials++
