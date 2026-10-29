@@ -436,7 +436,8 @@ func TestCallAckCueOnSlowTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go call2.Run()
+	done2 := make(chan error, 1)
+	go func() { done2 <- call2.Run() }()
 	call2.FeedText("quick one")
 	fast := time.After(3 * time.Second)
 	for fg2.AnswerTTSCount() == 0 {
@@ -450,6 +451,9 @@ func TestCallAckCueOnSlowTurn(t *testing.T) {
 		t.Errorf("fast turn emitted %d ack line(s), want 0", n)
 	}
 	call2.HangUp()
+	if err := <-done2; err != nil {
+		t.Errorf("Run() = %v, want nil", err)
+	}
 }
 
 func isAckPhrase(s string) bool {
