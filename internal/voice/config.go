@@ -60,6 +60,11 @@ type CallConfig struct {
 	EndpointRatio float64
 	MaxUtterance  time.Duration
 	TurnTimeout   time.Duration
+	// VoiceAckMs: latency watchdog for the audible "heard you, working
+	// on it" cue (0 disables). A turn whose agent hop exceeds this
+	// speaks one short ack line on the out socket so the caller knows
+	// the call is alive; turns that answer sooner emit nothing.
+	VoiceAckMs int
 }
 
 // InSampleRate is the fixed in/out-socket audio rate (16 kHz mono
@@ -118,6 +123,13 @@ func ParseCallConfig(cfg map[string]interface{}) (CallConfig, error) {
 	c.TurnTimeout = 120 * time.Second
 	if n := intOr(cfg, "turn_timeout_secs", 0); n > 0 {
 		c.TurnTimeout = time.Duration(n) * time.Second
+	}
+	c.VoiceAckMs = 3000
+	if _, ok := cfg["voice_ack_ms"]; ok {
+		c.VoiceAckMs = intOr(cfg, "voice_ack_ms", 3000)
+		if c.VoiceAckMs < 0 {
+			c.VoiceAckMs = 0
+		}
 	}
 
 	var errs []string

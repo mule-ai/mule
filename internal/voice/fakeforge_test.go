@@ -37,6 +37,7 @@ type fakeForge struct {
 	turn     int // index into replies the next POST /messages consumes
 	replies  []string
 	ttsCalls int
+	ttsTexts []string // synthesized inputs, arrival order
 	sttCalls int
 	// H6.4 test delays: the agent hop and the TTS hop hold their
 	// responses this long (the barge-in / overlap tests need the
@@ -144,9 +145,14 @@ func newFakeForge(t *testing.T, activeConv string, replies []string) (*fakeForge
 	// order is not request order (the tags used to race under load).
 	mux.HandleFunc("/v1/audio/speech", func(w http.ResponseWriter, r *http.Request) {
 		logReq("POST /speech START")
+		var req struct {
+			Input string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		fg.mu.Lock()
 		fg.ttsCalls++
 		n := fg.ttsCalls
+		fg.ttsTexts = append(fg.ttsTexts, req.Input)
 		fg.mu.Unlock()
 		if fg.ttsDelay > 0 {
 			time.Sleep(fg.ttsDelay)
@@ -175,6 +181,30 @@ func (fg *fakeForge) TTSCount() int {
 	fg.mu.Lock()
 	defer fg.mu.Unlock()
 	return fg.ttsCalls
+}
+
+// SynthesizedTexts returns every /speech input in arrival order
+// (answer sentences and ack lines intermixed).
+func (fg *fakeForge) SynthesizedTexts() []string {
+	fg.mu.Lock()
+	defer fg.mu.Unlock()
+	return append([]string(nil), fg.ttsTexts...)
+}
+
+// AnswerTTSCount counts synthesized lines that are NOT ack cues — for
+// tests that assert the answer's own TTS budget.
+func (fg *fakeForge) AnswerTTSCount() int {
+	ack := map[string]bool{}
+	for _, p := range ackPhrases {
+		ack[p] = true
+	}
+	n := 0
+	for _, t := range fg.SynthesizedTexts() {
+		if !ack[t] {
+			n++
+		}
+	}
+	return n
 }
 
 // SttCount returns how many STT proxy calls the fake has served.
