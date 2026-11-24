@@ -8,7 +8,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/itchyny/gojq v0.12.18
 	github.com/jbutlerdev/genai v0.0.0-20260715102101-223d3e2dadf8
 	github.com/lib/pq v1.10.9
